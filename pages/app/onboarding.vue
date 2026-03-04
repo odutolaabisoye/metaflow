@@ -245,7 +245,7 @@
 
             <div>
               <label class="form-label">API Key / Bearer token</label>
-              <input v-model.trim="form.apiKey" type="password" placeholder="sk_live_xxxxxxxxxxxxxxxxxxxxxxxx" class="form-input font-mono text-xs" autocomplete="off" />
+              <input v-model.trim="form.apiKey" type="password" :placeholder="apiKeyPlaceholder" class="form-input font-mono text-xs" autocomplete="off" />
               <p class="mt-1.5 text-xs text-white/35">Sent as <code class="text-glow-400">Authorization: Bearer &lt;key&gt;</code> with every request.</p>
             </div>
 
@@ -463,6 +463,9 @@
 
 <script setup lang="ts">
 import { useGlobalFilters } from "~/composables/useGlobalFilters";
+
+const config = useRuntimeConfig();
+const apiKeyPlaceholder = computed(() => config.public.apiKeyPlaceholder);
 
 const { metaCurrency, storeCurrency } = useGlobalFilters();
 

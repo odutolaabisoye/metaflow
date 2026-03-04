@@ -19,7 +19,8 @@ export default defineNuxtConfig({
   },
   runtimeConfig: {
     public: {
-      apiBase: process.env.NUXT_PUBLIC_API_BASE || "http://localhost:4000"
+      apiBase: process.env.NUXT_PUBLIC_API_BASE || "http://localhost:4000",
+      apiKeyPlaceholder: process.env.NUXT_PUBLIC_API_KEY_PLACEHOLDER || "api_key_xxxxxxxxxxxxxxxxx"
     }
   },
   css: ["~/assets/css/tailwind.css"],
