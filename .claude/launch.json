@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "MetaFlow Dev",
+      "runtimeExecutable": "/Users/mac/.nvm/versions/node/v22.22.0/bin/node",
+      "runtimeArgs": ["/Users/mac/Documents/Now and Future/MetaFlow APp/node_modules/.bin/nuxt", "dev"],
+      "port": 3002
+    }
+  ]
+}

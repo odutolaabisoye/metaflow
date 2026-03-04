@@ -1,0 +1,166 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+@layer base {
+  :root {
+    --background: 222 47% 8%;
+    --foreground: 210 40% 98%;
+    --card: 222 34% 12%;
+    --card-foreground: 210 40% 98%;
+    --popover: 222 34% 12%;
+    --popover-foreground: 210 40% 98%;
+    --primary: 191 97% 48%;
+    --primary-foreground: 222 47% 10%;
+    --secondary: 84 80% 45%;
+    --secondary-foreground: 222 47% 10%;
+    --muted: 222 16% 20%;
+    --muted-foreground: 215 20% 65%;
+    --accent: 222 22% 18%;
+    --accent-foreground: 210 40% 98%;
+    --destructive: 20 93% 52%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 222 16% 24%;
+    --input: 222 16% 24%;
+    --ring: 191 97% 48%;
+    --radius: 0.9rem;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+}
+
+/* ─── Animated gradient border button ─── */
+
+@property --bg-angle {
+  syntax: '<angle>';
+  initial-value: 0deg;
+  inherits: false;
+}
+
+@keyframes gradient-spin {
+  to { --bg-angle: 360deg; }
+}
+
+.btn-gradient {
+  --bg-angle: 0deg;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.688rem 1.5rem;
+  border-radius: 9999px;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: white;
+  text-decoration: none;
+  border: 2px solid transparent;
+  background:
+    linear-gradient(#0c0f14, #0c0f14) padding-box,
+    conic-gradient(from var(--bg-angle), #22d3ee, #84cc16, #22d3ee) border-box;
+  animation: gradient-spin 3s linear infinite;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: opacity 0.2s;
+}
+
+.btn-gradient:hover {
+  opacity: 0.85;
+}
+
+.btn-gradient-lg {
+  padding: 0.875rem 2rem;
+  font-size: 1rem;
+}
+
+/* ─── Shared utilities ─── */
+
+.glass {
+  @apply bg-white/5 border border-white/10 backdrop-blur-xl;
+}
+
+.glass-dark {
+  @apply bg-ink-950/80 border border-white/10 backdrop-blur-xl;
+}
+
+.section-title {
+  @apply text-sm uppercase tracking-[0.2em] text-white/60;
+}
+
+.section-badge {
+  @apply inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/5 px-3 py-1.5 text-xs font-medium text-white/70;
+}
+
+.feature-card {
+  @apply glass rounded-3xl p-6 transition-all duration-300 hover:bg-white/[0.07] hover:border-white/20;
+}
+
+/* ─── Form inputs ─── */
+
+.form-input {
+  @apply w-full rounded-xl border border-white/10 bg-white/[0.06] px-4 py-3 text-sm text-white
+         placeholder:text-white/25 outline-none transition-all duration-200
+         focus:border-glow-500/40 focus:bg-white/[0.08] focus:ring-2 focus:ring-glow-500/15;
+}
+
+.form-label {
+  @apply block text-sm font-medium text-white/65 mb-1.5;
+}
+
+.form-select {
+  @apply form-input appearance-none cursor-pointer;
+}
+
+/* ─── Prose overrides for marketing pages ─── */
+
+.marketing-prose p {
+  @apply text-white/70 leading-relaxed;
+}
+
+/* ─── Gradient text ─── */
+
+.text-gradient {
+  background: linear-gradient(135deg, #22d3ee 0%, #84cc16 60%, #22d3ee 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.text-gradient-subtle {
+  background: linear-gradient(135deg, #ffffff 0%, #22d3ee 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* ─── Glow orb ─── */
+
+.glow-orb {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(80px);
+  pointer-events: none;
+}
+
+/* ─── Number ticker animation ─── */
+
+@keyframes count-up {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.stat-number {
+  animation: count-up 0.6s ease-out forwards;
+}

@@ -1,0 +1,128 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum StorePlatform {
+  SHOPIFY
+  WOOCOMMERCE
+}
+
+enum ConnectionProvider {
+  SHOPIFY
+  WOOCOMMERCE
+  META
+}
+
+enum ProductCategory {
+  SCALE
+  TEST
+  KILL
+  RISK
+}
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String?
+  passwordHash String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  stores    Store[]
+  resetTokens PasswordResetToken[]
+}
+
+model Store {
+  id             String        @id @default(cuid())
+  name           String
+  platform       StorePlatform
+  storeUrl       String
+  currency       String
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  ownerId        String
+  owner          User          @relation(fields: [ownerId], references: [id])
+  connections    Connection[]
+  products       ProductMeta[]
+  dailyMetrics   DailyMetric[]
+  auditLogs      AuditLog[]
+}
+
+model Connection {
+  id           String             @id @default(cuid())
+  provider     ConnectionProvider
+  accessToken  String
+  refreshToken String?
+  expiresAt    DateTime?
+  scopes       String?
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+  storeId      String
+  store        Store              @relation(fields: [storeId], references: [id])
+
+  @@index([storeId, provider])
+}
+
+model ProductMeta {
+  id         String          @id @default(cuid())
+  externalId String
+  sku        String?
+  title      String
+  score      Float
+  category   ProductCategory
+  updatedAt  DateTime        @updatedAt
+  storeId    String
+  store      Store           @relation(fields: [storeId], references: [id])
+  dailyMetrics DailyMetric[]
+
+  @@unique([storeId, externalId])
+  @@index([storeId, score])
+}
+
+model DailyMetric {
+  id              String   @id @default(cuid())
+  date            DateTime
+  roas            Float
+  ctr             Float
+  conversionRate  Float
+  margin          Float
+  velocity        Float
+  spend           Float
+  revenue         Float
+  inventoryLevel  Int?
+  storeId         String
+  productId       String
+  product         ProductMeta @relation(fields: [productId], references: [id])
+  store           Store       @relation(fields: [storeId], references: [id])
+
+  @@unique([storeId, productId, date])
+  @@index([storeId, date])
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  action    String
+  detail    String?
+  metadata  Json?
+  createdAt DateTime @default(now())
+  storeId   String
+  store     Store    @relation(fields: [storeId], references: [id])
+
+  @@index([storeId, createdAt])
+}
+
+model PasswordResetToken {
+  id        String   @id @default(cuid())
+  token     String   @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime @default(now())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+
+  @@index([userId, expiresAt])
+}
