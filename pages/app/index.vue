@@ -1,6 +1,18 @@
 <template>
   <div class="space-y-5">
 
+    <!-- Page header -->
+    <div class="flex flex-wrap items-start justify-between gap-3 mb-1">
+      <div>
+        <p class="text-[11px] uppercase tracking-widest text-white/40 mb-1">Meta Catalog Command</p>
+        <h1 class="text-2xl font-semibold tracking-tight">Performance Overview</h1>
+        <p class="mt-1 text-sm text-white/50">Catalog-level signals, Meta performance, and AI guidance.</p>
+      </div>
+      <div class="hidden md:flex items-center gap-2">
+        <span class="text-xs text-white/35">{{ new Date().toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }) }}</span>
+      </div>
+    </div>
+
     <!-- Stat cards -->
     <div v-if="pending" class="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
       <div v-for="n in 4" :key="n" class="h-28 rounded-2xl bg-white/5 animate-pulse"></div>
@@ -12,7 +24,7 @@
         class="rounded-2xl border border-white/10 bg-white/[0.04] p-5 hover:bg-white/[0.06] transition-colors cursor-default"
       >
         <div class="flex items-start justify-between mb-3">
-          <p class="text-xs text-white/45 font-medium">{{ stat.label }}</p>
+          <p class="text-xs text-white/55 font-medium">{{ stat.label }}</p>
           <div class="h-7 w-7 rounded-lg flex items-center justify-center flex-shrink-0" :style="{ background: stat.iconBg }">
             <svg class="w-3.5 h-3.5" :style="{ color: stat.iconColor }" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5" v-html="stat.icon"></svg>
           </div>
@@ -49,10 +61,10 @@
         <div class="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
           <div class="flex items-center justify-between mb-5">
             <div>
-              <p class="text-xs text-white/35 uppercase tracking-widest mb-1">Revenue Flight</p>
+              <p class="text-xs text-white/50 uppercase tracking-widest mb-1">Revenue Flight</p>
               <h2 class="text-lg font-semibold">Catalog momentum</h2>
             </div>
-            <div class="flex items-center gap-3 text-xs text-white/35">
+            <div class="flex items-center gap-3 text-xs text-white/50">
               <span class="flex items-center gap-1.5"><span class="h-2 w-2 rounded-sm bg-glow-500/70 flex-shrink-0"></span>Revenue</span>
               <span class="flex items-center gap-1.5"><span class="h-2 w-2 rounded-sm bg-lime-500/70 flex-shrink-0"></span>Trend</span>
             </div>
@@ -84,13 +96,13 @@
         <div class="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
           <div class="flex items-center justify-between mb-4">
             <div>
-              <p class="text-xs text-white/35 uppercase tracking-widest mb-1">AI Guidance</p>
+              <p class="text-xs text-white/50 uppercase tracking-widest mb-1">AI Guidance</p>
               <h2 class="text-lg font-semibold">Today's priority actions</h2>
             </div>
-            <button class="flex items-center gap-1.5 rounded-lg border border-white/10 px-3 py-1.5 text-xs text-white/35 hover:text-white/60 hover:bg-white/5 transition-all">
-              <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3"/></svg>
-              Export
-            </button>
+            <NuxtLink to="/app/products" class="flex items-center gap-1.5 rounded-lg border border-white/10 px-3 py-1.5 text-xs text-white/50 hover:text-white/70 hover:bg-white/5 transition-all">
+              <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M9.568 3H5.25A2.25 2.25 0 003 5.25v4.318c0 .597.237 1.17.659 1.591l9.581 9.581c.699.699 1.78.872 2.607.33a18.095 18.095 0 005.223-5.223c.542-.827.369-1.908-.33-2.607L11.16 3.66A2.25 2.25 0 009.568 3z"/></svg>
+              View all
+            </NuxtLink>
           </div>
 
           <div v-if="pending" class="space-y-3">
@@ -120,7 +132,10 @@
                 <span class="text-xs px-2 py-0.5 rounded-full font-medium" :class="item.variant === 'secondary' ? 'bg-lime-500/12 text-lime-400' : item.variant === 'destructive' ? 'bg-ember-500/12 text-ember-400' : 'bg-glow-500/12 text-glow-400'">
                   {{ item.tag }}
                 </span>
-                <button class="text-xs text-white/30 hover:text-glow-400 transition-colors font-medium">Apply →</button>
+                <NuxtLink
+                  :to="item.variant === 'secondary' ? '/app/products?category=SCALE' : item.variant === 'destructive' ? '/app/products?category=KILL' : '/app/products'"
+                  class="text-xs text-white/50 hover:text-glow-400 transition-colors font-medium"
+                >Apply →</NuxtLink>
               </div>
             </div>
             <div v-if="!dashboard.aiGuidance.length" class="rounded-xl border border-white/10 p-6 text-center">
@@ -138,7 +153,7 @@
         <div class="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
           <div class="flex items-center justify-between mb-4">
             <div>
-              <p class="text-xs text-white/35 uppercase tracking-widest mb-1">Automation</p>
+              <p class="text-xs text-white/50 uppercase tracking-widest mb-1">Automation</p>
               <h3 class="text-base font-semibold">Rules firing now</h3>
             </div>
             <NuxtLink to="/app/settings" class="text-xs text-white/30 hover:text-glow-400 transition-colors">Manage →</NuxtLink>
@@ -166,7 +181,7 @@
         <div class="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
           <div class="flex items-center justify-between mb-4">
             <div>
-              <p class="text-xs text-white/35 uppercase tracking-widest mb-1">Activity</p>
+              <p class="text-xs text-white/50 uppercase tracking-widest mb-1">Activity</p>
               <h3 class="text-base font-semibold">Recent actions</h3>
             </div>
             <NuxtLink to="/app/audit" class="text-xs text-white/30 hover:text-glow-400 transition-colors">Full log →</NuxtLink>
@@ -214,17 +229,17 @@ const { query } = useGlobalFilters();
 const { data, pending } = await useFetch('/api/dashboard', { query });
 
 const dashboard = computed(() => data.value ?? {
-  stats: { roas: { value: '--', delta: '' }, activeProducts: { value: '--', detail: '' }, inventoryRisk: { value: '--', detail: '' } },
+  stats: { roas: { value: '--', delta: '' }, blendedRoas: { value: '--', delta: '' }, activeProducts: { value: '--', detail: '' }, inventoryRisk: { value: '--', detail: '' } },
   attribution: { topCategory: '--', avgCtr: '--', conversionRate: '--' },
   aiGuidance: [],
   automation: { liveRules: [], recentActivity: [] },
 });
 
 const statCards = computed(() => [
-  { label: '30-day ROAS', value: dashboard.value.stats.roas.value, trend: dashboard.value.stats.roas.delta || '+18.2%', trendLabel: 'vs last period', trendUp: true, icon: '<path stroke-linecap="round" stroke-linejoin="round" d="M2.25 18L9 11.25l4.306 4.307a11.95 11.95 0 015.814-5.519l2.74-1.22m0 0l-5.94-2.28m5.94 2.28l-2.28 5.941"/>', iconBg: 'rgba(34,211,238,0.1)', iconColor: '#22d3ee', spark: [40,55,50,65,72,68,80,75,85,92] },
-  { label: 'Active SKUs', value: dashboard.value.stats.activeProducts.value, trend: dashboard.value.stats.activeProducts.detail || '86 scaling', trendLabel: '', trendUp: true, icon: '<path stroke-linecap="round" stroke-linejoin="round" d="M9.568 3H5.25A2.25 2.25 0 003 5.25v4.318c0 .597.237 1.17.659 1.591l9.581 9.581c.699.699 1.78.872 2.607.33a18.095 18.095 0 005.223-5.223c.542-.827.369-1.908-.33-2.607L11.16 3.66A2.25 2.25 0 009.568 3z"/>', iconBg: 'rgba(132,204,22,0.1)', iconColor: '#84cc16', spark: [60,65,70,68,75,80,78,82,85,86] },
+  { label: 'Meta ROAS', value: dashboard.value.stats.roas.value, trend: dashboard.value.stats.roas.delta || '+18.2%', trendLabel: 'vs last period', trendUp: true, icon: '<path stroke-linecap="round" stroke-linejoin="round" d="M2.25 18L9 11.25l4.306 4.307a11.95 11.95 0 015.814-5.519l2.74-1.22m0 0l-5.94-2.28m5.94 2.28l-2.28 5.941"/>', iconBg: 'rgba(34,211,238,0.1)', iconColor: '#22d3ee', spark: [40,55,50,65,72,68,80,75,85,92] },
+  { label: 'Blended ROAS', value: dashboard.value.stats.blendedRoas?.value ?? '--', trend: dashboard.value.stats.blendedRoas?.delta || 'All channels', trendLabel: '', trendUp: true, icon: '<path stroke-linecap="round" stroke-linejoin="round" d="M3.75 3v11.25A2.25 2.25 0 006 16.5h2.25M3.75 3h-1.5m1.5 0h16.5m0 0h1.5m-1.5 0v11.25A2.25 2.25 0 0118 16.5h-2.25m-7.5 0h7.5m-7.5 0l-1 3m8.5-3l1 3m0 0l.5 1.5m-.5-1.5h-9.5m0 0l-.5 1.5"/>', iconBg: 'rgba(132,204,22,0.1)', iconColor: '#84cc16', spark: [35,42,48,44,52,56,58,62,66,70] },
+  { label: 'Active SKUs', value: dashboard.value.stats.activeProducts.value, trend: dashboard.value.stats.activeProducts.detail || '86 scaling', trendLabel: '', trendUp: true, icon: '<path stroke-linecap="round" stroke-linejoin="round" d="M9.568 3H5.25A2.25 2.25 0 003 5.25v4.318c0 .597.237 1.17.659 1.591l9.581 9.581c.699.699 1.78.872 2.607.33a18.095 18.095 0 005.223-5.223c.542-.827.369-1.908-.33-2.607L11.16 3.66A2.25 2.25 0 009.568 3z"/>', iconBg: 'rgba(139,92,246,0.1)', iconColor: '#a78bfa', spark: [60,65,70,68,75,80,78,82,85,86] },
   { label: 'Inventory Risk', value: dashboard.value.stats.inventoryRisk.value, trend: dashboard.value.stats.inventoryRisk.detail || '3 critical', trendLabel: '', trendUp: false, icon: '<path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126z"/>', iconBg: 'rgba(249,115,22,0.1)', iconColor: '#f97316', spark: [28,24,30,26,22,18,25,20,16,12] },
-  { label: 'Today Revenue', value: '$124,280', trend: '+28.4%', trendLabel: 'vs yesterday', trendUp: true, icon: '<path stroke-linecap="round" stroke-linejoin="round" d="M12 6v12m-3-2.818l.879.659c1.171.879 3.07.879 4.242 0 1.172-.879 1.172-2.303 0-3.182C13.536 12.219 12.768 12 12 12c-.725 0-1.45-.22-2.003-.659-1.106-.879-1.106-2.303 0-3.182s2.9-.879 4.006 0l.415.33M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>', iconBg: 'rgba(132,204,22,0.1)', iconColor: '#84cc16', spark: [55,60,58,65,70,68,75,80,85,95] },
 ]);
 
 const chartData = Array.from({ length: 30 }, (_, i) => ({

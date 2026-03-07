@@ -10,12 +10,14 @@ datasource db {
 enum StorePlatform {
   SHOPIFY
   WOOCOMMERCE
+  API
 }
 
 enum ConnectionProvider {
   SHOPIFY
   WOOCOMMERCE
   META
+  API
 }
 
 enum ProductCategory {
@@ -64,7 +66,7 @@ model Connection {
   storeId      String
   store        Store              @relation(fields: [storeId], references: [id])
 
-  @@index([storeId, provider])
+  @@unique([storeId, provider])
 }
 
 model ProductMeta {
@@ -72,6 +74,7 @@ model ProductMeta {
   externalId String
   sku        String?
   title      String
+  imageUrl   String?
   score      Float
   category   ProductCategory
   updatedAt  DateTime        @updatedAt
@@ -87,12 +90,16 @@ model DailyMetric {
   id              String   @id @default(cuid())
   date            DateTime
   roas            Float
+  blendedRoas     Float?
   ctr             Float
   conversionRate  Float
   margin          Float
   velocity        Float
   spend           Float
   revenue         Float
+  impressions     Int?
+  clicks          Int?
+  conversions     Int?
   inventoryLevel  Int?
   storeId         String
   productId       String

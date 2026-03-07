@@ -16,7 +16,12 @@ const schema = {
     SMTP_USER: { type: "string", default: "" },
     SMTP_PASS: { type: "string", default: "" },
     SMTP_FROM: { type: "string", default: "no-reply@metaflow.app" },
-    REDIS_URL: { type: "string", default: "redis://localhost:6379" }
+    REDIS_URL: { type: "string", default: "redis://localhost:6379" },
+    META_APP_ID: { type: "string", default: "" },
+    META_APP_SECRET: { type: "string", default: "" },
+    APP_URL: { type: "string", default: "http://localhost:4000" },
+    SHOPIFY_API_KEY: { type: "string", default: "" },
+    SHOPIFY_API_SECRET: { type: "string", default: "" }
   }
 };
 

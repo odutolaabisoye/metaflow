@@ -13,6 +13,9 @@ import queuePlugin from "./plugins/queue.js";
 import { healthRoutes } from "./routes/health.js";
 import { authRoutes } from "./routes/auth.js";
 import { productRoutes } from "./routes/products.js";
+import { connectionRoutes } from "./routes/connections.js";
+import { storeRoutes } from "./routes/stores.js";
+import { dashboardRoutes } from "./routes/dashboard.js";
 import { securityRoutes } from "./routes/security.js";
 
 const app = Fastify({
@@ -64,7 +67,10 @@ await app.register(jwt, {
 await app.register(healthRoutes);
 await app.register(securityRoutes, { prefix: "/v1" });
 await app.register(authRoutes, { prefix: "/v1" });
+await app.register(storeRoutes, { prefix: "/v1" });
 await app.register(productRoutes, { prefix: "/v1" });
+await app.register(dashboardRoutes, { prefix: "/v1" });
+await app.register(connectionRoutes, { prefix: "/v1" });
 
 const port = Number(app.config.PORT || 4000);
 

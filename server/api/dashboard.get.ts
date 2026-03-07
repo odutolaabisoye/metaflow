@@ -16,6 +16,7 @@ export default defineEventHandler((event) => {
     currencySource,
     stats: {
       roas: { value: "5.8x", delta: "Up 12% vs prior period" },
+      blendedRoas: { value: "4.9x", delta: "All channels combined" },
       activeProducts: { value: "1,284", detail: "89 winners, 340 tests" },
       inventoryRisk: { value: "46", detail: "Needs reorder in 9 days" }
     },

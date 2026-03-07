@@ -2,9 +2,27 @@
   <div class="space-y-6">
 
     <!-- Page header -->
-    <div>
-      <h1 class="text-2xl font-semibold tracking-tight">Settings</h1>
-      <p class="mt-1 text-sm text-white/40">Manage your integrations, automation rules, and account preferences.</p>
+    <div class="flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <p class="text-[11px] uppercase tracking-widest text-white/40 mb-1">Workspace</p>
+        <h1 class="text-2xl font-semibold tracking-tight">Settings</h1>
+        <p class="mt-1 text-sm text-white/50">Manage your integrations, automation rules, and account preferences.</p>
+      </div>
+      <!-- Meta connected toast -->
+      <Transition name="fade-up">
+        <div v-if="metaConnected" class="flex items-center gap-2.5 rounded-xl border border-lime-500/25 bg-lime-500/8 px-4 py-2.5 text-sm font-medium text-lime-400">
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+          </svg>
+          Meta Ads connected successfully
+        </div>
+        <div v-else-if="metaError" class="flex items-center gap-2.5 rounded-xl border border-ember-500/25 bg-ember-500/8 px-4 py-2.5 text-sm font-medium text-ember-400">
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z"/>
+          </svg>
+          Meta connection failed: {{ metaError }}
+        </div>
+      </Transition>
     </div>
 
     <!-- ── Integrations ── -->
@@ -30,7 +48,7 @@
         <!-- Store platform -->
         <div class="rounded-2xl border border-white/10 bg-white/[0.03] overflow-hidden">
           <div class="p-4">
-            <p class="text-xs font-medium text-white/35 uppercase tracking-wider mb-3">Store platform</p>
+            <p class="text-xs font-medium text-white/55 uppercase tracking-wider mb-3">Store platform</p>
             <div class="grid gap-2.5 sm:grid-cols-3">
               <div
                 v-for="store in storeIntegrations"
@@ -45,16 +63,16 @@
                 </div>
                 <div class="flex-1 min-w-0">
                   <p class="text-sm font-medium truncate">{{ store.label }}</p>
-                  <p class="text-xs text-white/35 truncate mt-0.5">{{ store.detail }}</p>
+                  <p class="text-xs text-white/50 truncate mt-0.5">{{ store.detail }}</p>
                 </div>
                 <div class="flex-shrink-0 flex flex-col items-end gap-1.5">
                   <span class="flex items-center gap-1.5 text-xs font-medium whitespace-nowrap" :class="store.connected ? 'text-lime-400' : 'text-white/25'">
                     <span class="h-1.5 w-1.5 rounded-full" :class="store.connected ? 'bg-lime-400 animate-pulse' : 'bg-white/15'"></span>
                     {{ store.connected ? 'Active' : 'Not connected' }}
                   </span>
-                  <button class="text-xs transition-colors whitespace-nowrap" :class="store.connected ? 'text-white/30 hover:text-white/60' : 'text-glow-500/70 hover:text-glow-500'">
+                  <NuxtLink to="/app/onboarding" class="text-xs transition-colors whitespace-nowrap" :class="store.connected ? 'text-white/40 hover:text-white/70' : 'text-glow-500/80 hover:text-glow-500'">
                     {{ store.connected ? 'Reconnect' : 'Connect →' }}
-                  </button>
+                  </NuxtLink>
                 </div>
               </div>
             </div>
@@ -86,6 +104,7 @@
               <p v-if="integration.subtext" class="text-xs text-white/25 mt-0.5">{{ integration.subtext }}</p>
             </div>
             <button
+              @click="connectIntegration(integration.id)"
               class="text-xs font-medium px-3 py-1.5 rounded-lg border transition-all whitespace-nowrap"
               :class="integration.connected
                 ? 'border-white/10 text-white/40 hover:text-white/70 hover:border-white/20'
@@ -307,6 +326,27 @@
 
 <script setup lang="ts">
 const { data, pending } = await useFetch("/api/settings");
+const { public: { apiBase } } = useRuntimeConfig();
+const route = useRoute();
+
+// Read OAuth callback signals from query params
+const metaConnected = ref(route.query.meta_connected === '1');
+const metaError = ref(typeof route.query.meta_error === 'string' ? decodeURIComponent(route.query.meta_error as string) : '');
+
+// Auto-dismiss toasts after 5 s
+if (process.client) {
+  if (metaConnected.value) setTimeout(() => { metaConnected.value = false; }, 5000);
+  if (metaError.value) setTimeout(() => { metaError.value = ''; }, 8000);
+}
+
+// Connect integration handler
+const connectIntegration = (integrationId: string) => {
+  if (integrationId === 'meta') {
+    // Redirect to backend Meta OAuth — storeId can be set when real store is available
+    const params = new URLSearchParams({ storeId: 'placeholder' });
+    window.location.href = `${apiBase}/v1/connections/meta/auth?${params.toString()}`;
+  }
+};
 
 // ── Integrations state ──
 const storeIntegrations = ref([
@@ -391,3 +431,8 @@ const notificationItems = [
 // ── Billing ──
 const billing = computed(() => data.value?.billing ?? { plan: 'Growth', price: '$149', nextInvoice: '—' });
 </script>
+
+<style scoped>
+.fade-up-enter-active, .fade-up-leave-active { transition: all 0.3s ease; }
+.fade-up-enter-from, .fade-up-leave-to { opacity: 0; transform: translateY(-6px); }
+</style>

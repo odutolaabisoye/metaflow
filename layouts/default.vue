@@ -114,23 +114,16 @@
             <select v-model="selectedRange" class="rounded-xl border border-white/10 bg-white/[0.05] px-3 py-1.5 text-xs text-white/60 outline-none focus:border-glow-500/40 transition-colors cursor-pointer">
               <option v-for="opt in rangeOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
             </select>
-            <button class="relative h-8 w-8 rounded-xl border border-white/10 bg-white/5 flex items-center justify-center text-white/45 hover:text-white hover:bg-white/10 transition-all">
+            <NuxtLink to="/app/audit" class="relative h-8 w-8 rounded-xl border border-white/10 bg-white/5 flex items-center justify-center text-white/45 hover:text-white hover:bg-white/10 transition-all" title="Activity log">
               <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M14.857 17.082a23.848 23.848 0 005.454-1.31A8.967 8.967 0 0118 9.75v-.7V9A6 6 0 006 9v.75a8.967 8.967 0 01-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 01-5.714 0m5.714 0a3 3 0 11-5.714 0"/></svg>
               <span class="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-ember-500 border border-ink-950"></span>
-            </button>
-            <button class="h-8 w-8 rounded-xl bg-gradient-to-br from-glow-500/20 to-lime-500/20 border border-white/15 flex items-center justify-center text-xs font-bold text-glow-400 hover:border-white/25 transition-all">U</button>
+            </NuxtLink>
+            <NuxtLink to="/app/settings" class="h-8 w-8 rounded-xl bg-gradient-to-br from-glow-500/20 to-lime-500/20 border border-white/15 flex items-center justify-center text-xs font-bold text-glow-400 hover:border-white/25 transition-all" title="Account settings">U</NuxtLink>
           </div>
         </header>
 
         <!-- Page content -->
         <main class="flex-1 overflow-y-auto px-6 py-7">
-          <div class="mb-6 flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <p class="text-[11px] uppercase tracking-widest text-white/30 mb-1">{{ pageSection }}</p>
-              <h1 class="text-2xl font-semibold tracking-tight">{{ pageTitle }}</h1>
-              <p class="mt-1 text-sm text-white/45">{{ pageSubtitle }}</p>
-            </div>
-          </div>
           <slot />
         </main>
       </div>

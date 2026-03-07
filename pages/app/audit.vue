@@ -4,10 +4,14 @@
     <!-- Page Header -->
     <div class="flex flex-wrap items-start justify-between gap-4">
       <div>
+        <p class="text-[11px] uppercase tracking-widest text-white/40 mb-1">Transparency</p>
         <h1 class="text-2xl font-semibold tracking-tight">Audit Log</h1>
-        <p class="mt-1 text-sm text-white/40">Full history of all automation actions taken by MetaFlow</p>
+        <p class="mt-1 text-sm text-white/50">Full history of all automation actions taken by MetaFlow</p>
       </div>
-      <button class="flex items-center gap-2 rounded-xl border border-white/15 bg-white/5 px-4 py-2.5 text-sm font-medium text-white/70 hover:bg-white/10 hover:text-white transition-all">
+      <button
+        @click="downloadCsv"
+        class="flex items-center gap-2 rounded-xl border border-white/15 bg-white/5 px-4 py-2.5 text-sm font-medium text-white/70 hover:bg-white/10 hover:text-white transition-all"
+      >
         <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
           <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3"/>
         </svg>
@@ -105,7 +109,7 @@
           </svg>
         </div>
         <p class="text-sm font-medium">No audit activity yet</p>
-        <p class="mt-1 text-xs text-white/40">Enable automation rules to start logging actions here.</p>
+        <p class="mt-1 text-xs text-white/50">Enable automation rules to start logging actions here.</p>
       </div>
 
     </div>
@@ -176,6 +180,23 @@ const tagDot = (variant: string) => {
   if (variant === 'secondary')   return 'bg-lime-400';
   if (variant === 'destructive') return 'bg-ember-500';
   return 'bg-glow-400';
+};
+
+const downloadCsv = () => {
+  const rows = filteredEvents.value as Record<string, unknown>[];
+  if (!rows.length) return;
+  const headers = ['id', 'time', 'tag', 'title', 'detail', 'meta'];
+  const csv = [
+    headers.join(','),
+    ...rows.map(r => headers.map(h => JSON.stringify(r[h] ?? '')).join(','))
+  ].join('\n');
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `metaflow-audit-${new Date().toISOString().slice(0, 10)}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
 };
 
 const eventIcon = (tag: string) => {
