@@ -40,23 +40,28 @@ export async function productRoutes(app: FastifyInstance) {
 
       // --- Resolve store ---
       let resolvedStoreId = storeId;
+      let storeCurrency: string | null = null;
 
       if (!resolvedStoreId) {
         const store = await app.prisma.store.findFirst({
           where: { ownerId: payload.sub },
-          orderBy: { createdAt: "asc" }
+          orderBy: { createdAt: "asc" },
+          select: { id: true, currency: true }
         });
         if (!store) {
           return reply.send({ ok: true, items: [], total: 0, hasMore: false, nextCursor: null });
         }
         resolvedStoreId = store.id;
+        storeCurrency = store.currency ?? null;
       } else {
         const store = await app.prisma.store.findFirst({
-          where: { id: resolvedStoreId, ownerId: payload.sub }
+          where: { id: resolvedStoreId, ownerId: payload.sub },
+          select: { id: true, currency: true }
         });
         if (!store) {
           return reply.code(403).send({ ok: false, message: "Forbidden" });
         }
+        storeCurrency = store.currency ?? null;
       }
 
       // --- Date range for metric lookup ---
@@ -89,12 +94,13 @@ export async function productRoutes(app: FastifyInstance) {
       // --- Sort ---
       const sortField = VALID_SORT_FIELDS[sortBy] ?? "score";
       const direction = sortDir === "asc" ? "asc" : "desc";
+      const orderBy = [{ [sortField]: direction as "asc" | "desc" }, { id: direction as "asc" | "desc" }];
 
       // --- Query ---
       const [products, total] = await app.prisma.$transaction([
         app.prisma.productMeta.findMany({
           where: whereClause,
-          orderBy: { [sortField]: direction },
+          orderBy,
           take: take + 1,
           ...(cursor && { cursor: { id: cursor }, skip: 1 }),
           include: {
@@ -120,6 +126,7 @@ export async function productRoutes(app: FastifyInstance) {
           sku: p.sku ?? "",
           title: p.title,
           imageUrl: p.imageUrl ?? null,
+          productUrl: p.productUrl ?? null,
           score: p.score,
           category: p.category,
           roas: m?.roas ?? 0,
@@ -137,10 +144,23 @@ export async function productRoutes(app: FastifyInstance) {
         };
       });
 
+      const metaCurrency =
+        typeof request.query === "object" && request.query
+          ? (request.query as Record<string, string>).metaCurrency
+          : undefined;
+
+      const safeMetaCurrency =
+        typeof metaCurrency === "string" && /^[A-Z]{3}$/.test(metaCurrency) ? metaCurrency : undefined;
+
+      const currency = safeMetaCurrency ?? storeCurrency ?? "USD";
+      const currencySource = safeMetaCurrency ? "meta_ads" : storeCurrency ? "store" : "default";
+
       return reply.send({
         ok: true,
         storeId: resolvedStoreId,
         range,
+        currency,
+        currencySource,
         total,
         items: formatted,
         hasMore,

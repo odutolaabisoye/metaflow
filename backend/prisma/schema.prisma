@@ -75,6 +75,7 @@ model ProductMeta {
   sku        String?
   title      String
   imageUrl   String?
+  productUrl String?
   score      Float
   category   ProductCategory
   updatedAt  DateTime        @updatedAt

@@ -5,6 +5,7 @@ const SHOPIFY_API_VERSION = "2024-04";
 interface ShopifyProduct {
   id: number;
   title: string;
+  handle: string;
   variants: Array<{
     id: number;
     sku: string;
@@ -145,6 +146,7 @@ export async function runShopifySync(
     const externalId = String(product.id);
     const imageUrl = product.images[0]?.src ?? null;
     const sku = firstVariant.sku || `SHOPIFY-${firstVariant.id}`;
+    const productUrl = product.handle ? `https://${shop}/products/${product.handle}` : null;
     const inventoryLevel = product.variants.reduce(
       (sum, v) => sum + (v.inventory_quantity ?? 0),
       0
@@ -161,6 +163,7 @@ export async function runShopifySync(
         sku,
         title: product.title,
         imageUrl,
+        productUrl,
         score: 0,
         category: "TEST",
         storeId
@@ -168,7 +171,8 @@ export async function runShopifySync(
       update: {
         title: product.title,
         imageUrl,
-        sku
+        sku,
+        productUrl
       }
     });
 

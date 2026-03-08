@@ -6,6 +6,7 @@ interface WCProduct {
   id: number;
   name: string;
   sku: string;
+  permalink: string;
   images: Array<{ src: string }>;
   stock_quantity: number | null;
   status: string;
@@ -138,6 +139,7 @@ export async function runWooCommerceSync(
     const externalId = String(product.id);
     const imageUrl = product.images[0]?.src ?? null;
     const sku = product.sku || `WC-${product.id}`;
+    const productUrl = product.permalink || null;
     const inventoryLevel = product.stock_quantity;
 
     const productRevenue = revenueMap.get(product.id)?.revenue ?? 0;
@@ -151,6 +153,7 @@ export async function runWooCommerceSync(
         sku,
         title: product.name,
         imageUrl,
+        productUrl,
         score: 0,
         category: "TEST",
         storeId
@@ -158,7 +161,8 @@ export async function runWooCommerceSync(
       update: {
         title: product.name,
         imageUrl,
-        sku
+        sku,
+        productUrl
       }
     });
 
