@@ -6,6 +6,30 @@ const VALID_SORT_FIELDS: Record<string, string> = {
   updatedAt: "updatedAt"
 };
 
+function isValidDate(value?: string) {
+  if (!value) return false;
+  const date = new Date(value);
+  return !Number.isNaN(date.getTime());
+}
+
+function parseRange(range?: string, start?: string, end?: string) {
+  if (start && end && isValidDate(start) && isValidDate(end)) {
+    const s = new Date(start);
+    const e = new Date(end);
+    if (s <= e) {
+      e.setHours(23, 59, 59, 999);
+      return { start: s, end: e, range: "custom" };
+    }
+  }
+
+  const days = range === "7d" ? 7 : range === "90d" ? 90 : 30;
+  const e = new Date();
+  const s = new Date();
+  s.setDate(e.getDate() - days + 1);
+  e.setHours(23, 59, 59, 999);
+  return { start: s, end: e, range: range ?? "30d" };
+}
+
 export async function productRoutes(app: FastifyInstance) {
   /**
    * GET /products
@@ -30,6 +54,8 @@ export async function productRoutes(app: FastifyInstance) {
       const {
         storeId,
         range = "30d",
+        start,
+        end,
         sortBy = "score",
         sortDir = "desc",
         category,
@@ -65,9 +91,7 @@ export async function productRoutes(app: FastifyInstance) {
       }
 
       // --- Date range for metric lookup ---
-      const days = range === "7d" ? 7 : range === "90d" ? 90 : 30;
-      const since = new Date();
-      since.setDate(since.getDate() - days);
+      const { start: since, end: until, range: resolvedRange } = parseRange(range, start, end);
 
       // --- Pagination ---
       const take = Math.min(parseInt(limit, 10) || 50, 200);
@@ -105,7 +129,7 @@ export async function productRoutes(app: FastifyInstance) {
           ...(cursor && { cursor: { id: cursor }, skip: 1 }),
           include: {
             dailyMetrics: {
-              where: { date: { gte: since } },
+              where: { date: { gte: since, lte: until } },
               orderBy: { date: "desc" },
               take: 1
             }
@@ -158,7 +182,9 @@ export async function productRoutes(app: FastifyInstance) {
       return reply.send({
         ok: true,
         storeId: resolvedStoreId,
-        range,
+        range: resolvedRange,
+        start: since.toISOString().slice(0, 10),
+        end: until.toISOString().slice(0, 10),
         currency,
         currencySource,
         total,

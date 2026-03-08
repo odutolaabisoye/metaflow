@@ -14,6 +14,30 @@ function formatCurrency(val: number, currency = "USD"): string {
   }).format(val);
 }
 
+function isValidDate(value?: string) {
+  if (!value) return false;
+  const date = new Date(value);
+  return !Number.isNaN(date.getTime());
+}
+
+function parseRange(range?: string, start?: string, end?: string) {
+  if (start && end && isValidDate(start) && isValidDate(end)) {
+    const s = new Date(start);
+    const e = new Date(end);
+    if (s <= e) {
+      e.setHours(23, 59, 59, 999);
+      return { start: s, end: e, range: "custom" };
+    }
+  }
+
+  const days = range === "7d" ? 7 : range === "90d" ? 90 : 30;
+  const e = new Date();
+  const s = new Date();
+  s.setDate(e.getDate() - days + 1);
+  e.setHours(23, 59, 59, 999);
+  return { start: s, end: e, range: range ?? "30d" };
+}
+
 export async function dashboardRoutes(app: FastifyInstance) {
   /**
    * GET /dashboard
@@ -25,7 +49,7 @@ export async function dashboardRoutes(app: FastifyInstance) {
   app.get("/dashboard", async (request, reply) => {
     try {
       const payload = await request.jwtVerify<{ sub: string }>();
-      const { storeId } = request.query as { storeId?: string };
+      const { storeId, range, start, end } = request.query as { storeId?: string; range?: string; start?: string; end?: string };
 
       // Resolve store
       const storeWhere = storeId
@@ -53,27 +77,29 @@ export async function dashboardRoutes(app: FastifyInstance) {
         });
       }
 
-      // Last 30 days window
-      const now = new Date();
-      const thirtyDaysAgo = new Date(now);
-      thirtyDaysAgo.setDate(now.getDate() - 30);
-
-      // Previous 30-day window for delta comparison
-      const sixtyDaysAgo = new Date(now);
-      sixtyDaysAgo.setDate(now.getDate() - 60);
+      const { start: rangeStart, end: rangeEnd, range: resolvedRange } = parseRange(range, start, end);
+      const durationDays = Math.max(
+        1,
+        Math.floor((rangeEnd.getTime() - rangeStart.getTime()) / (1000 * 60 * 60 * 24)) + 1
+      );
+      const prevEnd = new Date(rangeStart);
+      prevEnd.setDate(prevEnd.getDate() - 1);
+      prevEnd.setHours(23, 59, 59, 999);
+      const prevStart = new Date(prevEnd);
+      prevStart.setDate(prevStart.getDate() - durationDays + 1);
 
       const [currentMetrics, prevMetrics, activeSKUs, riskCount, topProducts, riskProducts] =
         await app.prisma.$transaction([
           // Current period aggregates
           app.prisma.dailyMetric.aggregate({
-            where: { storeId: store.id, date: { gte: thirtyDaysAgo } },
+            where: { storeId: store.id, date: { gte: rangeStart, lte: rangeEnd } },
             _sum: { revenue: true, spend: true, impressions: true, clicks: true, conversions: true },
             _avg: { roas: true, blendedRoas: true, ctr: true, margin: true }
           }),
 
           // Previous period aggregates (for delta %)
           app.prisma.dailyMetric.aggregate({
-            where: { storeId: store.id, date: { gte: sixtyDaysAgo, lt: thirtyDaysAgo } },
+            where: { storeId: store.id, date: { gte: prevStart, lte: prevEnd } },
             _avg: { roas: true, blendedRoas: true }
           }),
 
@@ -139,6 +165,9 @@ export async function dashboardRoutes(app: FastifyInstance) {
         storeId: store.id,
         storeName: store.name,
         currency: store.currency,
+        range: resolvedRange,
+        start: rangeStart.toISOString().slice(0, 10),
+        end: rangeEnd.toISOString().slice(0, 10),
         stats: {
           roas: {
             value: formatRoas(avgRoas),

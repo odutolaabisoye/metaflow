@@ -2,12 +2,27 @@ import type { FastifyInstance } from "fastify";
 
 const RANGE_PRESETS = new Set(["7d", "30d", "90d"]);
 
-function normalizeRange(range?: string) {
+function isValidDate(value?: string) {
+  if (!value) return false;
+  const date = new Date(value);
+  return !Number.isNaN(date.getTime());
+}
+
+function normalizeRange(range?: string, startStr?: string, endStr?: string) {
+  if (startStr && endStr && isValidDate(startStr) && isValidDate(endStr)) {
+    const start = new Date(startStr);
+    const end = new Date(endStr);
+    if (start <= end) {
+      end.setHours(23, 59, 59, 999);
+      return { range: "custom", start, end };
+    }
+  }
   const safeRange = range && RANGE_PRESETS.has(range) ? range : "30d";
   const days = Number.parseInt(safeRange.replace("d", ""), 10);
   const end = new Date();
   const start = new Date();
   start.setDate(end.getDate() - days + 1);
+  end.setHours(23, 59, 59, 999);
   return { range: safeRange, start, end };
 }
 
@@ -74,7 +89,7 @@ export async function auditRoutes(app: FastifyInstance) {
   app.get("/audit", async (request, reply) => {
     try {
       const payload = await request.jwtVerify<{ sub: string }>();
-      const { storeId, range = "30d", cursor, limit = "50" } =
+      const { storeId, range = "30d", start, end, cursor, limit = "50" } =
         request.query as Record<string, string>;
 
       let resolvedStoreId = storeId;
@@ -98,18 +113,18 @@ export async function auditRoutes(app: FastifyInstance) {
         }
       }
 
-      const { start } = normalizeRange(range);
+      const { start: rangeStart, end: rangeEnd, range: resolvedRange } = normalizeRange(range, start, end);
       const take = normalizeLimit(limit);
 
       const [logs, total] = await app.prisma.$transaction([
         app.prisma.auditLog.findMany({
-          where: { storeId: resolvedStoreId, createdAt: { gte: start } },
+          where: { storeId: resolvedStoreId, createdAt: { gte: rangeStart, lte: rangeEnd } },
           orderBy: { createdAt: "desc" },
           take: take + 1,
           ...(cursor && { cursor: { id: cursor }, skip: 1 })
         }),
         app.prisma.auditLog.count({
-          where: { storeId: resolvedStoreId, createdAt: { gte: start } }
+          where: { storeId: resolvedStoreId, createdAt: { gte: rangeStart, lte: rangeEnd } }
         })
       ]);
 
@@ -136,6 +151,9 @@ export async function auditRoutes(app: FastifyInstance) {
       return reply.send({
         ok: true,
         storeId: resolvedStoreId,
+        range: resolvedRange,
+        start: rangeStart.toISOString().slice(0, 10),
+        end: rangeEnd.toISOString().slice(0, 10),
         total,
         events,
         hasMore,

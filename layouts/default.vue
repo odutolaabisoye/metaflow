@@ -28,6 +28,147 @@
           </NuxtLink>
         </div>
 
+        <!-- ── Store Switcher ── (always visible) -->
+        <div class="px-2 py-2 border-b border-white/8">
+
+          <!-- No stores yet: prompt to connect -->
+          <NuxtLink
+            v-if="allStores.length === 0"
+            to="/app/onboarding"
+            class="relative group/cta w-full flex items-center gap-2.5 rounded-xl border border-dashed border-white/12 px-2.5 py-2 text-white/40 hover:text-white/60 hover:border-white/20 hover:bg-white/[0.03] transition-colors"
+            :class="sidebarOpen ? '' : 'justify-center'"
+          >
+            <div class="h-8 w-8 flex-shrink-0 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center">
+              <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 21v-7.5a.75.75 0 01.75-.75h3a.75.75 0 01.75.75V21m-4.5 0H2.36m11.14 0H18m0 0h3.64m-1.39 0V9.349m-16.5 11.65V9.35m0 0a3.001 3.001 0 003.75-.615A2.993 2.993 0 009.75 9.75c.896 0 1.7-.393 2.25-1.016a2.993 2.993 0 002.25 1.016c.896 0 1.7-.393 2.25-1.015a3.001 3.001 0 003.75.614m-16.5 0a3.004 3.004 0 01-.621-4.72L4.318 3.44A1.5 1.5 0 015.378 3h13.243a1.5 1.5 0 011.06.44l1.19 1.189a3 3 0 01-.621 4.72m-13.5 8.65h3.75a.75.75 0 00.75-.75V13.5a.75.75 0 00-.75-.75H6.75a.75.75 0 00-.75.75v3.75c0 .415.336.75.75.75z"/>
+              </svg>
+            </div>
+            <template v-if="sidebarOpen">
+              <div class="flex-1 min-w-0">
+                <p class="text-xs font-semibold truncate">Connect a store</p>
+                <p class="text-[10px] leading-none mt-0.5 text-white/25 truncate">Set up your first business</p>
+              </div>
+              <svg class="w-3 h-3 flex-shrink-0 text-white/20" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5"/>
+              </svg>
+            </template>
+            <!-- Collapsed tooltip -->
+            <div
+              v-if="!sidebarOpen"
+              class="pointer-events-none absolute left-full ml-2.5 top-1/2 -translate-y-1/2 z-50 hidden group-hover/cta:flex items-center"
+            >
+              <div class="rounded-lg bg-ink-800 border border-white/15 px-2.5 py-1.5 text-xs font-medium text-white shadow-xl whitespace-nowrap">
+                Connect a store
+              </div>
+            </div>
+          </NuxtLink>
+
+          <!-- Has stores: switcher -->
+          <div v-else class="relative group" ref="storeSwitcherRef">
+            <!-- Trigger button -->
+            <button
+              @click="storeSwitcherOpen = !storeSwitcherOpen"
+              class="w-full flex items-center gap-2.5 rounded-xl px-2.5 py-2 hover:bg-white/5 transition-colors cursor-pointer"
+              :class="sidebarOpen ? '' : 'justify-center'"
+            >
+              <!-- Store avatar (coloured letter) -->
+              <div
+                class="h-8 w-8 flex-shrink-0 rounded-lg flex items-center justify-center text-xs font-bold"
+                :style="{ background: storeStyle(activeStore?.platform).bg, color: storeStyle(activeStore?.platform).color }"
+              >
+                {{ activeStore?.name?.charAt(0)?.toUpperCase() ?? '?' }}
+              </div>
+              <!-- Expanded: name + platform + chevron -->
+              <template v-if="sidebarOpen">
+                <div class="flex-1 min-w-0 text-left">
+                  <p class="text-sm font-semibold text-white/90 leading-none mb-0.5 truncate">
+                    {{ activeStore?.name ?? 'Select store' }}
+                  </p>
+                  <p class="text-[11px] text-white/35 leading-none capitalize truncate">
+                    {{ activeStore?.platform?.toLowerCase() ?? '' }}
+                  </p>
+                </div>
+                <svg
+                  class="w-3.5 h-3.5 text-white/25 flex-shrink-0 transition-transform duration-200"
+                  :class="storeSwitcherOpen ? 'rotate-180' : ''"
+                  fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"
+                >
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/>
+                </svg>
+              </template>
+            </button>
+
+            <!-- Collapsed: tooltip on hover -->
+            <div
+              v-if="!sidebarOpen"
+              class="pointer-events-none absolute left-full ml-2.5 top-1/2 -translate-y-1/2 z-50 hidden group-hover:flex items-center"
+            >
+              <div class="rounded-lg bg-ink-800 border border-white/15 px-2.5 py-1.5 text-xs font-medium text-white shadow-xl whitespace-nowrap">
+                {{ activeStore?.name ?? 'Select store' }}
+              </div>
+            </div>
+
+            <!-- Dropdown (expanded mode only) -->
+            <Transition name="dropdown">
+              <div
+                v-if="storeSwitcherOpen && sidebarOpen"
+                class="absolute left-0 right-0 top-full mt-1 z-50 rounded-xl border border-white/15 bg-ink-900/98 backdrop-blur-xl shadow-2xl overflow-hidden"
+              >
+                <!-- Store list -->
+                <div class="p-1 max-h-52 overflow-y-auto">
+                  <button
+                    v-for="store in allStores"
+                    :key="store.id"
+                    @click="switchStore(store)"
+                    class="w-full flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-left transition-colors"
+                    :class="store.id === activeStore?.id ? 'bg-white/8' : 'hover:bg-white/5'"
+                  >
+                    <div
+                      class="h-7 w-7 flex-shrink-0 rounded-md flex items-center justify-center text-[11px] font-bold"
+                      :style="{ background: storeStyle(store.platform).bg, color: storeStyle(store.platform).color }"
+                    >
+                      {{ store.name.charAt(0).toUpperCase() }}
+                    </div>
+                    <div class="flex-1 min-w-0">
+                      <p
+                        class="text-xs font-medium leading-none mb-0.5 truncate"
+                        :class="store.id === activeStore?.id ? 'text-white' : 'text-white/60'"
+                      >
+                        {{ store.name }}
+                      </p>
+                      <p class="text-[10px] text-white/30 capitalize leading-none truncate">
+                        {{ store.platform.toLowerCase() }}{{ store._count?.products != null ? ` · ${store._count.products} products` : '' }}
+                      </p>
+                    </div>
+                    <!-- Active checkmark -->
+                    <svg
+                      v-if="store.id === activeStore?.id"
+                      class="w-3.5 h-3.5 text-glow-400 flex-shrink-0"
+                      fill="currentColor" viewBox="0 0 20 20"
+                    >
+                      <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/>
+                    </svg>
+                  </button>
+                </div>
+                <!-- Add another store -->
+                <div class="border-t border-white/8 p-1">
+                  <NuxtLink
+                    to="/app/onboarding"
+                    @click="storeSwitcherOpen = false"
+                    class="flex items-center gap-2 rounded-lg px-2.5 py-2 text-[11px] font-medium text-white/40 hover:text-white/70 hover:bg-white/5 transition-colors"
+                  >
+                    <svg class="w-3.5 h-3.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/>
+                    </svg>
+                    Add another store
+                  </NuxtLink>
+                </div>
+              </div>
+            </Transition>
+          </div>
+
+        </div>
+
         <!-- Nav -->
         <nav class="flex-1 overflow-y-auto py-4 px-2 space-y-0.5">
           <p v-if="sidebarOpen" class="px-3 py-2 text-[10px] font-semibold uppercase tracking-widest text-white/25">Main</p>
@@ -111,9 +252,24 @@
               <span class="h-1.5 w-1.5 rounded-full bg-lime-400 animate-pulse"></span>
               <span class="text-white/45">Meta sync healthy</span>
             </div>
-            <select v-model="selectedRange" class="rounded-xl border border-white/10 bg-white/[0.05] px-3 py-1.5 text-xs text-white/60 outline-none focus:border-glow-500/40 transition-colors cursor-pointer">
-              <option v-for="opt in rangeOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
-            </select>
+            <div class="flex items-center gap-2">
+              <select v-model="selectedRange" class="rounded-xl border border-white/10 bg-white/[0.05] px-3 py-1.5 text-xs text-white/60 outline-none focus:border-glow-500/40 transition-colors cursor-pointer">
+                <option v-for="opt in rangeOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+              </select>
+              <div v-if="isCustom" class="flex items-center gap-2 flex-col sm:flex-row">
+                <input
+                  v-model="customStart"
+                  type="date"
+                  class="rounded-xl border border-white/10 bg-white/[0.05] px-2.5 py-1 text-xs text-white/70 outline-none focus:border-glow-500/40 transition-colors w-[140px]"
+                />
+                <span class="text-xs text-white/35 hidden sm:inline">→</span>
+                <input
+                  v-model="customEnd"
+                  type="date"
+                  class="rounded-xl border border-white/10 bg-white/[0.05] px-2.5 py-1 text-xs text-white/70 outline-none focus:border-glow-500/40 transition-colors w-[140px]"
+                />
+              </div>
+            </div>
             <NuxtLink to="/app/audit" class="relative h-8 w-8 rounded-xl border border-white/10 bg-white/5 flex items-center justify-center text-white/45 hover:text-white hover:bg-white/10 transition-all" title="Activity log">
               <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M14.857 17.082a23.848 23.848 0 005.454-1.31A8.967 8.967 0 0118 9.75v-.7V9A6 6 0 006 9v.75a8.967 8.967 0 01-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 01-5.714 0m5.714 0a3 3 0 11-5.714 0"/></svg>
               <span class="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-ember-500 border border-ink-950"></span>
@@ -216,18 +372,81 @@ const sidebarOpen = ref(true);
 const profileOpen = ref(false);
 const loggingOut = ref(false);
 const profileRef = ref<HTMLElement | null>(null);
-const { selectedRange, rangeOptions } = useGlobalFilters();
+const { selectedRange, rangeOptions, customStart, customEnd, isCustom } = useGlobalFilters();
 
 // ── User profile & store state ────────────────────────────────────────────────
 const user = ref<{ id: string; email: string; name: string | null } | null>(null);
 // Use useState so settings.vue can update this after a disconnect
 const hasStore = useState<boolean>('mf_has_store', () => false);
 
+// ── Store switcher ────────────────────────────────────────────────────────────
+interface StoreInfo {
+  id: string;
+  name: string;
+  platform: string;
+  connections: { id: string; provider: string }[];
+  _count?: { products: number };
+}
+
+const allStores = useState<StoreInfo[]>('mf_stores', () => []);
+
+// Persist the selected store across page refreshes via a 30-day cookie
+const activeStoreIdCookie = useCookie<string | null>('mf_store_id', { path: '/', maxAge: 60 * 60 * 24 * 30 });
+const activeStoreId = useState<string | null>('mf_active_store_id', () => activeStoreIdCookie.value ?? null);
+const activeStore = computed(() =>
+  allStores.value.find(s => s.id === activeStoreId.value) ?? allStores.value[0] ?? null
+);
+const storeSwitcherOpen = ref(false);
+const storeSwitcherRef = ref<HTMLElement | null>(null);
+
+// Platform colour coding for store avatars
+const PLATFORM_STYLES: Record<string, { bg: string; color: string }> = {
+  SHOPIFY:     { bg: 'rgba(150,191,72,0.18)',  color: '#96BF48' },
+  WOOCOMMERCE: { bg: 'rgba(127,84,179,0.18)',  color: '#9B72CF' },
+  API:         { bg: 'rgba(34,211,238,0.15)',   color: '#22d3ee' },
+};
+function storeStyle(platform?: string | null) {
+  return PLATFORM_STYLES[platform ?? ''] ?? { bg: 'rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.45)' };
+}
+function switchStore(store: StoreInfo) {
+  activeStoreId.value = store.id;
+  activeStoreIdCookie.value = store.id;
+  storeSwitcherOpen.value = false;
+  // Reflect the switch in the URL immediately — shareable and survives hard refresh
+  navigateTo({ path: route.path, query: { ...route.query, store: store.id } }, { replace: true });
+}
+
 const userInitial = computed(() => {
   if (user.value?.name) return user.value.name.charAt(0).toUpperCase();
   if (user.value?.email) return user.value.email.charAt(0).toUpperCase();
   return '?';
 });
+
+// ── Store refresh helper ──────────────────────────────────────────────────────
+async function refreshStores() {
+  const res = await $fetch<{ ok: boolean; stores: StoreInfo[] }>(
+    `${config.public.apiBase}/v1/stores`,
+    { credentials: 'include' }
+  ).catch(() => null);
+  if (res?.ok) {
+    allStores.value = res.stores;
+    hasStore.value = res.stores.length > 0;
+    // Resolution priority: ?store= URL param → persisted cookie → first store
+    const urlStoreId = route.query.store as string | undefined;
+    const preferredId = urlStoreId || activeStoreId.value;
+    const isValid = res.stores.some(s => s.id === preferredId);
+    if (isValid && preferredId) {
+      activeStoreId.value = preferredId;
+      activeStoreIdCookie.value = preferredId;
+    } else if (res.stores.length > 0) {
+      activeStoreId.value = res.stores[0].id;
+      activeStoreIdCookie.value = res.stores[0].id;
+    } else {
+      activeStoreId.value = null;
+      activeStoreIdCookie.value = null;
+    }
+  }
+}
 
 onMounted(async () => {
   // Fetch user + stores in parallel — both needed before rendering nav
@@ -236,17 +455,38 @@ onMounted(async () => {
       `${config.public.apiBase}/v1/auth/me`,
       { credentials: 'include' }
     ).then(res => { if (res.ok) user.value = res.user; }).catch(() => {}),
-
-    $fetch<{ ok: boolean; stores: { id: string }[] }>(
-      `${config.public.apiBase}/v1/stores`,
-      { credentials: 'include' }
-    ).then(res => { if (res.ok) hasStore.value = res.stores.length > 0; }).catch(() => {}),
+    refreshStores(),
   ]);
 
-  // Close dropdown when clicking outside
+  // Sync active store into the URL on initial load if not already present
+  if (activeStoreId.value && !route.query.store) {
+    navigateTo({ path: route.path, query: { ...route.query, store: activeStoreId.value } }, { replace: true });
+  }
+
+  // On every in-app navigation: keep ?store= in the URL and refresh stores
+  // when returning from onboarding (a new store may have been created)
+  watch(() => route.path, (newPath, oldPath) => {
+    // Refresh store list after completing onboarding
+    if (oldPath === '/app/onboarding' && newPath !== '/app/onboarding') {
+      refreshStores();
+    }
+    // Auto-append ?store= so the URL always reflects the active business.
+    // Uses replace so navigating between pages doesn't pollute browser history.
+    if (newPath.startsWith('/app') && activeStoreId.value && !route.query.store) {
+      navigateTo(
+        { path: newPath, query: { ...route.query, store: activeStoreId.value } },
+        { replace: true }
+      );
+    }
+  });
+
+  // Close dropdowns when clicking outside
   const handleClickOutside = (e: MouseEvent) => {
     if (profileRef.value && !profileRef.value.contains(e.target as Node)) {
       profileOpen.value = false;
+    }
+    if (storeSwitcherRef.value && !storeSwitcherRef.value.contains(e.target as Node)) {
+      storeSwitcherOpen.value = false;
     }
   };
   document.addEventListener('mousedown', handleClickOutside);

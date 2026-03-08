@@ -209,6 +209,9 @@ export async function storeRoutes(app: FastifyInstance) {
     try {
       const payload = await request.jwtVerify<{ sub: string }>();
       const { storeId } = request.params as { storeId: string };
+      const now = new Date();
+      const COOLDOWN_HOURS = 6;
+      const cooldownMs = COOLDOWN_HOURS * 60 * 60 * 1000;
 
       const store = await app.prisma.store.findFirst({
         where: { id: storeId, ownerId: payload.sub },
@@ -217,6 +220,18 @@ export async function storeRoutes(app: FastifyInstance) {
 
       if (!store) {
         return reply.code(404).send({ ok: false, message: "Store not found" });
+      }
+
+      if (store.lastSyncAt) {
+        const elapsed = now.getTime() - store.lastSyncAt.getTime();
+        if (elapsed < cooldownMs) {
+          const retryAfterSeconds = Math.ceil((cooldownMs - elapsed) / 1000);
+          return reply.code(429).send({
+            ok: false,
+            message: `Sync is limited to once every ${COOLDOWN_HOURS} hours. Please try again later.`,
+            retryAfterSeconds
+          });
+        }
       }
 
       // Enqueue platform sync jobs for each connected provider
@@ -256,6 +271,11 @@ export async function storeRoutes(app: FastifyInstance) {
           detail: `Manual sync triggered for store ${store.name}`,
           storeId
         }
+      });
+
+      await app.prisma.store.update({
+        where: { id: storeId },
+        data: { lastSyncAt: now }
       });
 
       // Notify the store owner that import has started (non-blocking)

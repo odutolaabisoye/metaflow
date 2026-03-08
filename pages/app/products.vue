@@ -16,12 +16,13 @@
       <div class="flex items-center gap-2.5">
         <button
           @click="triggerSync"
-          class="flex items-center gap-2 rounded-xl border border-white/15 bg-white/5 px-4 py-2.5 text-sm font-medium text-white/70 hover:bg-white/10 hover:text-white transition-all"
+          :disabled="syncDisabled"
+          class="flex items-center gap-2 rounded-xl border border-white/15 bg-white/5 px-4 py-2.5 text-sm font-medium text-white/70 hover:bg-white/10 hover:text-white transition-all disabled:opacity-50 disabled:cursor-not-allowed"
         >
           <svg class="w-4 h-4" :class="syncing ? 'animate-spin' : ''" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
             <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99"/>
           </svg>
-          {{ syncing ? 'Syncing…' : 'Sync now' }}
+          {{ syncing ? 'Syncing…' : syncDisabled ? `Sync in ${cooldownLabel}` : 'Sync now' }}
         </button>
         <button
           @click="exportCsv"
@@ -317,7 +318,7 @@ const cursorId = ref<string | null>(null);
 // Sidekick
 const selectedProduct = ref<null | Record<string, unknown>>(null);
 
-const { query, rangeOption } = useGlobalFilters();
+const { query, rangeOption, activeStoreId } = useGlobalFilters();
 const rangeLabel = computed(() => rangeOption.value.label);
 
 const categories = [
@@ -421,27 +422,70 @@ const openSidekick = (item: Record<string, unknown>) => {
 
 // ── Sync now ──────────────────────────────────────────────────────────────────
 const syncError = ref('');
+const csrfToken = ref('');
+const cooldownSeconds = ref(0);
+let cooldownTimer: ReturnType<typeof setInterval> | null = null;
+
+const syncDisabled = computed(() => syncing.value || cooldownSeconds.value > 0);
+
+const cooldownLabel = computed(() => {
+  const total = Math.max(0, cooldownSeconds.value);
+  const m = Math.floor(total / 60);
+  const s = total % 60;
+  if (m <= 0) return `${s}s`;
+  return `${m}m ${s}s`;
+});
+
+const startCooldown = (seconds: number) => {
+  cooldownSeconds.value = Math.max(0, Math.floor(seconds));
+  if (cooldownTimer) clearInterval(cooldownTimer);
+  cooldownTimer = setInterval(() => {
+    if (cooldownSeconds.value <= 1) {
+      cooldownSeconds.value = 0;
+      if (cooldownTimer) clearInterval(cooldownTimer);
+      cooldownTimer = null;
+      return;
+    }
+    cooldownSeconds.value -= 1;
+  }, 1000);
+};
+
+const loadCsrf = async () => {
+  try {
+    const res = await $fetch<{ csrfToken: string }>(`${apiBase}/v1/csrf`, { credentials: 'include' });
+    csrfToken.value = res.csrfToken;
+  } catch {}
+};
+
+onMounted(loadCsrf);
+
+onBeforeUnmount(() => {
+  if (cooldownTimer) clearInterval(cooldownTimer);
+});
+
 const triggerSync = async () => {
-  if (syncing.value) return;
+  if (syncing.value || cooldownSeconds.value > 0) return;
   syncing.value = true;
   syncError.value = '';
   try {
-    // Get the user's first store
-    const storesRes = await $fetch<{ ok: boolean; stores: { id: string }[] }>(
-      `${apiBase}/v1/stores`,
-      { credentials: 'include' }
-    );
-    const storeId = storesRes.stores?.[0]?.id;
+    if (!csrfToken.value) await loadCsrf();
+    // Use the currently selected store from the global store switcher
+    const storeId = activeStoreId.value;
     if (!storeId) throw new Error('No store connected yet. Set one up in Settings.');
 
     await $fetch(`${apiBase}/v1/stores/${storeId}/sync`, {
       method: 'POST',
       credentials: 'include',
+      headers: { 'x-csrf-token': csrfToken.value },
     });
 
     // Refresh product list after a short delay to pick up any fast changes
     setTimeout(() => refresh(), 3000);
   } catch (err: any) {
+    const retryAfter = Number(err?.data?.retryAfterSeconds ?? 0);
+    if (retryAfter > 0) {
+      startCooldown(retryAfter);
+    }
     syncError.value = err?.data?.message || err?.message || 'Sync failed. Please try again.';
   } finally {
     syncing.value = false;
@@ -452,6 +496,7 @@ const triggerSync = async () => {
 const exportCsv = async () => {
   const rows = products.value as Record<string, unknown>[];
   if (!rows.length) return;
+  if (!csrfToken.value) await loadCsrf();
   const headers = ['title', 'sku', 'category', 'score', 'roas', 'blendedRoas', 'ctr', 'margin', 'spend', 'revenue', 'impressions', 'clicks', 'conversions'];
   const csv = [
     headers.join(','),
@@ -469,6 +514,7 @@ const exportCsv = async () => {
   $fetch(`${apiBase}/v1/products/notify-export`, {
     method: 'POST',
     credentials: 'include',
+    headers: { 'x-csrf-token': csrfToken.value },
     body: { productCount: rows.length },
   }).catch(() => {/* non-critical — ignore errors */});
 };
