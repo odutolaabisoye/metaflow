@@ -181,4 +181,35 @@ export async function productRoutes(app: FastifyInstance) {
       return reply.code(401).send({ ok: false, message: "Unauthorized" });
     }
   });
+
+  /**
+   * POST /products/notify-export
+   * Called by the frontend after a CSV export download completes.
+   * Sends the user an email confirming the export and how many products were included.
+   *
+   * Body: { productCount: number }
+   */
+  app.post("/products/notify-export", async (request, reply) => {
+    let payload: { sub: string };
+    try {
+      payload = await request.jwtVerify<{ sub: string }>();
+    } catch {
+      return reply.code(401).send({ ok: false, message: "Unauthorized" });
+    }
+
+    const { productCount = 0 } = (request.body as { productCount?: number }) ?? {};
+
+    const user = await app.prisma.user.findUnique({
+      where: { id: payload.sub },
+      select: { email: true, name: true }
+    });
+
+    if (user) {
+      app.mail.sendExportReady(user.email, user.name ?? "", productCount).catch((err) =>
+        app.log.error({ err }, "Failed to send export email")
+      );
+    }
+
+    return reply.send({ ok: true });
+  });
 }

@@ -8,6 +8,14 @@ const COOKIE_OPTIONS = {
   path: "/"
 };
 
+// Non-httpOnly presence cookie — readable by JS/Nuxt middleware to detect login state.
+// The actual JWT stays in mf_session (httpOnly) for security.
+const AUTH_FLAG_OPTIONS = {
+  httpOnly: false,
+  sameSite: "lax" as const,
+  path: "/"
+};
+
 function generateToken() {
   return crypto.randomBytes(32).toString("hex");
 }
@@ -36,11 +44,22 @@ export async function authRoutes(app: FastifyInstance) {
       }
     });
 
+    // Send welcome email (non-blocking — don't fail signup if mail fails)
+    app.mail.sendWelcome(user.email, user.name ?? "").catch((err) =>
+      app.log.error({ err }, "Failed to send welcome email")
+    );
+
     const token = app.jwt.sign({ sub: user.id, email: user.email });
+    const maxAge = 60 * 60 * 24 * 7;
     reply.setCookie("mf_session", token, {
       ...COOKIE_OPTIONS,
       secure: process.env.NODE_ENV === "production",
-      maxAge: 60 * 60 * 24 * 7
+      maxAge
+    });
+    reply.setCookie("mf_auth", "1", {
+      ...AUTH_FLAG_OPTIONS,
+      secure: process.env.NODE_ENV === "production",
+      maxAge
     });
 
     return reply.send({ ok: true, user: { id: user.id, email: user.email, name: user.name } });
@@ -66,10 +85,16 @@ export async function authRoutes(app: FastifyInstance) {
     }
 
     const token = app.jwt.sign({ sub: user.id, email: user.email });
+    const maxAge = 60 * 60 * 24 * 7;
     reply.setCookie("mf_session", token, {
       ...COOKIE_OPTIONS,
       secure: process.env.NODE_ENV === "production",
-      maxAge: 60 * 60 * 24 * 7
+      maxAge
+    });
+    reply.setCookie("mf_auth", "1", {
+      ...AUTH_FLAG_OPTIONS,
+      secure: process.env.NODE_ENV === "production",
+      maxAge
     });
 
     return reply.send({ ok: true, user: { id: user.id, email: user.email, name: user.name } });
@@ -77,6 +102,7 @@ export async function authRoutes(app: FastifyInstance) {
 
   app.post("/auth/logout", async (_request, reply) => {
     reply.clearCookie("mf_session", COOKIE_OPTIONS);
+    reply.clearCookie("mf_auth", AUTH_FLAG_OPTIONS);
     return reply.send({ ok: true });
   });
 

@@ -81,46 +81,44 @@ export async function storeRoutes(app: FastifyInstance) {
    * Body: { name, platform, storeUrl, currency? }
    */
   app.post("/stores", async (request, reply) => {
+    let payload: { sub: string };
     try {
-      const payload = await request.jwtVerify<{ sub: string }>();
-      const body = request.body as {
-        name?: string;
-        platform?: string;
-        storeUrl?: string;
-        currency?: string;
-      };
+      payload = await request.jwtVerify<{ sub: string }>();
+    } catch {
+      return reply.code(401).send({ ok: false, message: "Unauthorized" });
+    }
 
-      const name = body?.name?.trim();
-      const platform = body?.platform?.trim().toUpperCase() as StorePlatform;
-      const storeUrl = body?.storeUrl?.trim();
-      const currency = body?.currency?.trim().toUpperCase() ?? "USD";
+    const body = request.body as {
+      name?: string;
+      platform?: string;
+      storeUrl?: string;
+      currency?: string;
+    };
 
-      if (!name || !platform || !storeUrl) {
-        return reply.code(400).send({
-          ok: false,
-          message: "name, platform, and storeUrl are required"
-        });
-      }
+    const name = body?.name?.trim();
+    const platform = body?.platform?.trim().toUpperCase() as StorePlatform;
+    const storeUrl = body?.storeUrl?.trim();
+    const currency = body?.currency?.trim().toUpperCase() ?? "USD";
 
-      if (!VALID_PLATFORMS.includes(platform)) {
-        return reply.code(400).send({
-          ok: false,
-          message: `platform must be one of: ${VALID_PLATFORMS.join(", ")}`
-        });
-      }
-
-      const store = await app.prisma.store.create({
-        data: {
-          name,
-          platform,
-          storeUrl,
-          currency,
-          ownerId: payload.sub
-        }
+    if (!name || !platform || !storeUrl) {
+      return reply.code(400).send({
+        ok: false,
+        message: "name, platform, and storeUrl are required"
       });
+    }
 
+    if (!VALID_PLATFORMS.includes(platform)) {
+      return reply.code(400).send({
+        ok: false,
+        message: `platform must be one of: ${VALID_PLATFORMS.join(", ")}`
+      });
+    }
+
+    try {
+      const store = await app.prisma.store.create({
+        data: { name, platform, storeUrl, currency, ownerId: payload.sub }
+      });
       app.log.info({ storeId: store.id, platform }, "Store created");
-
       return reply.code(201).send({ ok: true, store });
     } catch (err) {
       app.log.error({ err }, "Failed to create store");
@@ -259,6 +257,17 @@ export async function storeRoutes(app: FastifyInstance) {
           storeId
         }
       });
+
+      // Notify the store owner that import has started (non-blocking)
+      const owner = await app.prisma.user.findUnique({
+        where: { id: payload.sub },
+        select: { email: true, name: true }
+      });
+      if (owner) {
+        app.mail.sendImportStarted(owner.email, owner.name ?? "", store.name).catch((err) =>
+          app.log.error({ err }, "Failed to send import-started email")
+        );
+      }
 
       return reply.send({ ok: true, message: "Sync jobs enqueued" });
     } catch {

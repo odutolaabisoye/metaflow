@@ -34,7 +34,15 @@ await app.register(redisPlugin);
 await app.register(queuePlugin);
 
 await app.register(cors, {
-  origin: app.config.CORS_ORIGIN,
+  origin: (origin, cb) => {
+    // Allow configured origin + any localhost port (for dev flexibility)
+    const allowed = app.config.CORS_ORIGIN;
+    if (!origin || origin === allowed || /^http:\/\/localhost:\d+$/.test(origin)) {
+      cb(null, true);
+    } else {
+      cb(new Error("Not allowed by CORS"), false);
+    }
+  },
   credentials: true
 });
 
