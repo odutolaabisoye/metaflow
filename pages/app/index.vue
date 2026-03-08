@@ -40,7 +40,7 @@
           <span class="text-xs text-white/30">{{ stat.trendLabel }}</span>
         </div>
         <!-- Mini sparkline bars -->
-        <div class="mt-3 flex items-end gap-0.5 h-8">
+        <div v-if="stat.spark?.length" class="mt-3 flex items-end gap-0.5 h-8">
           <div
             v-for="(b, i) in stat.spark"
             :key="i"
@@ -69,7 +69,7 @@
               <span class="flex items-center gap-1.5"><span class="h-2 w-2 rounded-sm bg-lime-500/70 flex-shrink-0"></span>Trend</span>
             </div>
           </div>
-          <div class="flex items-end gap-1 h-44">
+          <div v-if="chartData.length" class="flex items-end gap-1 h-44">
             <div
               v-for="(bar, i) in chartData"
               :key="i"
@@ -81,11 +81,14 @@
               </div>
             </div>
           </div>
-          <div class="mt-2 flex justify-between text-xs text-white/25">
+          <div v-else class="h-44 rounded-xl border border-white/10 bg-white/[0.02] flex items-center justify-center text-xs text-white/40">
+            No trend data yet.
+          </div>
+          <div v-if="chartLabels.length" class="mt-2 flex justify-between text-xs text-white/25">
             <span v-for="l in chartLabels" :key="l">{{ l }}</span>
           </div>
           <div class="mt-5 grid grid-cols-3 gap-3 border-t border-white/8 pt-5">
-            <div v-for="a in attribution" :key="a.label" class="text-center">
+            <div v-for="a in attributionRows" :key="a.label" class="text-center">
               <p class="text-xs text-white/35 mb-1">{{ a.label }}</p>
               <p class="text-base font-semibold">{{ a.value }}</p>
             </div>
@@ -110,7 +113,7 @@
           </div>
           <div v-else class="space-y-2.5">
             <div
-              v-for="item in dashboard.aiGuidance"
+              v-for="item in aiGuidance"
               :key="item.id"
               class="flex items-start justify-between gap-3 rounded-xl border p-4 hover:bg-white/[0.02] transition-colors"
               :class="item.variant === 'secondary' ? 'border-lime-500/18 bg-lime-500/[0.03]' : item.variant === 'destructive' ? 'border-ember-500/18 bg-ember-500/[0.03]' : 'border-white/10 bg-white/[0.03]'"
@@ -138,7 +141,7 @@
                 >Apply →</NuxtLink>
               </div>
             </div>
-            <div v-if="!dashboard.aiGuidance.length" class="rounded-xl border border-white/10 p-6 text-center">
+            <div v-if="!aiGuidance.length" class="rounded-xl border border-white/10 p-6 text-center">
               <p class="text-sm font-medium">No AI guidance yet.</p>
               <p class="mt-1 text-xs text-white/40">We'll surface recommendations after your first sync.</p>
             </div>
@@ -162,7 +165,7 @@
             <div v-for="n in 3" :key="n" class="h-8 rounded-xl bg-white/5 animate-pulse"></div>
           </div>
           <div v-else class="space-y-2">
-            <div v-for="rule in dashboard.automation.liveRules" :key="rule.label" class="flex items-center justify-between rounded-xl border border-white/8 bg-white/[0.03] px-3 py-2.5">
+            <div v-for="rule in automation.liveRules" :key="rule.label" class="flex items-center justify-between rounded-xl border border-white/8 bg-white/[0.03] px-3 py-2.5">
               <div class="flex items-center gap-2.5">
                 <span class="h-2 w-2 rounded-full flex-shrink-0" :class="rule.variant === 'secondary' ? 'bg-lime-400' : rule.variant === 'destructive' ? 'bg-ember-400' : 'bg-glow-400'"></span>
                 <span class="text-sm">{{ rule.label }}</span>
@@ -171,7 +174,7 @@
                 {{ rule.status }}
               </span>
             </div>
-            <div v-if="!dashboard.automation.liveRules.length" class="rounded-xl border border-white/10 p-4 text-center text-xs text-white/35">
+            <div v-if="!automation.liveRules.length" class="rounded-xl border border-white/10 p-4 text-center text-xs text-white/35">
               No rules active. Enable automation in Settings.
             </div>
           </div>
@@ -190,7 +193,7 @@
             <div v-for="n in 4" :key="n" class="h-12 rounded-xl bg-white/5 animate-pulse"></div>
           </div>
           <div v-else class="space-y-3">
-            <div v-for="item in dashboard.automation.recentActivity" :key="item.title" class="flex items-start gap-3">
+            <div v-for="item in automation.recentActivity" :key="item.title" class="flex items-start gap-3">
               <div class="mt-0.5 h-6 w-6 rounded-lg bg-white/5 flex items-center justify-center flex-shrink-0">
                 <svg class="w-3 h-3 text-white/35" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z"/></svg>
               </div>
@@ -200,7 +203,7 @@
               </div>
               <span class="text-xs text-white/25 flex-shrink-0 mt-0.5">{{ item.time }}</span>
             </div>
-            <div v-if="!dashboard.automation.recentActivity.length" class="text-center p-4 text-xs text-white/35">
+            <div v-if="!automation.recentActivity.length" class="text-center p-4 text-xs text-white/35">
               No automation actions yet.
             </div>
           </div>
@@ -226,33 +229,67 @@
 import { useGlobalFilters } from '~/composables/useGlobalFilters';
 
 const { query } = useGlobalFilters();
-const { data, pending } = await useFetch('/api/dashboard', { query });
-
-const dashboard = computed(() => data.value ?? {
-  stats: { roas: { value: '--', delta: '' }, blendedRoas: { value: '--', delta: '' }, activeProducts: { value: '--', detail: '' }, inventoryRisk: { value: '--', detail: '' } },
-  attribution: { topCategory: '--', avgCtr: '--', conversionRate: '--' },
-  aiGuidance: [],
-  automation: { liveRules: [], recentActivity: [] },
+const { public: { apiBase } } = useRuntimeConfig();
+const { data, pending } = await useFetch(`${apiBase}/v1/dashboard`, {
+  server: false,
+  credentials: 'include',
+  query
 });
 
+const dashboard = computed(() => data.value ?? {});
+
+const stats = computed(() => {
+  const s: any = dashboard.value?.stats ?? {};
+  return {
+    roas: s.roas ?? { value: '--', delta: '' },
+    blendedRoas: s.blendedRoas ?? { value: '--', delta: '' },
+    activeProducts: s.activeSKUs ?? s.activeProducts ?? { value: '--', detail: '' },
+    inventoryRisk: s.inventoryRisk ?? { value: '--', detail: '' }
+  };
+});
+
+const attribution = computed(() => {
+  const a: any = dashboard.value?.attribution ?? {};
+  return {
+    topCategory: a.topCategory ?? '--',
+    avgCtr: a.avgCtr ?? '--',
+    conversionRate: a.conversionRate ?? '--'
+  };
+});
+
+const aiGuidance = computed(() => dashboard.value?.aiGuidance ?? []);
+const automation = computed(() => dashboard.value?.automation ?? { liveRules: [], recentActivity: [] });
+
 const statCards = computed(() => [
-  { label: 'Meta ROAS', value: dashboard.value.stats.roas.value, trend: dashboard.value.stats.roas.delta || '+18.2%', trendLabel: 'vs last period', trendUp: true, icon: '<path stroke-linecap="round" stroke-linejoin="round" d="M2.25 18L9 11.25l4.306 4.307a11.95 11.95 0 015.814-5.519l2.74-1.22m0 0l-5.94-2.28m5.94 2.28l-2.28 5.941"/>', iconBg: 'rgba(34,211,238,0.1)', iconColor: '#22d3ee', spark: [40,55,50,65,72,68,80,75,85,92] },
-  { label: 'Blended ROAS', value: dashboard.value.stats.blendedRoas?.value ?? '--', trend: dashboard.value.stats.blendedRoas?.delta || 'All channels', trendLabel: '', trendUp: true, icon: '<path stroke-linecap="round" stroke-linejoin="round" d="M3.75 3v11.25A2.25 2.25 0 006 16.5h2.25M3.75 3h-1.5m1.5 0h16.5m0 0h1.5m-1.5 0v11.25A2.25 2.25 0 0118 16.5h-2.25m-7.5 0h7.5m-7.5 0l-1 3m8.5-3l1 3m0 0l.5 1.5m-.5-1.5h-9.5m0 0l-.5 1.5"/>', iconBg: 'rgba(132,204,22,0.1)', iconColor: '#84cc16', spark: [35,42,48,44,52,56,58,62,66,70] },
-  { label: 'Active SKUs', value: dashboard.value.stats.activeProducts.value, trend: dashboard.value.stats.activeProducts.detail || '86 scaling', trendLabel: '', trendUp: true, icon: '<path stroke-linecap="round" stroke-linejoin="round" d="M9.568 3H5.25A2.25 2.25 0 003 5.25v4.318c0 .597.237 1.17.659 1.591l9.581 9.581c.699.699 1.78.872 2.607.33a18.095 18.095 0 005.223-5.223c.542-.827.369-1.908-.33-2.607L11.16 3.66A2.25 2.25 0 009.568 3z"/>', iconBg: 'rgba(139,92,246,0.1)', iconColor: '#a78bfa', spark: [60,65,70,68,75,80,78,82,85,86] },
-  { label: 'Inventory Risk', value: dashboard.value.stats.inventoryRisk.value, trend: dashboard.value.stats.inventoryRisk.detail || '3 critical', trendLabel: '', trendUp: false, icon: '<path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126z"/>', iconBg: 'rgba(249,115,22,0.1)', iconColor: '#f97316', spark: [28,24,30,26,22,18,25,20,16,12] },
+  { label: 'Meta ROAS', value: stats.value.roas.value, trend: stats.value.roas.delta || '+0%', trendLabel: 'vs last period', trendUp: true, icon: '<path stroke-linecap="round" stroke-linejoin="round" d="M2.25 18L9 11.25l4.306 4.307a11.95 11.95 0 015.814-5.519l2.74-1.22m0 0l-5.94-2.28m5.94 2.28l-2.28 5.941"/>', iconBg: 'rgba(34,211,238,0.1)', iconColor: '#22d3ee' },
+  { label: 'Blended ROAS', value: stats.value.blendedRoas?.value ?? '--', trend: stats.value.blendedRoas?.delta || 'All channels', trendLabel: '', trendUp: true, icon: '<path stroke-linecap="round" stroke-linejoin="round" d="M3.75 3v11.25A2.25 2.25 0 006 16.5h2.25M3.75 3h-1.5m1.5 0h16.5m0 0h1.5m-1.5 0v11.25A2.25 2.25 0 0118 16.5h-2.25m-7.5 0h7.5m-7.5 0l-1 3m8.5-3l1 3m0 0l.5 1.5m-.5-1.5h-9.5m0 0l-.5 1.5"/>', iconBg: 'rgba(132,204,22,0.1)', iconColor: '#84cc16' },
+  { label: 'Active SKUs', value: stats.value.activeProducts.value, trend: stats.value.activeProducts.detail || stats.value.activeProducts.delta || '', trendLabel: '', trendUp: true, icon: '<path stroke-linecap="round" stroke-linejoin="round" d="M9.568 3H5.25A2.25 2.25 0 003 5.25v4.318c0 .597.237 1.17.659 1.591l9.581 9.581c.699.699 1.78.872 2.607.33a18.095 18.095 0 005.223-5.223c.542-.827.369-1.908-.33-2.607L11.16 3.66A2.25 2.25 0 009.568 3z"/>', iconBg: 'rgba(139,92,246,0.1)', iconColor: '#a78bfa' },
+  { label: 'Inventory Risk', value: stats.value.inventoryRisk.value, trend: stats.value.inventoryRisk.detail || stats.value.inventoryRisk.delta || '', trendLabel: '', trendUp: false, icon: '<path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126z"/>', iconBg: 'rgba(249,115,22,0.1)', iconColor: '#f97316' },
 ]);
 
-const chartData = Array.from({ length: 30 }, (_, i) => ({
-  h: 25 + Math.sin(i * 0.5) * 18 + (i / 30) * 30 + Math.random() * 12,
-  label: `Oct ${i + 1}: $${(3500 + i * 200 + Math.random() * 800).toFixed(0)}`,
-}));
+const chartData = computed(() => {
+  const series = (dashboard.value as any)?.trend?.series;
+  if (!Array.isArray(series)) return [];
+  return series.map((point: any) => {
+    if (typeof point === "number") return { h: point, label: "" };
+    if (point && typeof point === "object") {
+      const h = Number(point.value ?? point.h ?? 0);
+      const label = typeof point.label === "string" ? point.label : "";
+      return { h, label };
+    }
+    return { h: 0, label: "" };
+  });
+});
 
-const chartLabels = ['Oct 1', 'Oct 8', 'Oct 15', 'Oct 22', 'Oct 30'];
+const chartLabels = computed(() => {
+  const labels = (dashboard.value as any)?.trend?.labels;
+  return Array.isArray(labels) ? labels : [];
+});
 
-const attribution = computed(() => [
-  { label: 'Top category', value: dashboard.value.attribution.topCategory },
-  { label: 'Avg CTR', value: dashboard.value.attribution.avgCtr },
-  { label: 'Conv. rate', value: dashboard.value.attribution.conversionRate },
+const attributionRows = computed(() => [
+  { label: 'Top category', value: attribution.value.topCategory },
+  { label: 'Avg CTR', value: attribution.value.avgCtr },
+  { label: 'Conv. rate', value: attribution.value.conversionRate },
 ]);
 
 const quickLinks = [

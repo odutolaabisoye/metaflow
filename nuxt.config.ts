@@ -1,5 +1,10 @@
 export default defineNuxtConfig({
   modules: ["@nuxtjs/tailwindcss"],
+  vite: {
+    server: {
+      hmr: process.env.NUXT_DEV_PREVIEW === "1" ? false : undefined
+    }
+  },
   app: {
     head: {
       title: "MetaFlow",

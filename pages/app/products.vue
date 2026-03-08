@@ -35,6 +35,21 @@
       </div>
     </div>
 
+    <!-- Sync error banner -->
+    <Transition name="fade-up">
+      <div v-if="syncError" class="flex items-center justify-between gap-3 rounded-2xl border border-ember-500/25 bg-ember-500/8 px-5 py-3">
+        <div class="flex items-center gap-2.5">
+          <svg class="w-4 h-4 text-ember-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z"/>
+          </svg>
+          <p class="text-sm text-ember-400">{{ syncError }}</p>
+        </div>
+        <button @click="syncError = ''" class="text-ember-400/60 hover:text-ember-400 transition-colors">
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+        </button>
+      </div>
+    </Transition>
+
     <!-- Filters Bar -->
     <div class="glass rounded-2xl p-4 flex flex-wrap items-center gap-3">
       <!-- Search -->
@@ -181,6 +196,7 @@
                     <div class="flex items-center gap-2 mt-0.5">
                       <span class="text-xs text-white/45 font-mono">{{ item.sku }}</span>
                       <a
+                        v-if="item.productUrl"
                         :href="item.productUrl"
                         target="_blank"
                         rel="noopener"
@@ -286,6 +302,8 @@
 <script setup lang="ts">
 import { useGlobalFilters } from "~/composables/useGlobalFilters";
 
+const { public: { apiBase } } = useRuntimeConfig();
+
 const search = ref("");
 const filter = ref("all");
 const sortBy = ref("score");
@@ -315,22 +333,24 @@ watch([sortBy, sortDir, limit, query], () => {
   pageStack.value = [];
 });
 
-const { data, pending } = await useFetch("/api/products", {
+const { data, pending, refresh } = await useFetch(`${apiBase}/v1/products`, {
+  server: false,
+  credentials: 'include',
   query: computed(() => ({
     ...query.value,
-    q: search.value || undefined,
+    search: search.value || undefined,
     category: filter.value === "all" ? undefined : filter.value,
     sortBy: sortBy.value,
     sortDir: sortDir.value,
     limit: limit.value,
-    cursorId: cursorId.value ?? undefined
+    cursor: cursorId.value ?? undefined
   }))
 });
 
 const currency = computed(() => data.value?.currency ?? "USD");
-const products = computed(() => data.value?.products ?? []);
+const products = computed(() => data.value?.items ?? []);
 const total = computed(() => data.value?.total ?? 0);
-const nextCursorId = computed(() => data.value?.nextCursorId ?? null);
+const nextCursorId = computed(() => data.value?.nextCursor ?? null);
 
 const formatMoney = (value: number) => {
   return new Intl.NumberFormat("en-US", {
@@ -399,16 +419,37 @@ const openSidekick = (item: Record<string, unknown>) => {
   selectedProduct.value = item;
 };
 
-// Sync action
+// ── Sync now ──────────────────────────────────────────────────────────────────
+const syncError = ref('');
 const triggerSync = async () => {
   if (syncing.value) return;
   syncing.value = true;
-  await new Promise(res => setTimeout(res, 1800));
-  syncing.value = false;
+  syncError.value = '';
+  try {
+    // Get the user's first store
+    const storesRes = await $fetch<{ ok: boolean; stores: { id: string }[] }>(
+      `${apiBase}/v1/stores`,
+      { credentials: 'include' }
+    );
+    const storeId = storesRes.stores?.[0]?.id;
+    if (!storeId) throw new Error('No store connected yet. Set one up in Settings.');
+
+    await $fetch(`${apiBase}/v1/stores/${storeId}/sync`, {
+      method: 'POST',
+      credentials: 'include',
+    });
+
+    // Refresh product list after a short delay to pick up any fast changes
+    setTimeout(() => refresh(), 3000);
+  } catch (err: any) {
+    syncError.value = err?.data?.message || err?.message || 'Sync failed. Please try again.';
+  } finally {
+    syncing.value = false;
+  }
 };
 
-// CSV export
-const exportCsv = () => {
+// ── CSV export ────────────────────────────────────────────────────────────────
+const exportCsv = async () => {
   const rows = products.value as Record<string, unknown>[];
   if (!rows.length) return;
   const headers = ['title', 'sku', 'category', 'score', 'roas', 'blendedRoas', 'ctr', 'margin', 'spend', 'revenue', 'impressions', 'clicks', 'conversions'];
@@ -423,5 +464,12 @@ const exportCsv = () => {
   a.download = `metaflow-products-${new Date().toISOString().slice(0, 10)}.csv`;
   a.click();
   URL.revokeObjectURL(url);
+
+  // Notify backend so an export confirmation email can be sent
+  $fetch(`${apiBase}/v1/products/notify-export`, {
+    method: 'POST',
+    credentials: 'include',
+    body: { productCount: rows.length },
+  }).catch(() => {/* non-critical — ignore errors */});
 };
 </script>

@@ -5,6 +5,7 @@
       "name": "MetaFlow Dev",
       "runtimeExecutable": "/Users/mac/.nvm/versions/node/v22.22.0/bin/node",
       "runtimeArgs": ["/Users/mac/Documents/Now and Future/MetaFlow APp/node_modules/.bin/nuxt", "dev"],
+      "env": { "NUXT_DEV_PREVIEW": "1" },
       "port": 3002
     }
   ]

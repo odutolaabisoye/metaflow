@@ -32,7 +32,9 @@
           <h2 class="font-semibold">Integrations</h2>
           <p class="text-xs text-white/40 mt-0.5">Your connected platforms and data sources</p>
         </div>
+        <!-- Only show "Add integration" when no store is connected yet -->
         <NuxtLink
+          v-if="!connectedStorePlatform && !loadingConnections"
           to="/app/onboarding"
           class="flex items-center gap-2 rounded-xl border border-white/15 bg-white/5 px-4 py-2 text-xs font-medium text-white/60 hover:bg-white/10 hover:text-white transition-all"
         >
@@ -43,7 +45,13 @@
         </NuxtLink>
       </div>
 
-      <div class="space-y-3">
+      <!-- Loading skeleton -->
+      <div v-if="loadingConnections" class="space-y-3">
+        <div class="h-32 rounded-2xl bg-white/5 animate-pulse"></div>
+        <div class="h-16 rounded-xl bg-white/5 animate-pulse"></div>
+      </div>
+
+      <div v-else class="space-y-3">
 
         <!-- Store platform -->
         <div class="rounded-2xl border border-white/10 bg-white/[0.03] overflow-hidden">
@@ -56,7 +64,9 @@
                 class="flex items-center gap-3 rounded-xl border p-3 transition-all"
                 :class="store.connected
                   ? 'border-lime-500/25 bg-lime-500/5'
-                  : 'border-white/8 bg-white/[0.02] opacity-60'"
+                  : store.disabled
+                    ? 'border-white/8 bg-white/[0.02] opacity-35'
+                    : 'border-white/8 bg-white/[0.02] opacity-60'"
               >
                 <div class="h-8 w-8 rounded-lg flex items-center justify-center flex-shrink-0" :style="{ background: store.iconBg }">
                   <svg class="w-4 h-4" :style="{ color: store.iconColor }" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5" v-html="store.icon"></svg>
@@ -70,8 +80,28 @@
                     <span class="h-1.5 w-1.5 rounded-full" :class="store.connected ? 'bg-lime-400 animate-pulse' : 'bg-white/15'"></span>
                     {{ store.connected ? 'Active' : 'Not connected' }}
                   </span>
-                  <NuxtLink to="/app/onboarding" class="text-xs transition-colors whitespace-nowrap" :class="store.connected ? 'text-white/40 hover:text-white/70' : 'text-glow-500/80 hover:text-glow-500'">
-                    {{ store.connected ? 'Reconnect' : 'Connect →' }}
+                  <!-- Connected: show Disconnect -->
+                  <button
+                    v-if="store.connected"
+                    @click="openDisconnect('store', connectedStore?.id ?? '', store.label)"
+                    class="text-xs text-ember-400 hover:text-ember-300 transition-colors whitespace-nowrap"
+                  >
+                    Disconnect
+                  </button>
+                  <!-- Disabled: another platform is active -->
+                  <span
+                    v-else-if="store.disabled"
+                    class="text-xs text-white/15 whitespace-nowrap select-none"
+                  >
+                    Connect →
+                  </span>
+                  <!-- Available: go to onboarding -->
+                  <NuxtLink
+                    v-else
+                    to="/app/onboarding"
+                    class="text-xs text-glow-500/80 hover:text-glow-500 transition-colors whitespace-nowrap"
+                  >
+                    Connect →
                   </NuxtLink>
                 </div>
               </div>
@@ -79,7 +109,7 @@
           </div>
         </div>
 
-        <!-- Meta Ads -->
+        <!-- Ads integrations (Meta) -->
         <div
           v-for="integration in adsIntegrations"
           :key="integration.id"
@@ -101,16 +131,17 @@
                 <span class="h-1.5 w-1.5 rounded-full" :class="integration.connected ? 'bg-lime-400 animate-pulse' : 'bg-white/15'"></span>
                 {{ integration.connected ? 'Connected' : 'Not connected' }}
               </span>
-              <p v-if="integration.subtext" class="text-xs text-white/25 mt-0.5">{{ integration.subtext }}</p>
             </div>
             <button
-              @click="connectIntegration(integration.id)"
+              @click="integration.connected
+                ? openDisconnect('connection', connectedMetaConn?.id ?? '', 'Meta Ads')
+                : connectMeta()"
               class="text-xs font-medium px-3 py-1.5 rounded-lg border transition-all whitespace-nowrap"
               :class="integration.connected
-                ? 'border-white/10 text-white/40 hover:text-white/70 hover:border-white/20'
+                ? 'border-ember-500/25 bg-ember-500/8 text-ember-400 hover:bg-ember-500/15'
                 : 'border-glow-500/25 bg-glow-500/8 text-glow-400 hover:bg-glow-500/15'"
             >
-              {{ integration.connected ? 'Reconnect' : 'Connect →' }}
+              {{ integration.connected ? 'Disconnect' : 'Connect →' }}
             </button>
           </div>
         </div>
@@ -314,7 +345,11 @@
             <p class="text-sm font-medium">Disconnect all integrations</p>
             <p class="text-xs text-white/35 mt-0.5">Remove all store and ad connections</p>
           </div>
-          <button class="text-xs text-white/40 hover:text-ember-400 border border-white/10 hover:border-ember-500/30 rounded-lg px-3 py-1.5 transition-all whitespace-nowrap ml-3">
+          <button
+            @click="connectedStore ? openDisconnect('store', connectedStore.id, 'all integrations') : undefined"
+            :disabled="!connectedStore || loadingConnections"
+            class="text-xs text-white/40 hover:text-ember-400 border border-white/10 hover:border-ember-500/30 rounded-lg px-3 py-1.5 transition-all whitespace-nowrap ml-3 disabled:opacity-30 disabled:cursor-not-allowed"
+          >
             Disconnect
           </button>
         </div>
@@ -322,6 +357,71 @@
     </div>
 
   </div>
+
+  <!-- ── Disconnect confirmation modal ── -->
+  <Teleport to="body">
+    <Transition name="modal-fade">
+      <div v-if="disconnectModal" class="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <!-- Backdrop -->
+        <div class="absolute inset-0 bg-black/60 backdrop-blur-sm" @click="!disconnecting && (disconnectModal = false)"></div>
+        <!-- Panel -->
+        <div class="relative w-full max-w-md rounded-2xl border border-white/15 bg-ink-900 shadow-2xl overflow-hidden">
+          <!-- Red accent top bar -->
+          <div class="h-1 w-full bg-gradient-to-r from-ember-500 to-ember-400"></div>
+          <div class="p-6">
+            <div class="flex items-start gap-4 mb-5">
+              <div class="h-10 w-10 flex-shrink-0 rounded-xl bg-ember-500/10 border border-ember-500/20 flex items-center justify-center">
+                <svg class="w-5 h-5 text-ember-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z"/>
+                </svg>
+              </div>
+              <div class="min-w-0">
+                <h3 class="text-base font-semibold">Disconnect {{ disconnectTarget?.label }}?</h3>
+                <p class="text-sm text-white/50 mt-1 leading-relaxed">
+                  This will permanently remove your
+                  <strong class="text-white/70">{{ disconnectTarget?.label }}</strong>
+                  integration{{ disconnectTarget?.type === 'store' ? ' and all associated products, metrics, and data' : '' }}.
+                  This action cannot be undone.
+                </p>
+              </div>
+            </div>
+
+            <p class="text-xs text-white/40 mb-2">
+              Type <span class="font-mono font-semibold text-ember-400">Disconnect</span> to confirm:
+            </p>
+            <input
+              v-model="disconnectConfirmText"
+              type="text"
+              placeholder="Disconnect"
+              class="form-input mb-4"
+              @keyup.enter="disconnectConfirmText === 'Disconnect' && doDisconnect()"
+            />
+
+            <div class="flex gap-3">
+              <button
+                @click="disconnectModal = false"
+                :disabled="disconnecting"
+                class="flex-1 rounded-xl border border-white/15 bg-white/5 py-2.5 text-sm font-medium text-white/60 hover:bg-white/10 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                Cancel
+              </button>
+              <button
+                @click="doDisconnect"
+                :disabled="disconnectConfirmText !== 'Disconnect' || disconnecting"
+                class="flex-1 flex items-center justify-center gap-2 rounded-xl bg-ember-500 py-2.5 text-sm font-semibold text-white transition-all hover:bg-ember-400 disabled:opacity-30 disabled:cursor-not-allowed"
+              >
+                <svg v-if="disconnecting" class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                  <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+                  <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+                </svg>
+                {{ disconnecting ? 'Disconnecting…' : 'Disconnect' }}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </Transition>
+  </Teleport>
 </template>
 
 <script setup lang="ts">
@@ -339,60 +439,161 @@ if (process.client) {
   if (metaError.value) setTimeout(() => { metaError.value = ''; }, 8000);
 }
 
-// Connect integration handler
-const connectIntegration = (integrationId: string) => {
-  if (integrationId === 'meta') {
-    // Redirect to backend Meta OAuth — storeId can be set when real store is available
-    const params = new URLSearchParams({ storeId: 'placeholder' });
-    window.location.href = `${apiBase}/v1/connections/meta/auth?${params.toString()}`;
+// ── Shared store state with layout sidebar ────────────────────────────────────
+// Uses useState so the sidebar Onboarding link reacts instantly when we disconnect
+const hasStore = useState<boolean>('mf_has_store', () => false);
+
+// ── Connection types ──────────────────────────────────────────────────────────
+interface ConnRecord {
+  id: string;
+  provider: string;
+  scopes: string;
+  expiresAt: string | null;
+}
+interface StoreRecord {
+  id: string;
+  name: string;
+  platform: string;
+  connections: ConnRecord[];
+}
+
+// ── Connection state ──────────────────────────────────────────────────────────
+const stores = ref<StoreRecord[]>([]);
+const loadingConnections = ref(true);
+
+// The first (and currently only) connected store
+const connectedStore = computed(() => stores.value[0] ?? null);
+
+// Which store platform is active: "SHOPIFY" | "WOOCOMMERCE" | "API" | null
+const connectedStorePlatform = computed(() => connectedStore.value?.platform ?? null);
+
+// The Meta Ads connection if any store has one
+const connectedMetaConn = computed<(ConnRecord & { storeId: string }) | null>(() => {
+  for (const s of stores.value) {
+    const mc = s.connections.find(c => c.provider === 'META');
+    if (mc) return { ...mc, storeId: s.id };
   }
+  return null;
+});
+
+async function loadConnections() {
+  loadingConnections.value = true;
+  try {
+    const res = await $fetch<{ ok: boolean; stores: StoreRecord[] }>(
+      `${apiBase}/v1/connections`,
+      { credentials: 'include' }
+    );
+    if (res.ok) stores.value = res.stores;
+  } catch { /* network error — leave state empty */ }
+  loadingConnections.value = false;
+}
+
+onMounted(() => { loadConnections(); });
+
+// ── Disconnect modal ──────────────────────────────────────────────────────────
+const disconnectModal = ref(false);
+const disconnectConfirmText = ref('');
+const disconnecting = ref(false);
+const disconnectTarget = ref<{ type: 'store' | 'connection'; id: string; label: string } | null>(null);
+
+function openDisconnect(type: 'store' | 'connection', id: string, label: string) {
+  if (!id) return;
+  disconnectTarget.value = { type, id, label };
+  disconnectConfirmText.value = '';
+  disconnectModal.value = true;
+}
+
+async function doDisconnect() {
+  if (!disconnectTarget.value || disconnectConfirmText.value !== 'Disconnect') return;
+  disconnecting.value = true;
+  try {
+    const { type, id } = disconnectTarget.value;
+    if (type === 'store') {
+      // Delete the entire store — cascades to all its connections + products + metrics
+      await $fetch(`${apiBase}/v1/stores/${id}`, {
+        method: 'DELETE',
+        credentials: 'include',
+      });
+      stores.value = [];
+      hasStore.value = false;   // Onboarding reappears in the sidebar immediately
+    } else {
+      // Delete only the specific provider connection (e.g. Meta Ads)
+      await $fetch(`${apiBase}/v1/connections/${id}`, {
+        method: 'DELETE',
+        credentials: 'include',
+      });
+      await loadConnections(); // Re-fetch so Meta card updates
+    }
+    disconnectModal.value = false;
+  } catch {
+    disconnectModal.value = false;
+  } finally {
+    disconnecting.value = false;
+  }
+}
+
+// ── Connect Meta Ads (requires a real storeId) ────────────────────────────────
+const connectMeta = () => {
+  const storeId = connectedStore.value?.id;
+  if (!storeId) {
+    // No store connected yet — go through onboarding first
+    navigateTo('/app/onboarding');
+    return;
+  }
+  window.location.href = `${apiBase}/v1/connections/meta/auth?storeId=${storeId}`;
 };
 
-// ── Integrations state ──
-const storeIntegrations = ref([
+// ── Integrations (computed from live connection state) ────────────────────────
+const STORE_DEFS = [
   {
-    id: 'shopify',
+    id: 'SHOPIFY',
     label: 'Shopify',
     detail: 'App Store install · catalog + orders sync',
-    connected: false,
     iconBg: 'rgba(150,191,72,0.12)',
     iconColor: '#96BF48',
     icon: '<path stroke-linecap="round" stroke-linejoin="round" d="M2.25 3h1.386c.51 0 .955.343 1.087.835l.383 1.437M7.5 14.25a3 3 0 00-3 3h15.75m-12.75-3h11.218c1.121-2.3 2.1-4.684 2.924-7.138a60.114 60.114 0 00-16.536-1.84M7.5 14.25L5.106 5.272M6 20.25a.75.75 0 11-1.5 0 .75.75 0 011.5 0zm12.75 0a.75.75 0 11-1.5 0 .75.75 0 011.5 0z"/>',
   },
   {
-    id: 'woocommerce',
+    id: 'WOOCOMMERCE',
     label: 'WooCommerce',
     detail: 'REST API · consumer key + webhook',
-    connected: false,
     iconBg: 'rgba(127,84,179,0.12)',
     iconColor: '#9B72CF',
     icon: '<path stroke-linecap="round" stroke-linejoin="round" d="M6.75 7.5l3 2.25-3 2.25m4.5 0h3m-9 8.25h13.5A2.25 2.25 0 0021 18V6a2.25 2.25 0 00-2.25-2.25H5.25A2.25 2.25 0 003 6v12a2.25 2.25 0 002.25 2.25z"/>',
   },
   {
-    id: 'api',
+    id: 'API',
     label: 'Custom API',
     detail: 'REST endpoint · Bearer token auth',
-    connected: false,
     iconBg: 'rgba(34,211,238,0.1)',
     iconColor: '#22d3ee',
     icon: '<path stroke-linecap="round" stroke-linejoin="round" d="M14.25 9.75L16.5 12l-2.25 2.25m-4.5 0L7.5 12l2.25-2.25M6 20.25h12A2.25 2.25 0 0020.25 18V6A2.25 2.25 0 0018 3.75H6A2.25 2.25 0 003.75 6v12A2.25 2.25 0 006 20.25z"/>',
   },
-]);
+];
 
-const adsIntegrations = ref([
+// Computed store integrations: marks which is connected and which are disabled
+const storeIntegrations = computed(() =>
+  STORE_DEFS.map(def => ({
+    ...def,
+    connected: connectedStorePlatform.value === def.id,
+    // Disabled when a *different* store platform is already connected
+    disabled: !!connectedStorePlatform.value && connectedStorePlatform.value !== def.id,
+  }))
+);
+
+const adsIntegrations = computed(() => [
   {
     id: 'meta',
     label: 'Meta Ads',
     detail: 'Catalog performance · product sets · budget automation',
-    connected: false,
-    subtext: '',
+    connected: !!connectedMetaConn.value,
     iconBg: 'rgba(24,119,242,0.12)',
     iconColor: '#1877F2',
     iconContent: '<path fill="#1877F2" d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>',
   },
 ]);
 
-// ── Automation rules ──
+// ── Automation rules ──────────────────────────────────────────────────────────
 const rules = reactive({
   scale:     data.value?.rules?.scale     ?? true,
   test:      data.value?.rules?.test      ?? true,
@@ -401,10 +602,10 @@ const rules = reactive({
 });
 
 const automationRules = [
-  { key: 'scale',     label: 'Scale winners (score ≥ threshold)',    desc: 'Move to SCALE set, increase budget by 15%',          bg: 'rgba(132,204,22,0.12)',  color: '#84cc16' },
-  { key: 'test',      label: 'Test mid-performers (50–79)',           desc: 'Keep in TEST set, monitor 7-day trend',              bg: 'rgba(34,211,238,0.1)',   color: '#22d3ee' },
-  { key: 'kill',      label: 'Kill underperformers (below threshold)', desc: 'Move to KILL set, reduce or pause spend',           bg: 'rgba(249,115,22,0.1)',   color: '#f97316' },
-  { key: 'inventory', label: 'Inventory risk throttle',               desc: 'Limit spend when stock drops below 15 units',        bg: 'rgba(139,92,246,0.1)',   color: '#a78bfa' },
+  { key: 'scale',     label: 'Scale winners (score ≥ threshold)',     desc: 'Move to SCALE set, increase budget by 15%',    bg: 'rgba(132,204,22,0.12)', color: '#84cc16' },
+  { key: 'test',      label: 'Test mid-performers (50–79)',            desc: 'Keep in TEST set, monitor 7-day trend',        bg: 'rgba(34,211,238,0.1)',  color: '#22d3ee' },
+  { key: 'kill',      label: 'Kill underperformers (below threshold)', desc: 'Move to KILL set, reduce or pause spend',      bg: 'rgba(249,115,22,0.1)', color: '#f97316' },
+  { key: 'inventory', label: 'Inventory risk throttle',                desc: 'Limit spend when stock drops below 15 units',  bg: 'rgba(139,92,246,0.1)', color: '#a78bfa' },
 ];
 
 const thresholds = [
@@ -415,7 +616,7 @@ const thresholds = [
 
 const thresholdValues = reactive({ scale: 80, test: 50, kill: 25 });
 
-// ── Notifications ──
+// ── Notifications ─────────────────────────────────────────────────────────────
 const notifications = reactive({
   emailReports:   data.value?.notifications?.emailReports   ?? true,
   whatsappAlerts: data.value?.notifications?.whatsappAlerts ?? false,
@@ -423,16 +624,21 @@ const notifications = reactive({
 });
 
 const notificationItems = [
-  { key: 'emailReports',   label: 'Email reports',         desc: 'Daily AI briefing + scoring summary sent to your inbox' },
-  { key: 'whatsappAlerts', label: 'WhatsApp alerts',       desc: 'Critical inventory and budget alerts via WhatsApp' },
-  { key: 'weeklyDigest',   label: 'Weekly KPI digest',     desc: 'Friday summary of catalog performance and wins' },
+  { key: 'emailReports',   label: 'Email reports',     desc: 'Daily AI briefing + scoring summary sent to your inbox' },
+  { key: 'whatsappAlerts', label: 'WhatsApp alerts',   desc: 'Critical inventory and budget alerts via WhatsApp' },
+  { key: 'weeklyDigest',   label: 'Weekly KPI digest', desc: 'Friday summary of catalog performance and wins' },
 ];
 
-// ── Billing ──
+// ── Billing ───────────────────────────────────────────────────────────────────
 const billing = computed(() => data.value?.billing ?? { plan: 'Growth', price: '$149', nextInvoice: '—' });
 </script>
 
 <style scoped>
 .fade-up-enter-active, .fade-up-leave-active { transition: all 0.3s ease; }
 .fade-up-enter-from, .fade-up-leave-to { opacity: 0; transform: translateY(-6px); }
+
+/* Modal backdrop fade */
+.modal-fade-enter-active { transition: opacity 0.2s ease; }
+.modal-fade-leave-active { transition: opacity 0.15s ease; }
+.modal-fade-enter-from, .modal-fade-leave-to { opacity: 0; }
 </style>

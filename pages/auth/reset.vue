@@ -111,11 +111,12 @@ const loadCsrf = async () => {
   } catch {}
 };
 
-await loadCsrf();
+onMounted(loadCsrf);
 
 const submit = async () => {
   error.value = '';
   pending.value = true;
+  if (!csrfToken.value) await loadCsrf();
   try {
     await $fetch(`${apiBase}/v1/auth/reset`, {
       method: 'POST',

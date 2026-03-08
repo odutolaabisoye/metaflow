@@ -106,7 +106,6 @@
 <script setup lang="ts">
 definePageMeta({ layout: 'auth' });
 
-const router = useRouter();
 const config = useRuntimeConfig();
 const apiBase = config.public.apiBase;
 
@@ -117,6 +116,12 @@ const showPassword = ref(false);
 const rememberMe = ref(false);
 
 const form = reactive({ email: '', password: '' });
+const authFlag = useCookie('mf_auth', {
+  sameSite: 'lax',
+  path: '/',
+  maxAge: 60 * 60 * 24 * 7,
+});
+
 
 const loadCsrf = async () => {
   try {
@@ -125,11 +130,15 @@ const loadCsrf = async () => {
   } catch {}
 };
 
-await loadCsrf();
+// Must run client-side so the CSRF cookie is set in the browser's cookie jar,
+// not on the Nuxt SSR server where it would be unreachable during form submission.
+onMounted(loadCsrf);
 
 const submit = async () => {
   error.value = '';
   pending.value = true;
+  // Refresh CSRF token if missing (e.g. page was cached without it)
+  if (!csrfToken.value) await loadCsrf();
   try {
     await $fetch(`${apiBase}/v1/auth/login`, {
       method: 'POST',
@@ -137,7 +146,12 @@ const submit = async () => {
       headers: { 'x-csrf-token': csrfToken.value },
       body: { email: form.email, password: form.password },
     });
-    await router.push('/app');
+    // Set UI presence flag client-side so middleware can pass immediately.
+    authFlag.value = '1';
+    // Also ask the Nuxt server (same origin) to set mf_auth=1 in its response.
+    // This guarantees the cookie is scoped to the Nuxt origin for SSR.
+    await $fetch('/api/auth/set-session', { method: 'POST' }).catch(() => {});
+    await navigateTo('/app');
   } catch (err: any) {
     error.value = err?.data?.message || 'Invalid email or password. Please try again.';
   } finally {

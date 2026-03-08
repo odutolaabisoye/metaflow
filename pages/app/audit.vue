@@ -122,7 +122,12 @@ import { useGlobalFilters } from "~/composables/useGlobalFilters";
 const { query } = useGlobalFilters();
 const activeFilter = ref('all');
 
-const { data, pending } = await useFetch("/api/audit", { query });
+const { public: { apiBase } } = useRuntimeConfig();
+const { data, pending } = await useFetch(`${apiBase}/v1/audit`, {
+  server: false,
+  credentials: 'include',
+  query
+});
 
 const events = computed(() => data.value?.events ?? []);
 

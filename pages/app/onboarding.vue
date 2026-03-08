@@ -434,26 +434,46 @@
         </div>
       </div>
 
+      <!-- Save error -->
+      <Transition name="fade-up">
+        <div v-if="saveError" class="mt-5 flex items-center justify-between gap-3 rounded-xl border border-ember-500/25 bg-ember-500/8 px-4 py-3">
+          <div class="flex items-center gap-2.5">
+            <svg class="w-4 h-4 text-ember-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z"/>
+            </svg>
+            <p class="text-sm text-ember-400">{{ saveError }}</p>
+          </div>
+          <button @click="saveError = ''" class="text-ember-400/60 hover:text-ember-400 transition-colors flex-shrink-0">
+            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+          </button>
+        </div>
+      </Transition>
+
       <!-- Navigation buttons -->
-      <div class="mt-8 flex items-center justify-between">
+      <div class="mt-6 flex items-center justify-between">
         <button
           v-if="step > 0"
+          :disabled="saving"
           @click="step--"
-          class="flex items-center gap-2 rounded-xl border border-white/15 bg-white/5 px-5 py-2.5 text-sm font-medium text-white/60 hover:bg-white/10 hover:text-white transition-all"
+          class="flex items-center gap-2 rounded-xl border border-white/15 bg-white/5 px-5 py-2.5 text-sm font-medium text-white/60 hover:bg-white/10 hover:text-white transition-all disabled:opacity-40 disabled:cursor-not-allowed"
         >
           ← Back
         </button>
         <div v-else></div>
 
         <button
-          :disabled="!canProceed"
+          :disabled="!canProceed || saving"
           @click="step < steps.length - 1 ? step++ : finishSetup()"
           class="flex items-center gap-2 rounded-xl px-6 py-2.5 text-sm font-semibold transition-all disabled:opacity-35 disabled:cursor-not-allowed"
           :class="step === steps.length - 1
             ? 'bg-white text-ink-950 hover:bg-white/90'
             : 'bg-glow-500/15 border border-glow-500/30 text-glow-300 hover:bg-glow-500/25'"
         >
-          {{ step === steps.length - 1 ? 'Finish setup' : 'Continue' }} →
+          <svg v-if="saving" class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+          </svg>
+          {{ saving ? 'Saving…' : step === steps.length - 1 ? 'Finish setup' : 'Continue' }} →
         </button>
       </div>
     </div>
@@ -581,7 +601,7 @@ const canProceed = computed(() => {
     if (form.platform === 'API') return Boolean(form.storeName && form.storeUrl && form.apiKey);
   }
   if (step.value === 1) return Boolean(form.adAccountId && form.adAccountCurrency);
-  if (step.value === 2) return Boolean(form.goal && form.focus.length > 0);
+  if (step.value === 2) return Boolean(form.goal);
   return true;
 });
 
@@ -596,10 +616,69 @@ const reviewItems = computed(() => [
   { label: 'Automation',     value: form.enableAutomation ? 'Enabled' : 'Disabled' },
 ]);
 
-const finishSetup = () => {
-  metaCurrency.value = form.adAccountCurrency || metaCurrency.value;
-  storeCurrency.value = form.storeCurrency || storeCurrency.value;
-  navigateTo('/app');
+const saving = ref(false);
+const saveError = ref('');
+
+const finishSetup = async () => {
+  if (saving.value) return;
+  saving.value = true;
+  saveError.value = '';
+
+  try {
+    const apiBase = config.public.apiBase;
+
+    // Build the store URL from platform-specific fields
+    const storeUrl =
+      form.platform === 'Shopify'
+        ? `https://${form.shopifySubdomain}.myshopify.com`
+        : form.storeUrl;
+
+    const platformMap: Record<string, string> = {
+      Shopify: 'SHOPIFY',
+      WooCommerce: 'WOOCOMMERCE',
+      API: 'API',
+    };
+
+    // 1. Create the store
+    const storeRes = await $fetch<{ ok: boolean; store: { id: string } }>(
+      `${apiBase}/v1/stores`,
+      {
+        method: 'POST',
+        credentials: 'include',
+        body: {
+          name: form.storeName,
+          platform: platformMap[form.platform],
+          storeUrl,
+          currency: form.storeCurrency || 'USD',
+        },
+      }
+    );
+
+    const storeId = storeRes.store?.id;
+
+    // 2. For WooCommerce, connect the REST API credentials
+    if (form.platform === 'WooCommerce' && storeId) {
+      await $fetch(`${apiBase}/v1/connections/woocommerce`, {
+        method: 'POST',
+        credentials: 'include',
+        body: {
+          storeId,
+          consumerKey: form.apiKey,
+          consumerSecret: form.apiSecret,
+        },
+      });
+    }
+
+    // 3. Persist currency preferences
+    metaCurrency.value = form.adAccountCurrency || metaCurrency.value;
+    storeCurrency.value = form.storeCurrency || storeCurrency.value;
+
+    navigateTo('/app');
+  } catch (err: any) {
+    saveError.value = err?.data?.message || 'Failed to save. Please try again.';
+  } finally {
+    saving.value = false;
+  }
 };
 </script>
 

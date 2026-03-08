@@ -81,6 +81,20 @@
           </div>
         </div>
 
+        <!-- Performance chart -->
+        <div v-if="product.history?.length" class="px-6 mb-2 flex-shrink-0">
+          <div class="flex items-center justify-between mb-2">
+            <h3 class="text-xs text-white/40 uppercase tracking-widest font-medium">Performance</h3>
+            <span class="text-[10px] text-white/20 font-mono">daily · 30d</span>
+          </div>
+          <div class="rounded-2xl border border-white/8 bg-white/[0.02] px-4 pt-3 pb-2">
+            <PerformanceChart :data="product.history" />
+          </div>
+        </div>
+
+        <!-- Divider -->
+        <div class="mx-6 my-4 h-px bg-white/8 flex-shrink-0"></div>
+
         <!-- Blended ROAS hero -->
         <div class="mx-6 mb-4 rounded-2xl border border-glow-500/20 bg-glow-500/[0.06] p-4 flex-shrink-0">
           <div class="flex items-center justify-between">
@@ -234,6 +248,13 @@
 </template>
 
 <script setup lang="ts">
+interface HistoryPoint {
+  date: string
+  revenue: number
+  roas: number
+  spend: number
+}
+
 interface Product {
   id: string
   title: string
@@ -253,6 +274,7 @@ interface Product {
   conversionRate: number
   imageUrl: string
   productUrl: string
+  history?: HistoryPoint[]
 }
 
 const props = defineProps<{

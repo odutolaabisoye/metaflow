@@ -118,7 +118,54 @@
               <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M14.857 17.082a23.848 23.848 0 005.454-1.31A8.967 8.967 0 0118 9.75v-.7V9A6 6 0 006 9v.75a8.967 8.967 0 01-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 01-5.714 0m5.714 0a3 3 0 11-5.714 0"/></svg>
               <span class="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-ember-500 border border-ink-950"></span>
             </NuxtLink>
-            <NuxtLink to="/app/settings" class="h-8 w-8 rounded-xl bg-gradient-to-br from-glow-500/20 to-lime-500/20 border border-white/15 flex items-center justify-center text-xs font-bold text-glow-400 hover:border-white/25 transition-all" title="Account settings">U</NuxtLink>
+            <!-- Profile dropdown -->
+            <div class="relative" ref="profileRef">
+              <button
+                @click="profileOpen = !profileOpen"
+                class="h-8 w-8 rounded-xl bg-gradient-to-br from-glow-500/20 to-lime-500/20 border border-white/15 flex items-center justify-center text-xs font-bold text-glow-400 hover:border-white/25 transition-all"
+                title="Account"
+              >
+                {{ userInitial }}
+              </button>
+
+              <Transition name="dropdown">
+                <div v-if="profileOpen" class="absolute right-0 top-10 z-50 w-60 rounded-2xl border border-white/15 bg-ink-900/95 backdrop-blur-xl shadow-2xl overflow-hidden">
+                  <!-- User info header -->
+                  <div class="px-4 py-3 border-b border-white/10">
+                    <div class="flex items-center gap-3">
+                      <div class="h-9 w-9 rounded-xl bg-gradient-to-br from-glow-500/25 to-lime-500/25 flex items-center justify-center text-sm font-bold text-glow-400 flex-shrink-0">
+                        {{ userInitial }}
+                      </div>
+                      <div class="min-w-0">
+                        <p class="text-sm font-semibold truncate">{{ user?.name || 'Account' }}</p>
+                        <p class="text-xs text-white/40 truncate">{{ user?.email || '' }}</p>
+                      </div>
+                    </div>
+                  </div>
+                  <!-- Actions -->
+                  <div class="p-1.5 space-y-0.5">
+                    <NuxtLink
+                      to="/app/settings"
+                      @click="profileOpen = false"
+                      class="flex items-center gap-2.5 rounded-xl px-3 py-2 text-sm text-white/60 hover:text-white hover:bg-white/5 transition-colors"
+                    >
+                      <svg class="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.325.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 011.37.49l1.296 2.247a1.125 1.125 0 01-.26 1.431l-1.003.827c-.293.241-.438.613-.43.992a7.723 7.723 0 010 .255c-.008.378.137.75.43.991l1.004.827c.424.35.534.955.26 1.43l-1.298 2.247a1.125 1.125 0 01-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.47 6.47 0 01-.22.128c-.331.183-.581.495-.644.869l-.213 1.281c-.09.543-.56.94-1.11.94h-2.594c-.55 0-1.019-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 01-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 01-1.369-.49l-1.297-2.247a1.125 1.125 0 01.26-1.431l1.004-.827c.292-.24.437-.613.43-.991a6.932 6.932 0 010-.255c.007-.38-.138-.751-.43-.992l-1.004-.827a1.125 1.125 0 01-.26-1.43l1.297-2.247a1.125 1.125 0 011.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.086.22-.128.332-.183.582-.495.644-.869l.214-1.28z"/><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+                      Profile & Settings
+                    </NuxtLink>
+                    <div class="h-px bg-white/8 mx-1 my-0.5"></div>
+                    <button
+                      @click="logout"
+                      :disabled="loggingOut"
+                      class="w-full flex items-center gap-2.5 rounded-xl px-3 py-2 text-sm text-ember-400 hover:text-ember-300 hover:bg-ember-500/5 transition-colors disabled:opacity-50"
+                    >
+                      <svg v-if="!loggingOut" class="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15m3 0l3-3m0 0l-3-3m3 3H9"/></svg>
+                      <svg v-else class="w-4 h-4 flex-shrink-0 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+                      Sign out
+                    </button>
+                  </div>
+                </div>
+              </Transition>
+            </div>
           </div>
         </header>
 
@@ -163,9 +210,68 @@
 import { useGlobalFilters } from '~/composables/useGlobalFilters';
 
 const route = useRoute();
+const config = useRuntimeConfig();
 const navOpen = ref(false);
 const sidebarOpen = ref(true);
+const profileOpen = ref(false);
+const loggingOut = ref(false);
+const profileRef = ref<HTMLElement | null>(null);
 const { selectedRange, rangeOptions } = useGlobalFilters();
+
+// ── User profile & store state ────────────────────────────────────────────────
+const user = ref<{ id: string; email: string; name: string | null } | null>(null);
+// Use useState so settings.vue can update this after a disconnect
+const hasStore = useState<boolean>('mf_has_store', () => false);
+
+const userInitial = computed(() => {
+  if (user.value?.name) return user.value.name.charAt(0).toUpperCase();
+  if (user.value?.email) return user.value.email.charAt(0).toUpperCase();
+  return '?';
+});
+
+onMounted(async () => {
+  // Fetch user + stores in parallel — both needed before rendering nav
+  await Promise.all([
+    $fetch<{ ok: boolean; user: { id: string; email: string; name: string | null } }>(
+      `${config.public.apiBase}/v1/auth/me`,
+      { credentials: 'include' }
+    ).then(res => { if (res.ok) user.value = res.user; }).catch(() => {}),
+
+    $fetch<{ ok: boolean; stores: { id: string }[] }>(
+      `${config.public.apiBase}/v1/stores`,
+      { credentials: 'include' }
+    ).then(res => { if (res.ok) hasStore.value = res.stores.length > 0; }).catch(() => {}),
+  ]);
+
+  // Close dropdown when clicking outside
+  const handleClickOutside = (e: MouseEvent) => {
+    if (profileRef.value && !profileRef.value.contains(e.target as Node)) {
+      profileOpen.value = false;
+    }
+  };
+  document.addEventListener('mousedown', handleClickOutside);
+  onUnmounted(() => document.removeEventListener('mousedown', handleClickOutside));
+});
+
+// ── Logout ───────────────────────────────────────────────────────────────────
+const authFlag = useCookie('mf_auth', { sameSite: 'lax', path: '/', maxAge: 0 });
+
+const logout = async () => {
+  loggingOut.value = true;
+  profileOpen.value = false;
+  try {
+    // Clear the real JWT session on the backend
+    await $fetch(`${config.public.apiBase}/v1/auth/logout`, {
+      method: 'POST',
+      credentials: 'include',
+    }).catch(() => {});
+    // Clear the Nuxt-side presence cookie
+    await $fetch('/api/auth/logout', { method: 'POST' }).catch(() => {});
+  } finally {
+    authFlag.value = null;
+    await navigateTo('/auth/login');
+  }
+};
 
 const nav = [
   {
@@ -183,16 +289,16 @@ const nav = [
   },
 ];
 
-const navSecondary = [
-  {
-    label: 'Settings', to: '/app/settings',
-    icon: '<path stroke-linecap="round" stroke-linejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.325.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 011.37.49l1.296 2.247a1.125 1.125 0 01-.26 1.431l-1.003.827c-.293.241-.438.613-.43.992a7.723 7.723 0 010 .255c-.008.378.137.75.43.991l1.004.827c.424.35.534.955.26 1.43l-1.298 2.247a1.125 1.125 0 01-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.47 6.47 0 01-.22.128c-.331.183-.581.495-.644.869l-.213 1.281c-.09.543-.56.94-1.11.94h-2.594c-.55 0-1.019-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 01-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 01-1.369-.49l-1.297-2.247a1.125 1.125 0 01.26-1.431l1.004-.827c.292-.24.437-.613.43-.991a6.932 6.932 0 010-.255c.007-.38-.138-.751-.43-.992l-1.004-.827a1.125 1.125 0 01-.26-1.43l1.297-2.247a1.125 1.125 0 011.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.086.22-.128.332-.183.582-.495.644-.869l.214-1.28z"/><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>',
-  },
-  {
-    label: 'Onboarding', to: '/app/onboarding',
-    icon: '<path stroke-linecap="round" stroke-linejoin="round" d="M15.59 14.37a6 6 0 01-5.84 7.38v-4.8m5.84-2.58a14.98 14.98 0 006.16-12.12A14.98 14.98 0 009.631 8.41m5.96 5.96a14.926 14.926 0 01-5.841 2.58m-.119-8.54a6 6 0 00-7.381 5.84h4.8m2.581-5.84a14.927 14.927 0 00-2.58 5.84m2.699 2.7c-.103.021-.207.041-.311.06a15.09 15.09 0 01-2.448-2.448 14.9 14.9 0 01.06-.312m-2.24 2.39a4.493 4.493 0 00-1.757 4.306 4.493 4.493 0 004.306-1.758M16.5 9a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0z"/>',
-  },
-];
+const SETTINGS_ICON = '<path stroke-linecap="round" stroke-linejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.325.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 011.37.49l1.296 2.247a1.125 1.125 0 01-.26 1.431l-1.003.827c-.293.241-.438.613-.43.992a7.723 7.723 0 010 .255c-.008.378.137.75.43.991l1.004.827c.424.35.534.955.26 1.43l-1.298 2.247a1.125 1.125 0 01-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.47 6.47 0 01-.22.128c-.331.183-.581.495-.644.869l-.213 1.281c-.09.543-.56.94-1.11.94h-2.594c-.55 0-1.019-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 01-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 01-1.369-.49l-1.297-2.247a1.125 1.125 0 01.26-1.431l1.004-.827c.292-.24.437-.613.43-.991a6.932 6.932 0 010-.255c.007-.38-.138-.751-.43-.992l-1.004-.827a1.125 1.125 0 01-.26-1.43l1.297-2.247a1.125 1.125 0 011.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.086.22-.128.332-.183.582-.495.644-.869l.214-1.28z"/><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>';
+const ONBOARDING_ICON = '<path stroke-linecap="round" stroke-linejoin="round" d="M15.59 14.37a6 6 0 01-5.84 7.38v-4.8m5.84-2.58a14.98 14.98 0 006.16-12.12A14.98 14.98 0 009.631 8.41m5.96 5.96a14.926 14.926 0 01-5.841 2.58m-.119-8.54a6 6 0 00-7.381 5.84h4.8m2.581-5.84a14.927 14.927 0 00-2.58 5.84m2.699 2.7c-.103.021-.207.041-.311.06a15.09 15.09 0 01-2.448-2.448 14.9 14.9 0 01.06-.312m-2.24 2.39a4.493 4.493 0 00-1.757 4.306 4.493 4.493 0 004.306-1.758M16.5 9a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0z"/>';
+
+// Show Onboarding in the nav only while no store is connected.
+// Once a store exists (onboarding completed), the link disappears.
+// If the store/connection is later removed, it reappears automatically.
+const navSecondary = computed(() => [
+  { label: 'Settings', to: '/app/settings', icon: SETTINGS_ICON },
+  ...(!hasStore.value ? [{ label: 'Onboarding', to: '/app/onboarding', icon: ONBOARDING_ICON }] : []),
+]);
 
 const pageTitle = computed(() => {
   if (route.path === '/app/products') return 'Product Scoring';
@@ -222,4 +328,8 @@ const pageSubtitle = computed(() => {
 <style scoped>
 .fade-enter-active, .fade-leave-active { transition: opacity 0.2s ease; }
 .fade-enter-from, .fade-leave-to { opacity: 0; }
+
+.dropdown-enter-active { transition: opacity 0.15s ease, transform 0.15s ease; }
+.dropdown-leave-active { transition: opacity 0.1s ease, transform 0.1s ease; }
+.dropdown-enter-from, .dropdown-leave-to { opacity: 0; transform: translateY(-6px) scale(0.97); }
 </style>

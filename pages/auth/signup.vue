@@ -136,7 +136,6 @@
 <script setup lang="ts">
 definePageMeta({ layout: 'auth' });
 
-const router = useRouter();
 const config = useRuntimeConfig();
 const apiBase = config.public.apiBase;
 
@@ -144,6 +143,11 @@ const pending = ref(false);
 const error = ref('');
 const csrfToken = ref('');
 const showPassword = ref(false);
+const authFlag = useCookie('mf_auth', {
+  sameSite: 'lax',
+  path: '/',
+  maxAge: 60 * 60 * 24 * 7,
+});
 
 const form = reactive({
   firstName: '',
@@ -163,6 +167,7 @@ const passwordStrength = computed(() => {
   return s;
 });
 
+
 const loadCsrf = async () => {
   try {
     const res = await $fetch<{ csrfToken: string }>(`${apiBase}/v1/csrf`, { credentials: 'include' });
@@ -170,19 +175,33 @@ const loadCsrf = async () => {
   } catch {}
 };
 
-await loadCsrf();
+// Must run client-side so the CSRF cookie is set in the browser's cookie jar,
+// not on the Nuxt SSR server where it would be unreachable during form submission.
+onMounted(loadCsrf);
 
 const submit = async () => {
   error.value = '';
   pending.value = true;
+  // Refresh CSRF token if missing (e.g. page was cached without it)
+  if (!csrfToken.value) await loadCsrf();
   try {
     await $fetch(`${apiBase}/v1/auth/signup`, {
       method: 'POST',
       credentials: 'include',
       headers: { 'x-csrf-token': csrfToken.value },
-      body: { email: form.email, password: form.password, platform: form.platform },
+      body: {
+        email: form.email,
+        password: form.password,
+        platform: form.platform,
+        name: [form.firstName, form.lastName].filter(Boolean).join(' ') || undefined,
+      },
     });
-    await router.push('/app/onboarding');
+    // Set UI presence flag client-side so middleware can pass immediately.
+    authFlag.value = '1';
+    // Also ask the Nuxt server (same origin) to set mf_auth=1 in its response.
+    // This guarantees the cookie is scoped to the Nuxt origin for SSR.
+    await $fetch('/api/auth/set-session', { method: 'POST' }).catch(() => {});
+    await navigateTo('/app/onboarding');
   } catch (err: any) {
     error.value = err?.data?.message || 'Could not create account. Please try again.';
   } finally {
