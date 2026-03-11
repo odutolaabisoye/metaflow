@@ -69,8 +69,12 @@ const syncWorker = new Worker(
         }
 
         case "META": {
-          const { accessToken } = job.data as { accessToken: string };
-          const result = await runMetaSync(prisma, { storeId, accessToken });
+          const { accessToken, metaAdAccountId, metaCatalogId } = job.data as {
+            accessToken: string;
+            metaAdAccountId?: string | null;
+            metaCatalogId?: string | null;
+          };
+          const result = await runMetaSync(prisma, { storeId, accessToken, metaAdAccountId, metaCatalogId });
           console.log(
             `[sync] Meta complete — ${result.adAccounts} accounts, ${result.insightsMatched} insights matched`
           );

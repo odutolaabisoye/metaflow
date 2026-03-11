@@ -23,7 +23,7 @@
             </div>
             <div v-if="sidebarOpen" class="min-w-0">
               <p class="text-sm font-semibold leading-none truncate">MetaFlow</p>
-              <p class="text-xs text-white/35 mt-0.5">Catalog Intelligence</p>
+              <p class="text-xs text-white/60 mt-0.5">Catalog Intelligence</p>
             </div>
           </NuxtLink>
         </div>
@@ -35,7 +35,7 @@
           <NuxtLink
             v-if="allStores.length === 0"
             to="/app/onboarding"
-            class="relative group/cta w-full flex items-center gap-2.5 rounded-xl border border-dashed border-white/12 px-2.5 py-2 text-white/40 hover:text-white/60 hover:border-white/20 hover:bg-white/[0.03] transition-colors"
+            class="relative group/cta w-full flex items-center gap-2.5 rounded-xl border border-dashed border-white/12 px-2.5 py-2 text-white/65 hover:text-white/80 hover:border-white/20 hover:bg-white/[0.03] transition-colors"
             :class="sidebarOpen ? '' : 'justify-center'"
           >
             <div class="h-8 w-8 flex-shrink-0 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center">
@@ -46,9 +46,9 @@
             <template v-if="sidebarOpen">
               <div class="flex-1 min-w-0">
                 <p class="text-xs font-semibold truncate">Connect a store</p>
-                <p class="text-[10px] leading-none mt-0.5 text-white/25 truncate">Set up your first business</p>
+                <p class="text-[10px] leading-none mt-0.5 text-white/50 truncate">Set up your first business</p>
               </div>
-              <svg class="w-3 h-3 flex-shrink-0 text-white/20" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <svg class="w-3 h-3 flex-shrink-0 text-white/45" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5"/>
               </svg>
             </template>
@@ -84,12 +84,12 @@
                   <p class="text-sm font-semibold text-white/90 leading-none mb-0.5 truncate">
                     {{ activeStore?.name ?? 'Select store' }}
                   </p>
-                  <p class="text-[11px] text-white/35 leading-none capitalize truncate">
+                  <p class="text-[11px] text-white/60 leading-none capitalize truncate">
                     {{ activeStore?.platform?.toLowerCase() ?? '' }}
                   </p>
                 </div>
                 <svg
-                  class="w-3.5 h-3.5 text-white/25 flex-shrink-0 transition-transform duration-200"
+                  class="w-3.5 h-3.5 text-white/50 flex-shrink-0 transition-transform duration-200"
                   :class="storeSwitcherOpen ? 'rotate-180' : ''"
                   fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"
                 >
@@ -132,11 +132,11 @@
                     <div class="flex-1 min-w-0">
                       <p
                         class="text-xs font-medium leading-none mb-0.5 truncate"
-                        :class="store.id === activeStore?.id ? 'text-white' : 'text-white/60'"
+                        :class="store.id === activeStore?.id ? 'text-white' : 'text-white/80'"
                       >
                         {{ store.name }}
                       </p>
-                      <p class="text-[10px] text-white/30 capitalize leading-none truncate">
+                      <p class="text-[10px] text-white/55 capitalize leading-none truncate">
                         {{ store.platform.toLowerCase() }}{{ store._count?.products != null ? ` · ${store._count.products} products` : '' }}
                       </p>
                     </div>
@@ -155,7 +155,7 @@
                   <NuxtLink
                     to="/app/onboarding"
                     @click="storeSwitcherOpen = false"
-                    class="flex items-center gap-2 rounded-lg px-2.5 py-2 text-[11px] font-medium text-white/40 hover:text-white/70 hover:bg-white/5 transition-colors"
+                    class="flex items-center gap-2 rounded-lg px-2.5 py-2 text-[11px] font-medium text-white/65 hover:text-white/70 hover:bg-white/5 transition-colors"
                   >
                     <svg class="w-3.5 h-3.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
                       <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/>
@@ -171,14 +171,14 @@
 
         <!-- Nav -->
         <nav class="flex-1 overflow-y-auto py-4 px-2 space-y-0.5">
-          <p v-if="sidebarOpen" class="px-3 py-2 text-[10px] font-semibold uppercase tracking-widest text-white/25">Main</p>
+          <p v-if="sidebarOpen" class="px-3 py-2 text-[10px] font-semibold uppercase tracking-widest text-white/50">Main</p>
 
           <NuxtLink
             v-for="item in nav"
             :key="item.to"
             :to="item.to"
             class="relative flex items-center gap-3 rounded-xl px-3 py-2.5 transition-all duration-200 group"
-            :class="route.path === item.to ? 'bg-white/10 text-white' : 'text-white/45 hover:text-white hover:bg-white/5'"
+            :class="route.path === item.to ? 'bg-white/10 text-white' : 'text-white/70 hover:text-white hover:bg-white/5'"
           >
             <div v-if="route.path === item.to" class="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-5 rounded-r-full" :style="{ background: item.color }"></div>
             <div class="h-8 w-8 flex-shrink-0 rounded-lg flex items-center justify-center transition-colors" :class="route.path === item.to ? 'bg-white/8' : 'group-hover:bg-white/5'" :style="route.path === item.to ? { color: item.color } : {}">
@@ -194,14 +194,14 @@
           </NuxtLink>
 
           <div class="my-3 border-t border-white/8 mx-2"></div>
-          <p v-if="sidebarOpen" class="px-3 py-2 text-[10px] font-semibold uppercase tracking-widest text-white/25">Workspace</p>
+          <p v-if="sidebarOpen" class="px-3 py-2 text-[10px] font-semibold uppercase tracking-widest text-white/50">Workspace</p>
 
           <NuxtLink
             v-for="item in navSecondary"
             :key="item.to"
             :to="item.to"
             class="relative flex items-center gap-3 rounded-xl px-3 py-2.5 transition-all duration-200 group"
-            :class="route.path === item.to ? 'bg-white/10 text-white' : 'text-white/45 hover:text-white hover:bg-white/5'"
+            :class="route.path === item.to ? 'bg-white/10 text-white' : 'text-white/70 hover:text-white hover:bg-white/5'"
           >
             <div class="h-8 w-8 flex-shrink-0 rounded-lg flex items-center justify-center">
               <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5" v-html="item.icon"></svg>
@@ -217,16 +217,16 @@
         <div class="flex-shrink-0 border-t border-white/10 p-3 space-y-2">
           <div v-if="sidebarOpen" class="rounded-xl bg-white/[0.04] border border-white/8 p-3">
             <div class="flex items-center justify-between mb-1.5">
-              <p class="text-xs text-white/40">Automation</p>
+              <p class="text-xs text-white/65">Automation</p>
               <span class="flex items-center gap-1 text-xs text-lime-400">
                 <span class="h-1.5 w-1.5 rounded-full bg-lime-400 animate-pulse"></span>
                 Live
               </span>
             </div>
             <p class="text-sm font-medium">4 rules running</p>
-            <p class="text-xs text-white/30 mt-0.5">Last action 12m ago</p>
+            <p class="text-xs text-white/55 mt-0.5">Last action 12m ago</p>
           </div>
-          <button class="w-full flex items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/[0.03] py-2 text-xs text-white/35 hover:text-white/60 hover:bg-white/5 transition-all" @click="sidebarOpen = !sidebarOpen">
+          <button class="w-full flex items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/[0.03] py-2 text-xs text-white/60 hover:text-white/80 hover:bg-white/5 transition-all" @click="sidebarOpen = !sidebarOpen">
             <svg class="w-3.5 h-3.5 transition-transform" :class="sidebarOpen ? '' : 'rotate-180'" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M18.75 19.5l-7.5-7.5 7.5-7.5m-6 15L5.25 12l7.5-7.5"/></svg>
             <span v-if="sidebarOpen" class="text-[11px]">Collapse</span>
           </button>
@@ -238,22 +238,22 @@
         <!-- Header -->
         <header class="flex-shrink-0 flex h-16 items-center justify-between border-b border-white/10 bg-ink-950/80 backdrop-blur-xl px-5 gap-4">
           <div class="flex items-center gap-3">
-            <button class="lg:hidden rounded-xl border border-white/10 bg-white/5 p-2 text-white/50 hover:text-white transition-colors" @click="navOpen = !navOpen">
+            <button class="lg:hidden rounded-xl border border-white/10 bg-white/5 p-2 text-white/75 hover:text-white transition-colors" @click="navOpen = !navOpen">
               <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5"/></svg>
             </button>
             <div class="hidden sm:flex items-center gap-2 text-sm">
-              <span class="text-white/30">MetaFlow</span>
-              <svg class="w-3.5 h-3.5 text-white/20" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5"/></svg>
+              <span class="text-white/55">MetaFlow</span>
+              <svg class="w-3.5 h-3.5 text-white/45" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5"/></svg>
               <span class="font-medium text-white/80">{{ pageTitle }}</span>
             </div>
           </div>
           <div class="flex items-center gap-2.5">
             <div class="hidden md:flex items-center gap-1.5 rounded-full bg-white/5 border border-white/10 px-3 py-1.5 text-xs">
               <span class="h-1.5 w-1.5 rounded-full bg-lime-400 animate-pulse"></span>
-              <span class="text-white/45">Meta sync healthy</span>
+              <span class="text-white/70">Meta sync healthy</span>
             </div>
             <div class="flex items-center gap-2">
-              <select v-model="selectedRange" class="rounded-xl border border-white/10 bg-white/[0.05] px-3 py-1.5 text-xs text-white/60 outline-none focus:border-glow-500/40 transition-colors cursor-pointer">
+              <select v-model="selectedRange" class="rounded-xl border border-white/10 bg-white/[0.05] px-3 py-1.5 text-xs text-white/80 outline-none focus:border-glow-500/40 transition-colors cursor-pointer">
                 <option v-for="opt in rangeOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
               </select>
               <div v-if="isCustom" class="flex items-center gap-2 flex-col sm:flex-row">
@@ -262,7 +262,7 @@
                   type="date"
                   class="rounded-xl border border-white/10 bg-white/[0.05] px-2.5 py-1 text-xs text-white/70 outline-none focus:border-glow-500/40 transition-colors w-[140px]"
                 />
-                <span class="text-xs text-white/35 hidden sm:inline">→</span>
+                <span class="text-xs text-white/60 hidden sm:inline">→</span>
                 <input
                   v-model="customEnd"
                   type="date"
@@ -270,7 +270,7 @@
                 />
               </div>
             </div>
-            <NuxtLink to="/app/audit" class="relative h-8 w-8 rounded-xl border border-white/10 bg-white/5 flex items-center justify-center text-white/45 hover:text-white hover:bg-white/10 transition-all" title="Activity log">
+            <NuxtLink to="/app/audit" class="relative h-8 w-8 rounded-xl border border-white/10 bg-white/5 flex items-center justify-center text-white/70 hover:text-white hover:bg-white/10 transition-all" title="Activity log">
               <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M14.857 17.082a23.848 23.848 0 005.454-1.31A8.967 8.967 0 0118 9.75v-.7V9A6 6 0 006 9v.75a8.967 8.967 0 01-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 01-5.714 0m5.714 0a3 3 0 11-5.714 0"/></svg>
               <span class="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-ember-500 border border-ink-950"></span>
             </NuxtLink>
@@ -294,7 +294,7 @@
                       </div>
                       <div class="min-w-0">
                         <p class="text-sm font-semibold truncate">{{ user?.name || 'Account' }}</p>
-                        <p class="text-xs text-white/40 truncate">{{ user?.email || '' }}</p>
+                        <p class="text-xs text-white/65 truncate">{{ user?.email || '' }}</p>
                       </div>
                     </div>
                   </div>
@@ -303,7 +303,7 @@
                     <NuxtLink
                       to="/app/settings"
                       @click="profileOpen = false"
-                      class="flex items-center gap-2.5 rounded-xl px-3 py-2 text-sm text-white/60 hover:text-white hover:bg-white/5 transition-colors"
+                      class="flex items-center gap-2.5 rounded-xl px-3 py-2 text-sm text-white/80 hover:text-white hover:bg-white/5 transition-colors"
                     >
                       <svg class="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.325.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 011.37.49l1.296 2.247a1.125 1.125 0 01-.26 1.431l-1.003.827c-.293.241-.438.613-.43.992a7.723 7.723 0 010 .255c-.008.378.137.75.43.991l1.004.827c.424.35.534.955.26 1.43l-1.298 2.247a1.125 1.125 0 01-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.47 6.47 0 01-.22.128c-.331.183-.581.495-.644.869l-.213 1.281c-.09.543-.56.94-1.11.94h-2.594c-.55 0-1.019-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 01-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 01-1.369-.49l-1.297-2.247a1.125 1.125 0 01.26-1.431l1.004-.827c.292-.24.437-.613.43-.991a6.932 6.932 0 010-.255c.007-.38-.138-.751-.43-.992l-1.004-.827a1.125 1.125 0 01-.26-1.43l1.297-2.247a1.125 1.125 0 011.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.086.22-.128.332-.183.582-.495.644-.869l.214-1.28z"/><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
                       Profile & Settings
@@ -344,12 +344,12 @@
               </div>
               <span class="font-semibold text-sm">MetaFlow</span>
             </div>
-            <button class="text-white/40 hover:text-white p-1" @click="navOpen = false">
+            <button class="text-white/65 hover:text-white p-1" @click="navOpen = false">
               <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
             </button>
           </div>
           <nav class="flex-1 p-4 space-y-0.5">
-            <NuxtLink v-for="item in [...nav, ...navSecondary]" :key="item.to" :to="item.to" class="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition-colors" :class="route.path === item.to ? 'bg-white/10 text-white' : 'text-white/50 hover:text-white hover:bg-white/5'" @click="navOpen = false">
+            <NuxtLink v-for="item in [...nav, ...navSecondary]" :key="item.to" :to="item.to" class="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition-colors" :class="route.path === item.to ? 'bg-white/10 text-white' : 'text-white/75 hover:text-white hover:bg-white/5'" @click="navOpen = false">
               <div class="h-7 w-7 rounded-lg flex items-center justify-center bg-white/5 flex-shrink-0">
                 <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5" v-html="item.icon"></svg>
               </div>
@@ -375,7 +375,7 @@ const profileRef = ref<HTMLElement | null>(null);
 const { selectedRange, rangeOptions, customStart, customEnd, isCustom } = useGlobalFilters();
 
 // ── User profile & store state ────────────────────────────────────────────────
-const user = ref<{ id: string; email: string; name: string | null } | null>(null);
+const user = ref<{ id: string; email: string; name: string | null; role?: string } | null>(null);
 // Use useState so settings.vue can update this after a disconnect
 const hasStore = useState<boolean>('mf_has_store', () => false);
 
@@ -451,7 +451,7 @@ async function refreshStores() {
 onMounted(async () => {
   // Fetch user + stores in parallel — both needed before rendering nav
   await Promise.all([
-    $fetch<{ ok: boolean; user: { id: string; email: string; name: string | null } }>(
+    $fetch<{ ok: boolean; user: { id: string; email: string; name: string | null; role?: string } }>(
       `${config.public.apiBase}/v1/auth/me`,
       { credentials: 'include' }
     ).then(res => { if (res.ok) user.value = res.user; }).catch(() => {}),
@@ -531,13 +531,17 @@ const nav = [
 
 const SETTINGS_ICON = '<path stroke-linecap="round" stroke-linejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.325.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 011.37.49l1.296 2.247a1.125 1.125 0 01-.26 1.431l-1.003.827c-.293.241-.438.613-.43.992a7.723 7.723 0 010 .255c-.008.378.137.75.43.991l1.004.827c.424.35.534.955.26 1.43l-1.298 2.247a1.125 1.125 0 01-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.47 6.47 0 01-.22.128c-.331.183-.581.495-.644.869l-.213 1.281c-.09.543-.56.94-1.11.94h-2.594c-.55 0-1.019-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 01-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 01-1.369-.49l-1.297-2.247a1.125 1.125 0 01.26-1.431l1.004-.827c.292-.24.437-.613.43-.991a6.932 6.932 0 010-.255c.007-.38-.138-.751-.43-.992l-1.004-.827a1.125 1.125 0 01-.26-1.43l1.297-2.247a1.125 1.125 0 011.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.086.22-.128.332-.183.582-.495.644-.869l.214-1.28z"/><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>';
 const ONBOARDING_ICON = '<path stroke-linecap="round" stroke-linejoin="round" d="M15.59 14.37a6 6 0 01-5.84 7.38v-4.8m5.84-2.58a14.98 14.98 0 006.16-12.12A14.98 14.98 0 009.631 8.41m5.96 5.96a14.926 14.926 0 01-5.841 2.58m-.119-8.54a6 6 0 00-7.381 5.84h4.8m2.581-5.84a14.927 14.927 0 00-2.58 5.84m2.699 2.7c-.103.021-.207.041-.311.06a15.09 15.09 0 01-2.448-2.448 14.9 14.9 0 01.06-.312m-2.24 2.39a4.493 4.493 0 00-1.757 4.306 4.493 4.493 0 004.306-1.758M16.5 9a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0z"/>';
+// Shield-check icon for the Admin link
+const ADMIN_ICON = '<path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75m-3-7.036A11.959 11.959 0 0 1 3.598 6 11.955 11.955 0 0 0 3 10.499c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.533-.386-2.977-1.07-4.244A11.959 11.959 0 0 1 12 2.714Z"/>';
 
 // Show Onboarding in the nav only while no store is connected.
 // Once a store exists (onboarding completed), the link disappears.
 // If the store/connection is later removed, it reappears automatically.
+// Admin link is visible only for users with the ADMIN role.
 const navSecondary = computed(() => [
   { label: 'Settings', to: '/app/settings', icon: SETTINGS_ICON },
   ...(!hasStore.value ? [{ label: 'Onboarding', to: '/app/onboarding', icon: ONBOARDING_ICON }] : []),
+  ...(user.value?.role === 'ADMIN' ? [{ label: 'Admin', to: '/admin', icon: ADMIN_ICON }] : []),
 ]);
 
 const pageTitle = computed(() => {

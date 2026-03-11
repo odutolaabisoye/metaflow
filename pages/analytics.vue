@@ -12,7 +12,7 @@
         See everything.<br/>
         <span class="text-gradient">Across every channel.</span>
       </h1>
-      <p class="mx-auto mt-6 max-w-2xl text-lg text-white/55 leading-relaxed">
+      <p class="mx-auto mt-6 max-w-2xl text-lg text-white/80 leading-relaxed">
         One unified analytics view for Meta Ads, Shopify, WooCommerce, and beyond.
         Real-time data. Product-level precision. No more switching between dashboards.
       </p>
@@ -34,7 +34,7 @@
             <div class="h-2.5 w-2.5 rounded-full bg-lime-500/50"></div>
             <div class="h-2.5 w-2.5 rounded-full bg-glow-500/50"></div>
           </div>
-          <div class="ml-3 rounded-lg bg-white/5 px-3 py-1 text-xs text-white/30 flex-1 max-w-sm">
+          <div class="ml-3 rounded-lg bg-white/5 px-3 py-1 text-xs text-white/55 flex-1 max-w-sm">
             app.metaflow.io/analytics
           </div>
         </div>
@@ -45,7 +45,7 @@
           <div>
             <div class="mb-4 flex items-center justify-between">
               <div>
-                <p class="text-xs text-white/50 mb-1">Revenue attributed · Last 30 days</p>
+                <p class="text-xs text-white/75 mb-1">Revenue attributed · Last 30 days</p>
                 <p class="text-3xl font-semibold">$487,240</p>
                 <p class="text-sm text-lime-400 mt-1 flex items-center gap-1">
                   <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 19.5l15-15m0 0H8.25m11.25 0v11.25"/></svg>
@@ -53,14 +53,14 @@
                 </p>
               </div>
               <div class="flex gap-2">
-                <button v-for="range in ['7d','30d','90d']" :key="range" :class="['rounded-lg px-3 py-1.5 text-xs transition-colors', range === '30d' ? 'bg-white/10 text-white' : 'text-white/40 hover:text-white/70']">{{ range }}</button>
+                <button v-for="range in ['7d','30d','90d']" :key="range" :class="['rounded-lg px-3 py-1.5 text-xs transition-colors', range === '30d' ? 'bg-white/10 text-white' : 'text-white/65 hover:text-white/70']">{{ range }}</button>
               </div>
             </div>
             <!-- Simulated chart bars -->
             <div class="relative h-48 flex items-end gap-1.5">
               <div v-for="(bar, i) in chartBars" :key="i" class="flex-1 rounded-t-md transition-all" :style="{ height: bar.h + '%', background: bar.color, opacity: i === chartBars.length - 1 ? 1 : 0.6 }"></div>
             </div>
-            <div class="mt-3 flex justify-between text-xs text-white/25">
+            <div class="mt-3 flex justify-between text-xs text-white/50">
               <span>Oct 1</span><span>Oct 8</span><span>Oct 15</span><span>Oct 22</span><span>Oct 30</span>
             </div>
           </div>
@@ -68,7 +68,7 @@
           <!-- Side metrics -->
           <div class="space-y-3">
             <div v-for="metric in sideMetrics" :key="metric.label" class="rounded-2xl bg-white/[0.04] border border-white/10 p-4">
-              <p class="text-xs text-white/50">{{ metric.label }}</p>
+              <p class="text-xs text-white/75">{{ metric.label }}</p>
               <p class="text-xl font-semibold mt-1">{{ metric.value }}</p>
               <div class="mt-2 flex items-center gap-1 text-xs" :class="metric.trend > 0 ? 'text-lime-400' : 'text-ember-400'">
                 <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
@@ -88,7 +88,7 @@
         <div class="space-y-5">
           <span class="section-badge"><span class="h-1.5 w-1.5 rounded-full bg-glow-500"></span> Live Data</span>
           <h2 class="text-3xl font-semibold">All your channels.<br/>One clean view.</h2>
-          <p class="text-white/60 leading-relaxed">Meta Ads, Google, Shopify, WooCommerce, GA4, and Klaviyo data unified into one dashboard. No more tab-switching. No more manual reconciliation.</p>
+          <p class="text-white/80 leading-relaxed">Meta Ads, Google, Shopify, WooCommerce, GA4, and Klaviyo data unified into one dashboard. No more tab-switching. No more manual reconciliation.</p>
           <ul class="space-y-3">
             <li v-for="p in livePoints" :key="p" class="flex items-start gap-3 text-sm text-white/70">
               <svg class="w-4 h-4 text-glow-500 mt-0.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
@@ -103,7 +103,7 @@
               <div class="h-8 w-8 rounded-lg flex items-center justify-center text-xs font-bold" :style="{ background: src.bg }">{{ src.abbr }}</div>
               <div>
                 <p class="text-sm font-medium">{{ src.name }}</p>
-                <p class="text-xs text-white/40">{{ src.sub }}</p>
+                <p class="text-xs text-white/65">{{ src.sub }}</p>
               </div>
             </div>
             <span class="flex items-center gap-1.5 text-xs text-lime-400">
@@ -121,7 +121,7 @@
         <div class="feature-card order-2 lg:order-1 space-y-3">
           <div class="flex items-center justify-between mb-3">
             <p class="text-sm font-medium">SKU-level attribution</p>
-            <span class="text-xs text-white/40">30-day window</span>
+            <span class="text-xs text-white/65">30-day window</span>
           </div>
           <div v-for="sku in attributedSkus" :key="sku.name" class="flex items-center gap-3 py-2">
             <div class="w-36 flex-shrink-0">
@@ -132,14 +132,14 @@
             </div>
             <div class="w-20 text-right">
               <p class="text-xs font-medium text-white">{{ sku.revenue }}</p>
-              <p class="text-xs text-white/40">{{ sku.roas }}× ROAS</p>
+              <p class="text-xs text-white/65">{{ sku.roas }}× ROAS</p>
             </div>
           </div>
         </div>
         <div class="space-y-5 order-1 lg:order-2">
           <span class="section-badge"><span class="h-1.5 w-1.5 rounded-full bg-lime-500"></span> Attribution</span>
           <h2 class="text-3xl font-semibold">Know exactly which SKU<br/>drives every dollar</h2>
-          <p class="text-white/60 leading-relaxed">Stop guessing. MetaFlow's product-level attribution model maps every Meta conversion back to the exact SKU that drove it — across all your campaigns.</p>
+          <p class="text-white/80 leading-relaxed">Stop guessing. MetaFlow's product-level attribution model maps every Meta conversion back to the exact SKU that drove it — across all your campaigns.</p>
           <ul class="space-y-3">
             <li v-for="p in attributionPoints" :key="p" class="flex items-start gap-3 text-sm text-white/70">
               <svg class="w-4 h-4 text-lime-500 mt-0.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
@@ -156,7 +156,7 @@
         <div class="space-y-5">
           <span class="section-badge"><span class="h-1.5 w-1.5 rounded-full bg-ember-500"></span> Forecasting</span>
           <h2 class="text-3xl font-semibold">Predict before<br/>problems happen</h2>
-          <p class="text-white/60 leading-relaxed">MetaFlow's forecasting engine analyzes 90 days of trend data to project revenue, ROAS, and inventory risk — so you're never caught off guard.</p>
+          <p class="text-white/80 leading-relaxed">MetaFlow's forecasting engine analyzes 90 days of trend data to project revenue, ROAS, and inventory risk — so you're never caught off guard.</p>
           <ul class="space-y-3">
             <li v-for="p in forecastPoints" :key="p" class="flex items-start gap-3 text-sm text-white/70">
               <svg class="w-4 h-4 text-ember-500 mt-0.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
@@ -168,14 +168,14 @@
           <p class="text-sm font-medium">30-day revenue forecast</p>
           <div class="grid grid-cols-2 gap-3">
             <div class="rounded-2xl bg-white/[0.04] border border-white/10 p-4 text-center">
-              <p class="text-xs text-white/50">Expected revenue</p>
+              <p class="text-xs text-white/75">Expected revenue</p>
               <p class="text-2xl font-semibold mt-1 text-gradient">$520k</p>
-              <p class="text-xs text-white/35 mt-1">+6.7% vs last month</p>
+              <p class="text-xs text-white/60 mt-1">+6.7% vs last month</p>
             </div>
             <div class="rounded-2xl bg-white/[0.04] border border-white/10 p-4 text-center">
-              <p class="text-xs text-white/50">Projected ROAS</p>
+              <p class="text-xs text-white/75">Projected ROAS</p>
               <p class="text-2xl font-semibold mt-1 text-gradient">6.8×</p>
-              <p class="text-xs text-white/35 mt-1">Based on 90d trend</p>
+              <p class="text-xs text-white/60 mt-1">Based on 90d trend</p>
             </div>
           </div>
           <div class="rounded-2xl bg-ember-500/8 border border-ember-500/20 p-4">
@@ -194,7 +194,7 @@
     <section class="mx-auto w-full max-w-7xl px-6 pb-10">
       <div class="relative overflow-hidden rounded-3xl border border-glow-500/20 bg-gradient-to-br from-glow-500/10 via-ink-800/50 to-lime-500/10 p-12 text-center">
         <h2 class="text-3xl font-semibold">Start seeing your full picture today.</h2>
-        <p class="mt-3 text-white/55 max-w-lg mx-auto">Connect in 2 minutes. No credit card. 14-day free trial.</p>
+        <p class="mt-3 text-white/80 max-w-lg mx-auto">Connect in 2 minutes. No credit card. 14-day free trial.</p>
         <div class="mt-6 flex flex-wrap justify-center gap-4">
           <NuxtLink to="/auth/signup" class="btn-gradient">Start free → </NuxtLink>
           <NuxtLink to="/pricing" class="inline-flex items-center gap-2 rounded-full border border-white/15 px-5 py-2.5 text-sm text-white/75 hover:bg-white/5 transition-colors">See plans</NuxtLink>

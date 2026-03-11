@@ -12,7 +12,7 @@
         Your AI co-pilot<br/>
         <span class="text-gradient">for Meta catalog ads.</span>
       </h1>
-      <p class="mx-auto mt-6 max-w-2xl text-lg text-white/55 leading-relaxed">
+      <p class="mx-auto mt-6 max-w-2xl text-lg text-white/80 leading-relaxed">
         Actionable intelligence, not just dashboards. MetaFlow's AI reads your full catalog data and tells you
         exactly what to do next — in plain English, every single day.
       </p>
@@ -33,7 +33,7 @@
             <div class="h-2.5 w-2.5 rounded-full bg-lime-500/50"></div>
             <div class="h-2.5 w-2.5 rounded-full bg-glow-500/50"></div>
           </div>
-          <div class="ml-3 rounded-lg bg-white/5 px-3 py-1 text-xs text-white/30 flex-1 max-w-sm">
+          <div class="ml-3 rounded-lg bg-white/5 px-3 py-1 text-xs text-white/55 flex-1 max-w-sm">
             app.metaflow.io/ai
           </div>
         </div>
@@ -46,17 +46,17 @@
               </div>
               <div>
                 <p class="text-sm font-medium">MetaFlow AI · Daily Briefing</p>
-                <p class="text-xs text-white/40">Updated 6 hours ago</p>
+                <p class="text-xs text-white/65">Updated 6 hours ago</p>
               </div>
             </div>
             <div v-for="insight in aiInsights" :key="insight.title" class="rounded-2xl border p-4" :class="insight.type === 'action' ? 'bg-glow-500/6 border-glow-500/20' : insight.type === 'warning' ? 'bg-ember-500/6 border-ember-500/20' : insight.type === 'success' ? 'bg-lime-500/6 border-lime-500/20' : 'bg-white/[0.04] border-white/10'">
               <div class="flex items-start justify-between gap-3 mb-2">
                 <p class="text-sm font-semibold">{{ insight.title }}</p>
-                <span class="flex-shrink-0 text-xs px-2.5 py-0.5 rounded-full font-medium" :class="insight.type === 'action' ? 'bg-glow-500/15 text-glow-400' : insight.type === 'warning' ? 'bg-ember-500/15 text-ember-400' : insight.type === 'success' ? 'bg-lime-500/15 text-lime-400' : 'bg-white/10 text-white/50'">
+                <span class="flex-shrink-0 text-xs px-2.5 py-0.5 rounded-full font-medium" :class="insight.type === 'action' ? 'bg-glow-500/15 text-glow-400' : insight.type === 'warning' ? 'bg-ember-500/15 text-ember-400' : insight.type === 'success' ? 'bg-lime-500/15 text-lime-400' : 'bg-white/10 text-white/75'">
                   {{ insight.tag }}
                 </span>
               </div>
-              <p class="text-xs text-white/60 leading-relaxed">{{ insight.body }}</p>
+              <p class="text-xs text-white/80 leading-relaxed">{{ insight.body }}</p>
               <button v-if="insight.cta" class="mt-3 text-xs font-medium flex items-center gap-1.5 transition-colors" :class="insight.type === 'action' ? 'text-glow-400 hover:text-glow-500' : 'text-lime-400 hover:text-lime-500'">
                 {{ insight.cta }}
                 <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3"/></svg>
@@ -65,15 +65,15 @@
           </div>
           <!-- AI Chat panel -->
           <div class="flex flex-col gap-3">
-            <p class="text-xs text-white/45 mb-1">Ask MetaFlow AI anything</p>
+            <p class="text-xs text-white/70 mb-1">Ask MetaFlow AI anything</p>
             <div class="flex-1 space-y-3">
               <div v-for="msg in chatMessages" :key="msg.text" :class="['rounded-2xl p-3.5 text-sm', msg.user ? 'bg-white/8 border border-white/10 ml-6' : 'bg-glow-500/8 border border-glow-500/15 mr-4']">
-                <p class="text-xs font-medium mb-1.5" :class="msg.user ? 'text-white/50' : 'text-glow-400'">{{ msg.user ? 'You' : 'MetaFlow AI' }}</p>
+                <p class="text-xs font-medium mb-1.5" :class="msg.user ? 'text-white/75' : 'text-glow-400'">{{ msg.user ? 'You' : 'MetaFlow AI' }}</p>
                 <p class="text-white/75 leading-relaxed text-xs">{{ msg.text }}</p>
               </div>
             </div>
             <div class="rounded-2xl bg-white/5 border border-white/15 flex items-center gap-2 px-4 py-2.5">
-              <input type="text" placeholder="Ask about your catalog…" class="flex-1 bg-transparent text-xs text-white/60 placeholder-white/30 outline-none" readonly/>
+              <input type="text" placeholder="Ask about your catalog…" class="flex-1 bg-transparent text-xs text-white/80 placeholder-white/30 outline-none" readonly/>
               <button class="h-6 w-6 rounded-lg bg-glow-500/20 flex items-center justify-center flex-shrink-0">
                 <svg class="w-3 h-3 text-glow-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3"/></svg>
               </button>
@@ -89,7 +89,7 @@
         <div class="space-y-5">
           <span class="section-badge"><span class="h-1.5 w-1.5 rounded-full bg-glow-500"></span> SKU Intelligence</span>
           <h2 class="text-3xl font-semibold">Recommendations<br/>you can trust</h2>
-          <p class="text-white/60 leading-relaxed">
+          <p class="text-white/80 leading-relaxed">
             Every recommendation comes with a clear explanation. Not just "pause this SKU" — but exactly why,
             with the data to back it up. One-click apply for every action.
           </p>
@@ -108,9 +108,9 @@
               <span class="rounded-full bg-lime-500/15 px-2.5 py-0.5 text-xs text-lime-400 font-medium">Score: 92</span>
             </div>
             <div class="grid grid-cols-3 gap-2 mb-3">
-              <div class="text-center"><p class="text-lg font-semibold">7.2×</p><p class="text-xs text-white/40">ROAS</p></div>
-              <div class="text-center"><p class="text-lg font-semibold">4.1%</p><p class="text-xs text-white/40">CTR</p></div>
-              <div class="text-center"><p class="text-lg font-semibold">62%</p><p class="text-xs text-white/40">Margin</p></div>
+              <div class="text-center"><p class="text-lg font-semibold">7.2×</p><p class="text-xs text-white/65">ROAS</p></div>
+              <div class="text-center"><p class="text-lg font-semibold">4.1%</p><p class="text-xs text-white/65">CTR</p></div>
+              <div class="text-center"><p class="text-lg font-semibold">62%</p><p class="text-xs text-white/65">Margin</p></div>
             </div>
             <div class="rounded-xl bg-glow-500/8 border border-glow-500/20 p-3">
               <p class="text-xs text-glow-400 font-medium mb-1">AI Recommendation</p>
@@ -131,20 +131,20 @@
           <div class="relative h-40 flex items-end gap-1">
             <div v-for="(b, i) in predBars" :key="i" class="flex-1 rounded-t-sm" :style="{ height: b.h + '%', background: b.predicted ? 'rgba(34,211,238,0.25)' : 'rgba(34,211,238,0.6)', border: b.predicted ? '1px dashed rgba(34,211,238,0.3)' : 'none' }"></div>
           </div>
-          <div class="flex items-center gap-4 text-xs text-white/40">
+          <div class="flex items-center gap-4 text-xs text-white/65">
             <span class="flex items-center gap-1.5"><span class="h-2.5 w-2.5 rounded bg-glow-500/60"></span>Actual ROAS</span>
             <span class="flex items-center gap-1.5"><span class="h-2.5 w-2.5 rounded border border-dashed border-glow-500/40"></span>Predicted</span>
           </div>
           <div class="rounded-2xl bg-glow-500/8 border border-glow-500/20 p-4">
             <p class="text-xs text-glow-400 font-medium">Prediction: Next 14 days</p>
-            <p class="text-2xl font-semibold mt-1">7.8× <span class="text-sm font-normal text-white/50">avg ROAS</span></p>
-            <p class="text-xs text-white/55 mt-1">Based on seasonal trend and current trajectory. Confidence: 82%.</p>
+            <p class="text-2xl font-semibold mt-1">7.8× <span class="text-sm font-normal text-white/75">avg ROAS</span></p>
+            <p class="text-xs text-white/80 mt-1">Based on seasonal trend and current trajectory. Confidence: 82%.</p>
           </div>
         </div>
         <div class="space-y-5 order-1 lg:order-2">
           <span class="section-badge"><span class="h-1.5 w-1.5 rounded-full bg-ember-500"></span> Predictive Intelligence</span>
           <h2 class="text-3xl font-semibold">Know tomorrow's<br/>ROAS today</h2>
-          <p class="text-white/60 leading-relaxed">
+          <p class="text-white/80 leading-relaxed">
             MetaFlow's predictive model analyzes 90 days of historical data to forecast ROAS trajectories for every SKU.
             Allocate budget to the future, not just the past.
           </p>
@@ -162,7 +162,7 @@
     <section class="mx-auto w-full max-w-7xl px-6 pb-10">
       <div class="relative overflow-hidden rounded-3xl border border-ember-500/20 bg-gradient-to-br from-ember-500/10 via-ink-800/50 to-glow-500/10 p-12 text-center">
         <h2 class="text-3xl font-semibold">Let AI handle the thinking.<br/>You handle the growth.</h2>
-        <p class="mt-3 text-white/55 max-w-lg mx-auto">14-day free trial. No credit card. Connect in under 2 minutes.</p>
+        <p class="mt-3 text-white/80 max-w-lg mx-auto">14-day free trial. No credit card. Connect in under 2 minutes.</p>
         <div class="mt-6 flex flex-wrap justify-center gap-4">
           <NuxtLink to="/auth/signup" class="btn-gradient">Start free →</NuxtLink>
           <NuxtLink to="/pricing" class="inline-flex items-center gap-2 rounded-full border border-white/15 px-5 py-2.5 text-sm text-white/75 hover:bg-white/5 transition-colors">See pricing →</NuxtLink>

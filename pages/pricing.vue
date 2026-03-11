@@ -15,7 +15,7 @@
           Start free.<br/>
           <span class="text-gradient">Scale as you grow.</span>
         </h1>
-        <p class="mt-5 text-lg text-white/50 max-w-xl mx-auto">
+        <p class="mt-5 text-lg text-white/75 max-w-xl mx-auto">
           No hidden fees, no per-seat pricing. One flat rate for your entire team and catalog.
         </p>
 
@@ -24,14 +24,14 @@
           <button
             @click="annual = false"
             class="rounded-xl px-5 py-2 text-sm font-medium transition-all"
-            :class="!annual ? 'bg-white text-ink-950' : 'text-white/50 hover:text-white'"
+            :class="!annual ? 'bg-white text-ink-950' : 'text-white/75 hover:text-white'"
           >
             Monthly
           </button>
           <button
             @click="annual = true"
             class="flex items-center gap-2 rounded-xl px-5 py-2 text-sm font-medium transition-all"
-            :class="annual ? 'bg-white text-ink-950' : 'text-white/50 hover:text-white'"
+            :class="annual ? 'bg-white text-ink-950' : 'text-white/75 hover:text-white'"
           >
             Annual
             <span class="rounded-full px-2 py-0.5 text-[10px] font-semibold" :class="annual ? 'bg-lime-500/20 text-lime-600' : 'bg-lime-500/15 text-lime-400'">
@@ -69,7 +69,7 @@
                 </div>
                 <p class="font-semibold">{{ plan.name }}</p>
               </div>
-              <p class="text-sm text-white/50 leading-relaxed">{{ plan.desc }}</p>
+              <p class="text-sm text-white/75 leading-relaxed">{{ plan.desc }}</p>
             </div>
 
             <!-- Price -->
@@ -77,7 +77,7 @@
               <span class="text-4xl font-bold tracking-tight">
                 ${{ annual ? plan.annualPrice : plan.monthlyPrice }}
               </span>
-              <span class="text-white/40 mb-1.5 text-sm">/ month</span>
+              <span class="text-white/65 mb-1.5 text-sm">/ month</span>
             </div>
             <p v-if="annual" class="mt-1 text-xs text-lime-400">
               ${{ plan.annualPrice * 12 }}/yr · saves ${{ (plan.monthlyPrice - plan.annualPrice) * 12 }}
@@ -122,7 +122,7 @@
             </div>
             <div>
               <p class="font-semibold">Enterprise</p>
-              <p class="text-sm text-white/50 mt-0.5">Custom SKU limits, SSO, dedicated CSM, SLA, and white-glove onboarding for high-volume brands.</p>
+              <p class="text-sm text-white/75 mt-0.5">Custom SKU limits, SSO, dedicated CSM, SLA, and white-glove onboarding for high-volume brands.</p>
             </div>
           </div>
           <a href="mailto:hello@metaflow.io" class="flex-shrink-0 flex items-center gap-2 rounded-xl border border-white/20 bg-white/8 px-6 py-2.5 text-sm font-semibold hover:bg-white/12 transition-all whitespace-nowrap">
@@ -144,10 +144,10 @@
           <table class="w-full text-sm">
             <thead>
               <tr class="border-b border-white/10">
-                <th class="text-left px-6 py-4 font-medium text-white/50 w-1/2">Feature</th>
-                <th class="text-center px-4 py-4 font-medium text-white/50">Starter</th>
+                <th class="text-left px-6 py-4 font-medium text-white/75 w-1/2">Feature</th>
+                <th class="text-center px-4 py-4 font-medium text-white/75">Starter</th>
                 <th class="text-center px-4 py-4 font-semibold text-glow-400">Growth</th>
-                <th class="text-center px-4 py-4 font-medium text-white/50">Scale</th>
+                <th class="text-center px-4 py-4 font-medium text-white/75">Scale</th>
               </tr>
             </thead>
             <tbody class="divide-y divide-white/[0.05]">
@@ -155,17 +155,17 @@
                 <td class="px-6 py-3.5 text-white/65">{{ row.feature }}</td>
                 <td class="text-center px-4 py-3.5">
                   <span v-if="row.starter === true" class="text-lime-400">✓</span>
-                  <span v-else-if="row.starter === false" class="text-white/20">—</span>
+                  <span v-else-if="row.starter === false" class="text-white/45">—</span>
                   <span v-else class="text-white/65 text-xs">{{ row.starter }}</span>
                 </td>
                 <td class="text-center px-4 py-3.5 bg-glow-500/[0.03]">
                   <span v-if="row.growth === true" class="text-lime-400">✓</span>
-                  <span v-else-if="row.growth === false" class="text-white/20">—</span>
+                  <span v-else-if="row.growth === false" class="text-white/45">—</span>
                   <span v-else class="text-glow-400 text-xs font-medium">{{ row.growth }}</span>
                 </td>
                 <td class="text-center px-4 py-3.5">
                   <span v-if="row.scale === true" class="text-lime-400">✓</span>
-                  <span v-else-if="row.scale === false" class="text-white/20">—</span>
+                  <span v-else-if="row.scale === false" class="text-white/45">—</span>
                   <span v-else class="text-white/65 text-xs">{{ row.scale }}</span>
                 </td>
               </tr>
@@ -195,14 +195,14 @@
             >
               <p class="font-medium text-sm pr-4">{{ faq.q }}</p>
               <svg
-                class="w-4 h-4 flex-shrink-0 text-white/40 transition-transform duration-200"
+                class="w-4 h-4 flex-shrink-0 text-white/65 transition-transform duration-200"
                 :class="openFaq === i ? 'rotate-180' : ''"
                 fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"
               >
                 <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/>
               </svg>
             </button>
-            <div v-if="openFaq === i" class="px-6 pb-5 text-sm text-white/55 leading-relaxed border-t border-white/8">
+            <div v-if="openFaq === i" class="px-6 pb-5 text-sm text-white/80 leading-relaxed border-t border-white/8">
               <p class="pt-4">{{ faq.a }}</p>
             </div>
           </div>
@@ -213,7 +213,7 @@
     <!-- ── Social proof ── -->
     <section class="py-16 border-t border-white/8">
       <div class="mx-auto max-w-5xl px-6">
-        <p class="text-center text-sm text-white/35 mb-10">Trusted by 340+ e-commerce brands worldwide</p>
+        <p class="text-center text-sm text-white/60 mb-10">Trusted by 340+ e-commerce brands worldwide</p>
         <div class="grid grid-cols-1 sm:grid-cols-3 gap-5">
           <div v-for="t in testimonials" :key="t.name" class="glass rounded-2xl p-5">
             <div class="flex gap-0.5 mb-3">
@@ -221,12 +221,12 @@
                 <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/>
               </svg>
             </div>
-            <p class="text-sm text-white/60 italic leading-relaxed">"{{ t.quote }}"</p>
+            <p class="text-sm text-white/80 italic leading-relaxed">"{{ t.quote }}"</p>
             <div class="mt-4 flex items-center gap-2.5">
               <div class="h-7 w-7 rounded-full flex items-center justify-center text-xs font-semibold" :style="{ background: t.bg, color: t.color }">{{ t.initials }}</div>
               <div>
                 <p class="text-xs font-semibold">{{ t.name }}</p>
-                <p class="text-xs text-white/35">{{ t.title }}</p>
+                <p class="text-xs text-white/60">{{ t.title }}</p>
               </div>
             </div>
           </div>
@@ -242,7 +242,7 @@
           <div class="absolute -bottom-16 -left-16 h-48 w-48 rounded-full bg-lime-500/10 blur-[80px] pointer-events-none"></div>
           <div class="relative">
             <h2 class="text-3xl sm:text-4xl font-semibold">14 days free.<br/><span class="text-gradient">No credit card needed.</span></h2>
-            <p class="mt-4 text-white/50 max-w-sm mx-auto text-sm">Connect your store in under 5 minutes. Your first scored catalog report lands tomorrow morning.</p>
+            <p class="mt-4 text-white/75 max-w-sm mx-auto text-sm">Connect your store in under 5 minutes. Your first scored catalog report lands tomorrow morning.</p>
             <div class="mt-8 flex flex-col sm:flex-row items-center justify-center gap-4">
               <NuxtLink to="/auth/signup" class="btn-gradient-lg">
                 Start free trial →
@@ -251,7 +251,7 @@
                 Talk to sales
               </a>
             </div>
-            <p class="mt-5 text-xs text-white/30">No credit card · Cancel anytime · Setup in 5 minutes</p>
+            <p class="mt-5 text-xs text-white/55">No credit card · Cancel anytime · Setup in 5 minutes</p>
           </div>
         </div>
       </div>

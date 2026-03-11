@@ -22,7 +22,7 @@
       </h1>
 
       <!-- Subheadline -->
-      <p class="mx-auto mt-6 max-w-2xl text-lg text-white/60 leading-relaxed">
+      <p class="mx-auto mt-6 max-w-2xl text-lg text-white/80 leading-relaxed">
         MetaFlow scores your entire product catalog on ROAS, CTR, margin, and inventory velocity.
         Winners scale automatically. Budget moves where it matters. Every day.
       </p>
@@ -44,7 +44,7 @@
       </div>
 
       <!-- Trust line -->
-      <p class="mt-6 text-xs text-white/40 flex flex-wrap justify-center items-center gap-x-4 gap-y-2">
+      <p class="mt-6 text-xs text-white/65 flex flex-wrap justify-center items-center gap-x-4 gap-y-2">
         <span class="flex items-center gap-1.5"><svg class="w-3 h-3 text-lime-500" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg> No credit card required</span>
         <span class="flex items-center gap-1.5"><svg class="w-3 h-3 text-lime-500" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg> Shopify + WooCommerce ready</span>
         <span class="flex items-center gap-1.5"><svg class="w-3 h-3 text-lime-500" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg> Meta Partner verified</span>
@@ -64,7 +64,7 @@
               <div class="h-2.5 w-2.5 rounded-full bg-lime-500/50"></div>
               <div class="h-2.5 w-2.5 rounded-full bg-glow-500/50"></div>
             </div>
-            <div class="ml-3 flex-1 max-w-64 rounded-lg bg-white/5 px-3 py-1 text-xs text-white/30">
+            <div class="ml-3 flex-1 max-w-64 rounded-lg bg-white/5 px-3 py-1 text-xs text-white/55">
               app.metaflow.io/dashboard
             </div>
             <div class="flex items-center gap-1.5 rounded-full bg-lime-500/10 px-2.5 py-1 text-xs text-lime-400">
@@ -77,7 +77,7 @@
           <div class="p-5 grid grid-cols-1 gap-4 sm:grid-cols-3 lg:grid-cols-4">
             <!-- Stat cards -->
             <div class="rounded-2xl bg-white/[0.04] border border-white/10 p-4">
-              <p class="text-xs text-white/50 mb-1.5">Today's Revenue</p>
+              <p class="text-xs text-white/75 mb-1.5">Today's Revenue</p>
               <p class="text-2xl font-semibold text-white">$124,280</p>
               <div class="mt-2 flex items-center gap-1 text-xs text-lime-400">
                 <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 19.5l15-15m0 0H8.25m11.25 0v11.25"/></svg>
@@ -85,7 +85,7 @@
               </div>
             </div>
             <div class="rounded-2xl bg-white/[0.04] border border-white/10 p-4">
-              <p class="text-xs text-white/50 mb-1.5">Catalog ROAS</p>
+              <p class="text-xs text-white/75 mb-1.5">Catalog ROAS</p>
               <p class="text-2xl font-semibold text-white">6.4×</p>
               <div class="mt-2 flex items-center gap-1 text-xs text-lime-400">
                 <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 19.5l15-15m0 0H8.25m11.25 0v11.25"/></svg>
@@ -93,9 +93,9 @@
               </div>
             </div>
             <div class="rounded-2xl bg-white/[0.04] border border-white/10 p-4">
-              <p class="text-xs text-white/50 mb-1.5">Active SKUs</p>
+              <p class="text-xs text-white/75 mb-1.5">Active SKUs</p>
               <p class="text-2xl font-semibold text-white">86 / 210</p>
-              <div class="mt-2 flex items-center gap-1 text-xs text-white/40 text-xs">
+              <div class="mt-2 flex items-center gap-1 text-xs text-white/65 text-xs">
                 <span class="h-1.5 w-1.5 rounded-full bg-glow-500"></span>
                 Scoring running
               </div>
@@ -114,7 +114,7 @@
             <div class="rounded-2xl bg-white/[0.03] border border-white/8 p-4 space-y-2.5">
               <div class="flex items-center justify-between mb-3">
                 <p class="text-xs font-medium text-white/70">Top performing SKUs</p>
-                <span class="text-xs text-white/40">Scored by ROAS · CTR · Margin</span>
+                <span class="text-xs text-white/65">Scored by ROAS · CTR · Margin</span>
               </div>
               <div v-for="sku in skus" :key="sku.name" class="flex items-center gap-3">
                 <div class="w-28 flex-shrink-0">
@@ -126,7 +126,7 @@
                 <div class="w-16 text-right">
                   <span class="text-xs font-medium" :style="{ color: sku.color }">{{ sku.roas }}× ROAS</span>
                 </div>
-                <span :class="['text-xs px-2 py-0.5 rounded-full font-medium', sku.badge === 'Scale' ? 'bg-lime-500/15 text-lime-400' : sku.badge === 'Watch' ? 'bg-ember-500/15 text-ember-400' : 'bg-white/10 text-white/50']">
+                <span :class="['text-xs px-2 py-0.5 rounded-full font-medium', sku.badge === 'Scale' ? 'bg-lime-500/15 text-lime-400' : sku.badge === 'Watch' ? 'bg-ember-500/15 text-ember-400' : 'bg-white/10 text-white/75']">
                   {{ sku.badge }}
                 </span>
               </div>
@@ -141,9 +141,9 @@
     ═══════════════════════════════════════ -->
     <section class="mx-auto w-full max-w-7xl px-6 py-10">
       <div class="glass rounded-2xl px-8 py-5 border border-white/10">
-        <p class="text-center text-xs text-white/40 uppercase tracking-widest mb-5">Works with your stack</p>
+        <p class="text-center text-xs text-white/65 uppercase tracking-widest mb-5">Works with your stack</p>
         <div class="flex flex-wrap items-center justify-center gap-8">
-          <div v-for="brand in integrations" :key="brand.name" class="flex items-center gap-2 text-white/40 hover:text-white/70 transition-colors">
+          <div v-for="brand in integrations" :key="brand.name" class="flex items-center gap-2 text-white/65 hover:text-white/70 transition-colors">
             <div class="h-7 w-7 rounded-lg flex items-center justify-center" :style="{ background: brand.bg }">
               <span class="text-xs font-bold text-white">{{ brand.abbr }}</span>
             </div>
@@ -160,8 +160,8 @@
       <div class="grid gap-px rounded-3xl overflow-hidden border border-white/10 sm:grid-cols-3">
         <div v-for="stat in stats" :key="stat.label" class="bg-white/[0.03] hover:bg-white/[0.06] transition-colors px-10 py-10 text-center">
           <p class="text-5xl font-semibold tracking-tight text-gradient stat-number">{{ stat.value }}</p>
-          <p class="mt-2 text-sm text-white/60">{{ stat.label }}</p>
-          <p class="mt-1 text-xs text-white/35">{{ stat.sub }}</p>
+          <p class="mt-2 text-sm text-white/80">{{ stat.label }}</p>
+          <p class="mt-1 text-xs text-white/60">{{ stat.sub }}</p>
         </div>
       </div>
     </section>
@@ -183,7 +183,7 @@
             Product Intelligence
           </span>
           <h3 class="text-3xl font-semibold leading-tight">Score every SKU,<br/>every single day</h3>
-          <p class="text-white/60 leading-relaxed">
+          <p class="text-white/80 leading-relaxed">
             Every product in your catalog gets a daily performance score based on ROAS, click-through rate,
             conversion rate, gross margin, and inventory velocity. One clear score. Total clarity.
           </p>
@@ -206,7 +206,7 @@
           <div class="space-y-3">
             <div v-for="metric in scoreMetrics" :key="metric.label" class="space-y-1.5">
               <div class="flex justify-between text-xs">
-                <span class="text-white/60">{{ metric.label }}</span>
+                <span class="text-white/80">{{ metric.label }}</span>
                 <span class="font-medium">{{ metric.val }}</span>
               </div>
               <div class="h-1.5 rounded-full bg-white/10">
@@ -216,7 +216,7 @@
           </div>
           <div class="mt-5 rounded-2xl bg-white/[0.04] border border-white/10 p-4 text-center">
             <p class="text-3xl font-semibold text-gradient">92</p>
-            <p class="text-xs text-white/50 mt-1">Overall product score · Top 5%</p>
+            <p class="text-xs text-white/75 mt-1">Overall product score · Top 5%</p>
           </div>
         </div>
       </div>
@@ -237,7 +237,7 @@
                 </div>
                 <div>
                   <p class="text-sm font-medium">{{ rule.name }}</p>
-                  <p class="text-xs text-white/45">{{ rule.desc }}</p>
+                  <p class="text-xs text-white/70">{{ rule.desc }}</p>
                 </div>
               </div>
               <div class="h-5 w-9 rounded-full flex items-center px-0.5 flex-shrink-0" :class="rule.active ? 'bg-lime-500/30 justify-end' : 'bg-white/10 justify-start'">
@@ -252,7 +252,7 @@
             Smart Automation
           </span>
           <h3 class="text-3xl font-semibold leading-tight">Budget follows winners<br/>automatically</h3>
-          <p class="text-white/60 leading-relaxed">
+          <p class="text-white/80 leading-relaxed">
             Set your rules once. MetaFlow watches every SKU around the clock and moves budget
             to where it works hardest — no spreadsheets, no manual adjustments, no wasted spend.
           </p>
@@ -276,7 +276,7 @@
             AI Intelligence
           </span>
           <h3 class="text-3xl font-semibold leading-tight">Know what to do<br/>before you ask</h3>
-          <p class="text-white/60 leading-relaxed">
+          <p class="text-white/80 leading-relaxed">
             Plain-English recommendations for every SKU, every day. MetaFlow's AI reads your full
             catalog data and tells you exactly what to do next — and why.
           </p>
@@ -298,17 +298,17 @@
             </div>
             <div>
               <p class="text-sm font-medium">MetaFlow AI</p>
-              <p class="text-xs text-white/40">3 new insights today</p>
+              <p class="text-xs text-white/65">3 new insights today</p>
             </div>
           </div>
           <div v-for="insight in aiInsights" :key="insight.title" class="rounded-2xl border p-4 space-y-1" :class="insight.type === 'action' ? 'bg-glow-500/5 border-glow-500/20' : insight.type === 'warning' ? 'bg-ember-500/5 border-ember-500/20' : 'bg-white/[0.04] border-white/10'">
             <div class="flex items-start justify-between gap-2">
               <p class="text-sm font-medium">{{ insight.title }}</p>
-              <span class="flex-shrink-0 text-xs px-2 py-0.5 rounded-full" :class="insight.type === 'action' ? 'bg-glow-500/15 text-glow-400' : insight.type === 'warning' ? 'bg-ember-500/15 text-ember-400' : 'bg-white/10 text-white/50'">
+              <span class="flex-shrink-0 text-xs px-2 py-0.5 rounded-full" :class="insight.type === 'action' ? 'bg-glow-500/15 text-glow-400' : insight.type === 'warning' ? 'bg-ember-500/15 text-ember-400' : 'bg-white/10 text-white/75'">
                 {{ insight.tag }}
               </span>
             </div>
-            <p class="text-xs text-white/55">{{ insight.body }}</p>
+            <p class="text-xs text-white/80">{{ insight.body }}</p>
           </div>
         </div>
       </div>
@@ -321,7 +321,7 @@
       <div class="text-center mb-14">
         <p class="section-title mb-3">Setup</p>
         <h2 class="text-4xl font-semibold">Up and running in minutes</h2>
-        <p class="mt-4 text-white/55 max-w-xl mx-auto">Connect your store, connect your ads account, and MetaFlow handles the rest.</p>
+        <p class="mt-4 text-white/80 max-w-xl mx-auto">Connect your store, connect your ads account, and MetaFlow handles the rest.</p>
       </div>
       <div class="grid gap-6 sm:grid-cols-3">
         <div v-for="(step, i) in steps" :key="step.title" class="feature-card relative">
@@ -332,7 +332,7 @@
             <div class="flex-1 h-px bg-white/10" v-if="i < steps.length - 1"></div>
           </div>
           <h3 class="text-lg font-semibold mb-2">{{ step.title }}</h3>
-          <p class="text-sm text-white/55 leading-relaxed">{{ step.desc }}</p>
+          <p class="text-sm text-white/80 leading-relaxed">{{ step.desc }}</p>
         </div>
       </div>
     </section>
@@ -360,7 +360,7 @@
             </div>
             <div>
               <p class="text-sm font-medium">{{ review.name }}</p>
-              <p class="text-xs text-white/45">{{ review.role }}</p>
+              <p class="text-xs text-white/70">{{ review.role }}</p>
             </div>
           </div>
         </div>
@@ -374,17 +374,17 @@
       <div class="text-center mb-12">
         <p class="section-title mb-3">Pricing</p>
         <h2 class="text-4xl font-semibold">Plans that scale with your catalog</h2>
-        <p class="mt-4 text-white/55">Start free. Scale when you're ready. Cancel anytime.</p>
+        <p class="mt-4 text-white/80">Start free. Scale when you're ready. Cancel anytime.</p>
       </div>
       <div class="grid gap-5 sm:grid-cols-3">
         <div v-for="plan in plans" :key="plan.name" class="feature-card relative" :class="plan.featured ? 'border-glow-500/30 shadow-glow' : ''">
           <div v-if="plan.featured" class="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full bg-glow-500/20 border border-glow-500/30 px-3 py-1 text-xs font-medium text-glow-400">Most Popular</div>
-          <p class="text-sm text-white/60">{{ plan.name }}</p>
+          <p class="text-sm text-white/80">{{ plan.name }}</p>
           <div class="mt-3 flex items-baseline gap-1">
             <span class="text-4xl font-semibold">${{ plan.price }}</span>
-            <span class="text-sm text-white/50">/ mo</span>
+            <span class="text-sm text-white/75">/ mo</span>
           </div>
-          <p class="text-xs text-white/40 mt-1">{{ plan.sub }}</p>
+          <p class="text-xs text-white/65 mt-1">{{ plan.sub }}</p>
           <ul class="mt-5 space-y-2.5">
             <li v-for="feat in plan.features" :key="feat" class="flex items-center gap-2.5 text-sm text-white/65">
               <svg class="w-4 h-4 text-lime-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
@@ -407,7 +407,7 @@
         </div>
       </div>
       <div class="mt-6 text-center">
-        <NuxtLink to="/pricing" class="text-sm text-white/50 hover:text-white transition-colors">
+        <NuxtLink to="/pricing" class="text-sm text-white/75 hover:text-white transition-colors">
           See full pricing & feature comparison →
         </NuxtLink>
       </div>
@@ -421,7 +421,7 @@
         <div class="glow-orb w-[400px] h-[300px] left-1/2 -translate-x-1/2 top-0 bg-glow-500/15 -z-0"></div>
         <div class="relative">
           <h2 class="text-4xl font-semibold">You're one catalog audit<br/>away from better ROAS.</h2>
-          <p class="mt-4 text-white/55 max-w-lg mx-auto">Start your free 14-day trial. Connect your Meta Ads and Shopify store in 2 minutes. No credit card required.</p>
+          <p class="mt-4 text-white/80 max-w-lg mx-auto">Start your free 14-day trial. Connect your Meta Ads and Shopify store in 2 minutes. No credit card required.</p>
           <div class="mt-8 flex flex-wrap justify-center gap-4">
             <NuxtLink to="/auth/signup" class="btn-gradient btn-gradient-lg">
               Start free — 14 days
@@ -430,7 +430,7 @@
               View live dashboard
             </NuxtLink>
           </div>
-          <p class="mt-4 text-xs text-white/35">Shopify · WooCommerce · Meta Ads · No credit card required</p>
+          <p class="mt-4 text-xs text-white/60">Shopify · WooCommerce · Meta Ads · No credit card required</p>
         </div>
       </div>
     </section>

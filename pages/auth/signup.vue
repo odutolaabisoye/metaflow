@@ -6,7 +6,7 @@
         14-day free trial · No credit card
       </div>
       <h1 class="text-2xl font-semibold tracking-tight">Create your account</h1>
-      <p class="mt-2 text-sm text-white/50">Connect your store and get your first AI insights in minutes.</p>
+      <p class="mt-2 text-sm text-white/75">Connect your store and get your first AI insights in minutes.</p>
     </div>
 
     <!-- Google OAuth -->
@@ -24,7 +24,7 @@
     </button>
 
     <!-- Divider -->
-    <div class="my-6 flex items-center gap-3 text-xs text-white/25">
+    <div class="my-6 flex items-center gap-3 text-xs text-white/50">
       <div class="h-px flex-1 bg-white/10"></div>
       or register with email
       <div class="h-px flex-1 bg-white/10"></div>
@@ -60,7 +60,7 @@
           />
           <button
             type="button"
-            class="absolute right-3 top-1/2 -translate-y-1/2 text-white/30 hover:text-white/60 transition-colors"
+            class="absolute right-3 top-1/2 -translate-y-1/2 text-white/55 hover:text-white/80 transition-colors"
             @click="showPassword = !showPassword"
           >
             <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
@@ -78,7 +78,7 @@
             :class="passwordStrength >= n ? (passwordStrength < 2 ? 'bg-ember-500' : passwordStrength < 4 ? 'bg-lime-500/70' : 'bg-lime-500') : 'bg-white/10'"
           ></div>
         </div>
-        <p v-if="form.password" class="mt-1.5 text-xs" :class="passwordStrength < 2 ? 'text-ember-400' : passwordStrength < 4 ? 'text-white/40' : 'text-lime-400'">
+        <p v-if="form.password" class="mt-1.5 text-xs" :class="passwordStrength < 2 ? 'text-ember-400' : passwordStrength < 4 ? 'text-white/65' : 'text-lime-400'">
           {{ passwordStrength < 2 ? 'Too weak' : passwordStrength < 4 ? 'Good' : 'Strong' }} password
         </p>
       </div>
@@ -91,7 +91,7 @@
             <option value="WooCommerce">WooCommerce</option>
             <option value="Other">Other (import via CSV)</option>
           </select>
-          <svg class="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/30" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+          <svg class="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/55" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
             <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5"/>
           </svg>
         </div>
@@ -107,10 +107,10 @@
 
       <input type="hidden" :value="csrfToken" />
 
-      <p class="text-xs text-white/25 leading-relaxed">
+      <p class="text-xs text-white/50 leading-relaxed">
         By creating an account you agree to our
-        <a href="#" class="text-white/45 hover:text-white/70 underline">Terms</a> and
-        <a href="#" class="text-white/45 hover:text-white/70 underline">Privacy Policy</a>.
+        <a href="#" class="text-white/70 hover:text-white/70 underline">Terms</a> and
+        <a href="#" class="text-white/70 hover:text-white/70 underline">Privacy Policy</a>.
       </p>
 
       <button
@@ -126,7 +126,7 @@
       </button>
     </form>
 
-    <p class="mt-6 text-center text-sm text-white/40">
+    <p class="mt-6 text-center text-sm text-white/65">
       Already have an account?
       <NuxtLink to="/auth/login" class="font-medium text-glow-500 hover:text-glow-600 transition-colors">Sign in</NuxtLink>
     </p>

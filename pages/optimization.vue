@@ -12,7 +12,7 @@
         Set it and watch<br/>
         <span class="text-gradient">it optimize.</span>
       </h1>
-      <p class="mx-auto mt-6 max-w-2xl text-lg text-white/55 leading-relaxed">
+      <p class="mx-auto mt-6 max-w-2xl text-lg text-white/80 leading-relaxed">
         From product scoring to auto-scaling, MetaFlow runs your entire catalog optimization
         autonomously — so you focus on strategy, not spreadsheets.
       </p>
@@ -33,7 +33,7 @@
             <div class="h-2.5 w-2.5 rounded-full bg-lime-500/50"></div>
             <div class="h-2.5 w-2.5 rounded-full bg-glow-500/50"></div>
           </div>
-          <div class="ml-3 rounded-lg bg-white/5 px-3 py-1 text-xs text-white/30 flex-1 max-w-sm">
+          <div class="ml-3 rounded-lg bg-white/5 px-3 py-1 text-xs text-white/55 flex-1 max-w-sm">
             app.metaflow.io/optimization
           </div>
           <span class="text-xs text-lime-400 flex items-center gap-1.5">
@@ -52,8 +52,8 @@
               </div>
             </div>
             <p class="mt-3 text-sm font-semibold">{{ rule.name }}</p>
-            <p class="mt-1 text-xs text-white/50">{{ rule.desc }}</p>
-            <div class="mt-3 rounded-lg bg-white/5 px-2.5 py-1.5 text-xs text-white/40">
+            <p class="mt-1 text-xs text-white/75">{{ rule.desc }}</p>
+            <div class="mt-3 rounded-lg bg-white/5 px-2.5 py-1.5 text-xs text-white/65">
               {{ rule.trigger }}
             </div>
           </div>
@@ -61,10 +61,10 @@
         <!-- Automation log -->
         <div class="px-6 pb-6">
           <div class="rounded-2xl bg-white/[0.03] border border-white/8 p-4">
-            <p class="text-xs text-white/50 mb-3">Recent automation actions</p>
+            <p class="text-xs text-white/75 mb-3">Recent automation actions</p>
             <div class="space-y-2">
               <div v-for="log in automationLog" :key="log.msg" class="flex items-center gap-3 text-xs">
-                <span class="text-white/35 w-16 flex-shrink-0">{{ log.time }}</span>
+                <span class="text-white/60 w-16 flex-shrink-0">{{ log.time }}</span>
                 <span class="h-1.5 w-1.5 rounded-full flex-shrink-0" :style="{ background: log.color }"></span>
                 <span class="text-white/65">{{ log.msg }}</span>
               </div>
@@ -80,7 +80,7 @@
         <div class="space-y-5">
           <span class="section-badge"><span class="h-1.5 w-1.5 rounded-full bg-glow-500"></span> Product Scoring</span>
           <h2 class="text-3xl font-semibold">A composite score<br/>for every SKU</h2>
-          <p class="text-white/60 leading-relaxed">
+          <p class="text-white/80 leading-relaxed">
             MetaFlow's scoring engine evaluates 5 signals for every product: ROAS, CTR, conversion rate, gross margin, and inventory velocity. One score. Total clarity on where to invest.
           </p>
           <ul class="space-y-3">
@@ -93,7 +93,7 @@
         <div class="feature-card">
           <div class="mb-5 flex items-center justify-between">
             <p class="text-sm font-medium">Catalog performance snapshot</p>
-            <span class="text-xs text-white/40">1,284 SKUs</span>
+            <span class="text-xs text-white/65">1,284 SKUs</span>
           </div>
           <!-- Score distribution -->
           <div class="grid grid-cols-3 gap-3 mb-4">
@@ -128,15 +128,15 @@
         <div class="feature-card order-2 lg:order-1 space-y-4">
           <p class="text-sm font-medium">Rule builder</p>
           <div class="rounded-2xl bg-white/[0.04] border border-white/10 p-4 space-y-3">
-            <p class="text-xs text-white/50 uppercase tracking-widest">When</p>
+            <p class="text-xs text-white/75 uppercase tracking-widest">When</p>
             <div class="grid grid-cols-3 gap-2">
               <div class="rounded-lg bg-white/8 px-3 py-2 text-xs text-white/70 text-center cursor-pointer ring-1 ring-glow-500/50">ROAS</div>
-              <div class="rounded-lg bg-white/5 px-3 py-2 text-xs text-white/40 text-center cursor-pointer">≥</div>
+              <div class="rounded-lg bg-white/5 px-3 py-2 text-xs text-white/65 text-center cursor-pointer">≥</div>
               <div class="rounded-lg bg-white/8 px-3 py-2 text-xs text-white/70 text-center cursor-pointer">5.0×</div>
             </div>
             <div class="flex items-center gap-2">
               <div class="h-px flex-1 bg-white/10"></div>
-              <span class="text-xs text-white/30">AND</span>
+              <span class="text-xs text-white/55">AND</span>
               <div class="h-px flex-1 bg-white/10"></div>
             </div>
             <div class="grid grid-cols-3 gap-2">
@@ -144,7 +144,7 @@
               <div class="rounded-lg bg-white/8 px-3 py-2 text-xs text-white/70 text-center">3+</div>
               <div class="rounded-lg bg-white/8 px-3 py-2 text-xs text-white/70 text-center">days</div>
             </div>
-            <p class="text-xs text-white/50 uppercase tracking-widest mt-2">Then</p>
+            <p class="text-xs text-white/75 uppercase tracking-widest mt-2">Then</p>
             <div class="rounded-xl bg-lime-500/10 border border-lime-500/20 px-3 py-2.5 text-sm text-lime-400 flex items-center gap-2">
               <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"/></svg>
               Increase budget by 25%
@@ -152,13 +152,13 @@
           </div>
           <div class="rounded-2xl bg-glow-500/8 border border-glow-500/20 p-4">
             <p class="text-xs text-glow-400 font-medium mb-1">This rule would have fired 14 times last month</p>
-            <p class="text-xs text-white/55">Estimated additional revenue: +$28,400</p>
+            <p class="text-xs text-white/80">Estimated additional revenue: +$28,400</p>
           </div>
         </div>
         <div class="space-y-5 order-1 lg:order-2">
           <span class="section-badge"><span class="h-1.5 w-1.5 rounded-full bg-lime-500"></span> Automation Rules</span>
           <h2 class="text-3xl font-semibold">Visual rules.<br/>Zero-code automation.</h2>
-          <p class="text-white/60 leading-relaxed">
+          <p class="text-white/80 leading-relaxed">
             Build sophisticated budget automation rules without writing a single line of code.
             Scale winners, pause losers, protect inventory — all automatically.
           </p>
@@ -176,7 +176,7 @@
     <section class="mx-auto w-full max-w-7xl px-6 pb-10">
       <div class="relative overflow-hidden rounded-3xl border border-lime-500/20 bg-gradient-to-br from-lime-500/10 via-ink-800/50 to-glow-500/10 p-12 text-center">
         <h2 class="text-3xl font-semibold">Start optimizing your catalog today.</h2>
-        <p class="mt-3 text-white/55 max-w-lg mx-auto">14-day free trial. No credit card. Connect in under 2 minutes.</p>
+        <p class="mt-3 text-white/80 max-w-lg mx-auto">14-day free trial. No credit card. Connect in under 2 minutes.</p>
         <div class="mt-6 flex flex-wrap justify-center gap-4">
           <NuxtLink to="/auth/signup" class="btn-gradient">Start free →</NuxtLink>
           <NuxtLink to="/ai-ads" class="inline-flex items-center gap-2 rounded-full border border-white/15 px-5 py-2.5 text-sm text-white/75 hover:bg-white/5 transition-colors">See AI Ads →</NuxtLink>

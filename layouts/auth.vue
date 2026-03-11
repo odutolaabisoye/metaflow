@@ -29,7 +29,7 @@
             Catalog intelligence<br/>
             <span class="text-gradient">that actually scales.</span>
           </h2>
-          <p class="mt-4 text-sm text-white/55 leading-relaxed max-w-xs">
+          <p class="mt-4 text-sm text-white/80 leading-relaxed max-w-xs">
             Score every SKU, scale every winner, stop every loser. All on autopilot — every single day.
           </p>
 
@@ -41,7 +41,7 @@
               </div>
               <div>
                 <p class="text-sm font-medium">{{ feat.title }}</p>
-                <p class="text-xs text-white/45 mt-0.5">{{ feat.desc }}</p>
+                <p class="text-xs text-white/70 mt-0.5">{{ feat.desc }}</p>
               </div>
             </li>
           </ul>
@@ -49,7 +49,7 @@
           <!-- Mini stats card -->
           <div class="mt-8 glass rounded-2xl p-4 border border-white/10">
             <div class="flex items-center justify-between mb-3">
-              <p class="text-xs text-white/50">Live catalog snapshot</p>
+              <p class="text-xs text-white/75">Live catalog snapshot</p>
               <span class="flex items-center gap-1.5 text-xs text-lime-400">
                 <span class="h-1.5 w-1.5 rounded-full bg-lime-400 animate-pulse"></span>
                 Live
@@ -58,15 +58,15 @@
             <div class="grid grid-cols-3 gap-3 text-center">
               <div>
                 <p class="text-lg font-semibold text-gradient">6.4×</p>
-                <p class="text-xs text-white/40 mt-0.5">ROAS</p>
+                <p class="text-xs text-white/65 mt-0.5">ROAS</p>
               </div>
               <div>
                 <p class="text-lg font-semibold text-gradient">86</p>
-                <p class="text-xs text-white/40 mt-0.5">Scaling SKUs</p>
+                <p class="text-xs text-white/65 mt-0.5">Scaling SKUs</p>
               </div>
               <div>
                 <p class="text-lg font-semibold text-gradient">$124k</p>
-                <p class="text-xs text-white/40 mt-0.5">Today</p>
+                <p class="text-xs text-white/65 mt-0.5">Today</p>
               </div>
             </div>
           </div>
@@ -74,14 +74,14 @@
 
         <!-- Testimonial -->
         <div class="flex-shrink-0 border-t border-white/10 pt-6">
-          <p class="text-sm italic text-white/55 leading-relaxed">
+          <p class="text-sm italic text-white/80 leading-relaxed">
             "MetaFlow cut our catalog management from 4 hours to 15 minutes a week. Best decision we made."
           </p>
           <div class="mt-3 flex items-center gap-2.5">
             <div class="h-7 w-7 rounded-full bg-glow-500/20 flex items-center justify-center text-xs font-semibold text-glow-400">AO</div>
             <div>
               <p class="text-xs font-medium text-white/70">Adaeze Okafor</p>
-              <p class="text-xs text-white/35">Growth Manager · Lagos</p>
+              <p class="text-xs text-white/60">Growth Manager · Lagos</p>
             </div>
           </div>
         </div>
@@ -109,12 +109,12 @@
       </div>
 
       <!-- Footer -->
-      <div class="mt-10 text-xs text-white/25 text-center">
-        <NuxtLink to="/" class="hover:text-white/50 transition-colors">← Back to MetaFlow.io</NuxtLink>
+      <div class="mt-10 text-xs text-white/50 text-center">
+        <NuxtLink to="/" class="hover:text-white/75 transition-colors">← Back to MetaFlow.io</NuxtLink>
         <span class="mx-3">·</span>
-        <a href="#" class="hover:text-white/50 transition-colors">Privacy</a>
+        <a href="#" class="hover:text-white/75 transition-colors">Privacy</a>
         <span class="mx-3">·</span>
-        <a href="#" class="hover:text-white/50 transition-colors">Terms</a>
+        <a href="#" class="hover:text-white/75 transition-colors">Terms</a>
       </div>
     </div>
 

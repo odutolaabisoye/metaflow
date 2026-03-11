@@ -27,15 +27,43 @@ enum ProductCategory {
   RISK
 }
 
+enum UserRole {
+  USER
+  ADMIN
+}
+
 model User {
-  id        String   @id @default(cuid())
-  email     String   @unique
-  name      String?
+  id           String        @id @default(cuid())
+  email        String        @unique
+  name         String?
   passwordHash String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  stores    Store[]
-  resetTokens PasswordResetToken[]
+  role         UserRole      @default(USER)
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  stores       Store[]
+  resetTokens  PasswordResetToken[]
+  settings     UserSettings?
+}
+
+model UserSettings {
+  id                String   @id @default(cuid())
+  userId            String   @unique
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // Automation rule toggles
+  ruleScale         Boolean  @default(true)
+  ruleTest          Boolean  @default(true)
+  ruleKill          Boolean  @default(true)
+  ruleInventory     Boolean  @default(true)
+  // Score thresholds (0–100)
+  thresholdScale    Int      @default(80)
+  thresholdTest     Int      @default(50)
+  thresholdKill     Int      @default(25)
+  // Notification preferences
+  notifEmailReports Boolean  @default(true)
+  notifWhatsapp     Boolean  @default(false)
+  notifWeeklyDigest Boolean  @default(false)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 }
 
 model Store {
@@ -56,16 +84,19 @@ model Store {
 }
 
 model Connection {
-  id           String             @id @default(cuid())
-  provider     ConnectionProvider
-  accessToken  String
-  refreshToken String?
-  expiresAt    DateTime?
-  scopes       String?
-  createdAt    DateTime           @default(now())
-  updatedAt    DateTime           @updatedAt
-  storeId      String
-  store        Store              @relation(fields: [storeId], references: [id])
+  id              String             @id @default(cuid())
+  provider        ConnectionProvider
+  accessToken     String
+  refreshToken    String?
+  expiresAt       DateTime?
+  scopes          String?
+  // Meta-specific: which ad account and catalog to sync for this store
+  metaAdAccountId String?            // e.g. "act_123456789"
+  metaCatalogId   String?            // e.g. "987654321"
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+  storeId         String
+  store           Store              @relation(fields: [storeId], references: [id])
 
   @@unique([storeId, provider])
 }
@@ -99,6 +130,7 @@ model DailyMetric {
   velocity        Float
   spend           Float
   revenue         Float
+  metaRevenue     Float?
   impressions     Int?
   clicks          Int?
   conversions     Int?

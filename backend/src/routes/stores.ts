@@ -252,7 +252,13 @@ export async function storeRoutes(app: FastifyInstance) {
         } else if (conn.provider === "META") {
           await app.queues.syncQueue.add(
             "meta-sync",
-            { storeId, provider: "META", accessToken: conn.accessToken },
+            {
+              storeId,
+              provider: "META",
+              accessToken: conn.accessToken,
+              metaAdAccountId: conn.metaAdAccountId ?? null,
+              metaCatalogId: conn.metaCatalogId ?? null,
+            },
             { attempts: 3, backoff: { type: "exponential", delay: 5000 } }
           );
         }

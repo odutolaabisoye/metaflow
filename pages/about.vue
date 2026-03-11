@@ -15,7 +15,7 @@
           We built the tool<br/>
           <span class="text-gradient">we always needed.</span>
         </h1>
-        <p class="mt-6 text-lg text-white/55 max-w-2xl mx-auto leading-relaxed">
+        <p class="mt-6 text-lg text-white/80 max-w-2xl mx-auto leading-relaxed">
           MetaFlow started as a spreadsheet nightmare. After managing 3,000+ SKU catalogs manually, we knew there had to be a smarter way. Now every brand we work with scales without spreadsheets.
         </p>
       </div>
@@ -27,7 +27,7 @@
         <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
           <div v-for="stat in stats" :key="stat.label" class="glass rounded-3xl p-6 text-center">
             <p class="text-3xl font-semibold text-gradient">{{ stat.value }}</p>
-            <p class="mt-2 text-sm text-white/45">{{ stat.label }}</p>
+            <p class="mt-2 text-sm text-white/70">{{ stat.label }}</p>
           </div>
         </div>
       </div>
@@ -43,10 +43,10 @@
               Catalog intelligence<br/>
               <span class="text-gradient">for every brand.</span>
             </h2>
-            <p class="mt-5 text-white/55 leading-relaxed">
+            <p class="mt-5 text-white/80 leading-relaxed">
               We believe every e-commerce brand — whether you're doing $50k or $5M a month — deserves the same automated intelligence that the world's largest retailers use. MetaFlow levels the playing field.
             </p>
-            <p class="mt-4 text-white/55 leading-relaxed">
+            <p class="mt-4 text-white/80 leading-relaxed">
               Our scoring engine runs every night, evaluating each product across ROAS, CTR, margin, and inventory velocity. By morning, you know exactly which SKUs to scale, which to hold, and which to cut.
             </p>
 
@@ -57,7 +57,7 @@
                 </div>
                 <div>
                   <p class="text-sm font-semibold">{{ value.title }}</p>
-                  <p class="text-xs text-white/45 mt-0.5">{{ value.desc }}</p>
+                  <p class="text-xs text-white/70 mt-0.5">{{ value.desc }}</p>
                 </div>
               </div>
             </div>
@@ -91,7 +91,7 @@
                 </div>
               </div>
               <div class="mt-5 pt-4 border-t border-white/10 flex items-center justify-between">
-                <p class="text-xs text-white/40">Last scored 2 hours ago</p>
+                <p class="text-xs text-white/65">Last scored 2 hours ago</p>
                 <p class="text-xs text-glow-400">94 SKUs analyzed →</p>
               </div>
             </div>
@@ -118,9 +118,9 @@
                 {{ item.year.slice(-2) }}
               </div>
               <div>
-                <p class="text-xs text-white/35 mb-1">{{ item.year }}</p>
+                <p class="text-xs text-white/80 mb-1">{{ item.year }}</p>
                 <p class="font-semibold text-sm">{{ item.title }}</p>
-                <p class="mt-1 text-sm text-white/50">{{ item.desc }}</p>
+                <p class="mt-1 text-sm text-white/75">{{ item.desc }}</p>
               </div>
             </div>
           </div>
@@ -134,7 +134,7 @@
         <div class="text-center mb-14">
           <div class="section-badge mb-4 mx-auto w-fit">The team</div>
           <h2 class="text-3xl sm:text-4xl font-semibold">People behind<br/><span class="text-gradient">the product.</span></h2>
-          <p class="mt-4 text-white/50 max-w-lg mx-auto text-sm">Former performance marketers, engineers, and data scientists who lived the problem first.</p>
+          <p class="mt-4 text-white/75 max-w-lg mx-auto text-sm">Former performance marketers, engineers, and data scientists who lived the problem first.</p>
         </div>
 
         <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
@@ -144,9 +144,9 @@
             </div>
             <p class="font-semibold">{{ person.name }}</p>
             <p class="text-xs text-glow-400 mt-0.5">{{ person.role }}</p>
-            <p class="mt-3 text-sm text-white/50 leading-relaxed">{{ person.bio }}</p>
+            <p class="mt-3 text-sm text-white/75 leading-relaxed">{{ person.bio }}</p>
             <div class="mt-4 flex items-center gap-1.5">
-              <span v-for="tag in person.tags" :key="tag" class="rounded-lg bg-white/5 border border-white/8 px-2 py-0.5 text-xs text-white/40">{{ tag }}</span>
+              <span v-for="tag in person.tags" :key="tag" class="rounded-lg bg-white/5 border border-white/8 px-2 py-0.5 text-xs text-white/65">{{ tag }}</span>
             </div>
           </div>
         </div>
@@ -155,7 +155,7 @@
         <div class="mt-10 glass rounded-3xl p-6 flex flex-col sm:flex-row items-center justify-between gap-5">
           <div>
             <p class="font-semibold">We're growing.</p>
-            <p class="text-sm text-white/50 mt-0.5">We're hiring engineers, designers, and growth experts who love hard problems.</p>
+            <p class="text-sm text-white/75 mt-0.5">We're hiring engineers, designers, and growth experts who love hard problems.</p>
           </div>
           <a href="#" class="flex-shrink-0 flex items-center gap-2 rounded-xl border border-white/20 bg-white/8 px-5 py-2.5 text-sm font-medium hover:bg-white/12 transition-all whitespace-nowrap">
             View open roles →
@@ -172,7 +172,7 @@
           <div class="absolute -bottom-16 -left-16 h-48 w-48 rounded-full bg-lime-500/10 blur-[80px] pointer-events-none"></div>
           <div class="relative">
             <h2 class="text-3xl sm:text-4xl font-semibold">Ready to scale<br/><span class="text-gradient">your catalog?</span></h2>
-            <p class="mt-4 text-white/50 max-w-md mx-auto">Join hundreds of brands who've automated their catalog intelligence with MetaFlow.</p>
+            <p class="mt-4 text-white/75 max-w-md mx-auto">Join hundreds of brands who've automated their catalog intelligence with MetaFlow.</p>
             <div class="mt-8 flex flex-col sm:flex-row items-center justify-center gap-4">
               <NuxtLink to="/auth/signup" class="btn-gradient-lg">
                 Start free trial →

@@ -249,6 +249,186 @@ export async function connectionRoutes(app: FastifyInstance) {
   });
 
   // ═══════════════════════════════════════════════════════════════════════════
+  // META CONFIG (ad account + catalog selection)
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /**
+   * Discover product catalogs for a Meta ad account using three strategies:
+   *  1. /{adAccountId}/product_catalogs  (direct endpoint)
+   *  2. Adset scan → promoted_object.product_catalog_id
+   *  3. /me/businesses → /{businessId}/owned_product_catalogs
+   * Results from all strategies are merged and deduplicated.
+   */
+  async function discoverCatalogs(adAccountId: string, accessToken: string) {
+    const GRAPH = "https://graph.facebook.com/v19.0";
+    const found = new Map<string, string>(); // id → name
+
+    async function metaFetch(path: string, params: Record<string, string> = {}) {
+      const url = new URL(`${GRAPH}${path}`);
+      url.searchParams.set("access_token", accessToken);
+      for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
+      try {
+        const res = await fetch(url.toString());
+        if (!res.ok) return null;
+        return await res.json() as any;
+      } catch { return null; }
+    }
+
+    // Strategy 1: direct product_catalogs endpoint
+    const direct = await metaFetch(`/${adAccountId}/product_catalogs`, { fields: "id,name", limit: "50" });
+    for (const c of direct?.data ?? []) {
+      if (c.id) found.set(c.id, c.name || `Catalog ${c.id}`);
+    }
+
+    // Strategy 2: scan adsets for catalog IDs referenced in promoted_object
+    const adsets = await metaFetch(`/${adAccountId}/adsets`, { fields: "promoted_object", limit: "200" });
+    const adsetCatalogIds = new Set<string>();
+    for (const adset of adsets?.data ?? []) {
+      const cid = adset.promoted_object?.product_catalog_id;
+      if (cid && !found.has(cid)) adsetCatalogIds.add(cid);
+    }
+    // Resolve names for catalog IDs found via adsets
+    await Promise.all(Array.from(adsetCatalogIds).map(async (cid) => {
+      const cat = await metaFetch(`/${cid}`, { fields: "id,name" });
+      if (cat?.id) found.set(cat.id, cat.name || `Catalog ${cat.id}`);
+    }));
+
+    // Strategy 3: business-owned catalogs (covers cases where direct endpoint fails)
+    if (found.size === 0) {
+      const businesses = await metaFetch("/me/businesses", { fields: "id,name", limit: "20" });
+      await Promise.all((businesses?.data ?? []).map(async (biz: any) => {
+        const cats = await metaFetch(`/${biz.id}/owned_product_catalogs`, { fields: "id,name", limit: "50" });
+        for (const c of cats?.data ?? []) {
+          if (c.id) found.set(c.id, c.name || `Catalog ${c.id}`);
+        }
+      }));
+    }
+
+    return Array.from(found.entries()).map(([id, name]) => ({ id, name }));
+  }
+
+  /**
+   * GET /connections/meta/config?storeId=xxx
+   * Returns the saved ad account + catalog for this store, plus live options
+   * fetched from the Meta API so the user can pick from a dropdown.
+   */
+  app.get("/connections/meta/config", async (request, reply) => {
+    try {
+      const payload = await request.jwtVerify<{ sub: string }>();
+      const { storeId } = request.query as { storeId?: string };
+      if (!storeId) return reply.code(400).send({ ok: false, message: "storeId required" });
+
+      const connection = await app.prisma.connection.findFirst({
+        where: { storeId, provider: "META", store: { ownerId: payload.sub } },
+        select: { id: true, accessToken: true, metaAdAccountId: true, metaCatalogId: true }
+      });
+      if (!connection) return reply.code(404).send({ ok: false, message: "Meta not connected" });
+
+      const token = connection.accessToken;
+      const graphBase = `https://graph.facebook.com/v19.0`;
+
+      async function metaGet(path: string, params: Record<string, string> = {}) {
+        const url = new URL(`${graphBase}${path}`);
+        url.searchParams.set("access_token", token);
+        for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
+        const res = await fetch(url.toString());
+        return res.ok ? (await res.json() as any) : null;
+      }
+
+      // Fetch ad accounts
+      const accountsRes = await metaGet("/me/adaccounts", {
+        fields: "account_id,name,currency,business_name",
+        limit: "50"
+      });
+      const adAccounts = (accountsRes?.data ?? []).map((a: any) => ({
+        id: a.id,           // "act_123456789"
+        accountId: a.account_id,
+        name: a.name || a.business_name || `Account ${a.account_id}`,
+        currency: a.currency
+      }));
+
+      // Fetch catalogs for the pinned account (or first account) using all discovery strategies
+      const targetAccountId = connection.metaAdAccountId || adAccounts[0]?.id;
+      const catalogs = targetAccountId ? await discoverCatalogs(targetAccountId, token) : [];
+
+      return reply.send({
+        ok: true,
+        current: {
+          adAccountId: connection.metaAdAccountId,
+          catalogId: connection.metaCatalogId
+        },
+        adAccounts,
+        catalogs
+      });
+    } catch (err) {
+      app.log.error({ err }, "Meta config fetch error");
+      return reply.code(500).send({ ok: false, message: "Failed to fetch Meta configuration" });
+    }
+  });
+
+  /**
+   * GET /connections/meta/catalogs?storeId=xxx&adAccountId=act_xxx
+   * Fetches catalogs for a specific ad account (used when the user switches accounts).
+   * Uses three strategies in order, combining any results found:
+   *  1. /{adAccountId}/product_catalogs  (direct, works when business link is set up)
+   *  2. Adset discovery: scan promoted_object.product_catalog_id across all adsets
+   *  3. /me/businesses → /{businessId}/owned_product_catalogs  (business-level catalogs)
+   */
+  app.get("/connections/meta/catalogs", async (request, reply) => {
+    try {
+      const payload = await request.jwtVerify<{ sub: string }>();
+      const { storeId, adAccountId } = request.query as { storeId?: string; adAccountId?: string };
+      if (!storeId || !adAccountId) return reply.code(400).send({ ok: false, message: "storeId and adAccountId required" });
+
+      const connection = await app.prisma.connection.findFirst({
+        where: { storeId, provider: "META", store: { ownerId: payload.sub } },
+        select: { accessToken: true }
+      });
+      if (!connection) return reply.code(404).send({ ok: false, message: "Meta not connected" });
+
+      const catalogs = await discoverCatalogs(adAccountId, connection.accessToken);
+      return reply.send({ ok: true, catalogs });
+    } catch {
+      return reply.send({ ok: true, catalogs: [] });
+    }
+  });
+
+  /**
+   * PATCH /connections/meta/config
+   * Saves the selected ad account and catalog for a store.
+   * Body: { storeId, adAccountId, catalogId }
+   */
+  app.patch("/connections/meta/config", async (request, reply) => {
+    try {
+      const payload = await request.jwtVerify<{ sub: string }>();
+      const { storeId, adAccountId, catalogId } = request.body as {
+        storeId?: string;
+        adAccountId?: string;
+        catalogId?: string;
+      };
+      if (!storeId) return reply.code(400).send({ ok: false, message: "storeId required" });
+
+      const connection = await app.prisma.connection.findFirst({
+        where: { storeId, provider: "META", store: { ownerId: payload.sub } }
+      });
+      if (!connection) return reply.code(404).send({ ok: false, message: "Meta not connected" });
+
+      await app.prisma.connection.update({
+        where: { id: connection.id },
+        data: {
+          metaAdAccountId: adAccountId ?? null,
+          metaCatalogId: catalogId ?? null
+        }
+      });
+
+      return reply.send({ ok: true });
+    } catch (err) {
+      app.log.error({ err }, "Meta config save error");
+      return reply.code(500).send({ ok: false, message: "Failed to save Meta configuration" });
+    }
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════════
   // SHOPIFY OAUTH
   // ═══════════════════════════════════════════════════════════════════════════
 

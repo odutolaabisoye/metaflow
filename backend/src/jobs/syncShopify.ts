@@ -196,6 +196,7 @@ export async function runShopifySync(
         velocity,
         spend: existingMetric?.spend ?? 0,
         revenue: productRevenue,
+        metaRevenue: existingMetric?.metaRevenue ?? null,
         impressions: existingMetric?.impressions ?? null,
         clicks: existingMetric?.clicks ?? null,
         conversions: productOrders,

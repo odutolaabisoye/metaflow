@@ -1,11 +1,11 @@
 <template>
   <div class="flex flex-col gap-3">
-    <div class="flex items-center justify-between text-xs text-white/60">
+    <div class="flex items-center justify-between text-xs text-white/80">
       <span>{{ label }}</span>
       <Badge v-if="badge" :variant="badgeVariant">{{ badge }}</Badge>
     </div>
     <div class="text-2xl font-semibold">{{ value }}</div>
-    <p class="text-xs text-white/50">{{ hint }}</p>
+    <p class="text-xs text-white/75">{{ hint }}</p>
   </div>
 </template>
 

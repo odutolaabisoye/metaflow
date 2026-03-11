@@ -9,7 +9,7 @@
         class="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium transition-all duration-150"
         :class="activeTab === tab.key
           ? 'bg-white/10 text-white'
-          : 'text-white/40 hover:text-white/65 hover:bg-white/5'"
+          : 'text-white/65 hover:text-white/65 hover:bg-white/5'"
       >
         <span class="h-1.5 w-1.5 rounded-full" :class="tab.dot"></span>
         {{ tab.label }}
@@ -22,7 +22,7 @@
           :key="r"
           @click="activeRange = r"
           class="rounded px-1.5 py-0.5 text-[10px] font-medium transition-all"
-          :class="activeRange === r ? 'bg-white/10 text-white/80' : 'text-white/30 hover:text-white/50'"
+          :class="activeRange === r ? 'bg-white/10 text-white/80' : 'text-white/55 hover:text-white/75'"
         >{{ r }}</button>
       </div>
     </div>
@@ -113,9 +113,9 @@
 
       <!-- Y-axis value range (right-aligned, absolute) -->
       <div class="absolute right-0 top-0 flex flex-col justify-between pointer-events-none" :style="{ height: (PAD_T + chartH) + 'px', top: PAD_T + 'px' }">
-        <span class="text-[9px] font-mono text-white/25 leading-none">{{ formatY(yMax) }}</span>
-        <span class="text-[9px] font-mono text-white/25 leading-none">{{ formatY(yMid) }}</span>
-        <span class="text-[9px] font-mono text-white/25 leading-none">{{ formatY(yMin) }}</span>
+        <span class="text-[9px] font-mono text-white/50 leading-none">{{ formatY(yMax) }}</span>
+        <span class="text-[9px] font-mono text-white/50 leading-none">{{ formatY(yMid) }}</span>
+        <span class="text-[9px] font-mono text-white/50 leading-none">{{ formatY(yMin) }}</span>
       </div>
 
       <!-- Hover tooltip -->
@@ -125,7 +125,7 @@
           class="absolute z-10 pointer-events-none px-2.5 py-1.5 rounded-lg bg-ink-900 border border-white/12 shadow-xl text-xs"
           :style="tooltipStyle"
         >
-          <p class="text-white/45 mb-0.5 font-mono">{{ slicedData[hoveredIdx]?.dateLabel }}</p>
+          <p class="text-white/70 mb-0.5 font-mono">{{ slicedData[hoveredIdx]?.dateLabel }}</p>
           <p class="font-semibold" :class="activeColorClass">{{ tooltipValue }}</p>
         </div>
       </Transition>

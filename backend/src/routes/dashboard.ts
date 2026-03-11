@@ -93,7 +93,7 @@ export async function dashboardRoutes(app: FastifyInstance) {
           // Current period aggregates
           app.prisma.dailyMetric.aggregate({
             where: { storeId: store.id, date: { gte: rangeStart, lte: rangeEnd } },
-            _sum: { revenue: true, spend: true, impressions: true, clicks: true, conversions: true },
+            _sum: { metaRevenue: true, spend: true, impressions: true, clicks: true, conversions: true },
             _avg: { roas: true, blendedRoas: true, ctr: true, margin: true }
           }),
 
@@ -143,7 +143,7 @@ export async function dashboardRoutes(app: FastifyInstance) {
       const prevAvgRoas = prevMetrics._avg.roas ?? 0;
       const prevBlendedRoas = prevMetrics._avg.blendedRoas ?? prevAvgRoas;
 
-      const totalRevenue = currentMetrics._sum.revenue ?? 0;
+      const totalRevenue = currentMetrics._sum.metaRevenue ?? 0;
       const totalSpend = currentMetrics._sum.spend ?? 0;
 
       // Compute delta % vs previous period
@@ -201,7 +201,8 @@ export async function dashboardRoutes(app: FastifyInstance) {
             category: p.category,
             roas: m?.roas ?? 0,
             blendedRoas: m?.blendedRoas ?? null,
-            revenue: m?.revenue ?? 0,
+            revenue: m?.metaRevenue ?? 0,
+            storeRevenue: m?.revenue ?? 0,
             spend: m?.spend ?? 0,
             margin: m?.margin ?? 0
           };
@@ -216,7 +217,8 @@ export async function dashboardRoutes(app: FastifyInstance) {
             score: p.score,
             category: p.category,
             roas: m?.roas ?? 0,
-            revenue: m?.revenue ?? 0,
+            revenue: m?.metaRevenue ?? 0,
+            storeRevenue: m?.revenue ?? 0,
             margin: m?.margin ?? 0
           };
         })

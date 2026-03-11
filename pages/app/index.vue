@@ -4,12 +4,12 @@
     <!-- Page header -->
     <div class="flex flex-wrap items-start justify-between gap-3 mb-1">
       <div>
-        <p class="text-[11px] uppercase tracking-widest text-white/40 mb-1">Meta Catalog Command</p>
+        <p class="text-[11px] uppercase tracking-widest text-white/65 mb-1">Meta Catalog Command</p>
         <h1 class="text-2xl font-semibold tracking-tight">Performance Overview</h1>
-        <p class="mt-1 text-sm text-white/50">Catalog-level signals, Meta performance, and AI guidance.</p>
+        <p class="mt-1 text-sm text-white/75">Catalog-level signals, Meta performance, and AI guidance.</p>
       </div>
       <div class="hidden md:flex items-center gap-2">
-        <span class="text-xs text-white/35">{{ new Date().toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }) }}</span>
+        <span class="text-xs text-white/60">{{ new Date().toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }) }}</span>
       </div>
     </div>
 
@@ -24,7 +24,7 @@
         class="rounded-2xl border border-white/10 bg-white/[0.04] p-5 hover:bg-white/[0.06] transition-colors cursor-default"
       >
         <div class="flex items-start justify-between mb-3">
-          <p class="text-xs text-white/55 font-medium">{{ stat.label }}</p>
+          <p class="text-xs text-white/80 font-medium">{{ stat.label }}</p>
           <div class="h-7 w-7 rounded-lg flex items-center justify-center flex-shrink-0" :style="{ background: stat.iconBg }">
             <svg class="w-3.5 h-3.5" :style="{ color: stat.iconColor }" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5" v-html="stat.icon"></svg>
           </div>
@@ -37,7 +37,7 @@
             </svg>
             {{ stat.trend }}
           </span>
-          <span class="text-xs text-white/30">{{ stat.trendLabel }}</span>
+          <span class="text-xs text-white/55">{{ stat.trendLabel }}</span>
         </div>
         <!-- Mini sparkline bars -->
         <div v-if="stat.spark?.length" class="mt-3 flex items-end gap-0.5 h-8">
@@ -61,10 +61,10 @@
         <div class="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
           <div class="flex items-center justify-between mb-5">
             <div>
-              <p class="text-xs text-white/50 uppercase tracking-widest mb-1">Revenue Flight</p>
+              <p class="text-xs text-white/75 uppercase tracking-widest mb-1">Revenue Flight</p>
               <h2 class="text-lg font-semibold">Catalog momentum</h2>
             </div>
-            <div class="flex items-center gap-3 text-xs text-white/50">
+            <div class="flex items-center gap-3 text-xs text-white/75">
               <span class="flex items-center gap-1.5"><span class="h-2 w-2 rounded-sm bg-glow-500/70 flex-shrink-0"></span>Revenue</span>
               <span class="flex items-center gap-1.5"><span class="h-2 w-2 rounded-sm bg-lime-500/70 flex-shrink-0"></span>Trend</span>
             </div>
@@ -81,15 +81,15 @@
               </div>
             </div>
           </div>
-          <div v-else class="h-44 rounded-xl border border-white/10 bg-white/[0.02] flex items-center justify-center text-xs text-white/40">
+          <div v-else class="h-44 rounded-xl border border-white/10 bg-white/[0.02] flex items-center justify-center text-xs text-white/65">
             No trend data yet.
           </div>
-          <div v-if="chartLabels.length" class="mt-2 flex justify-between text-xs text-white/25">
+          <div v-if="chartLabels.length" class="mt-2 flex justify-between text-xs text-white/50">
             <span v-for="l in chartLabels" :key="l">{{ l }}</span>
           </div>
           <div class="mt-5 grid grid-cols-3 gap-3 border-t border-white/8 pt-5">
             <div v-for="a in attributionRows" :key="a.label" class="text-center">
-              <p class="text-xs text-white/35 mb-1">{{ a.label }}</p>
+              <p class="text-xs text-white/60 mb-1">{{ a.label }}</p>
               <p class="text-base font-semibold">{{ a.value }}</p>
             </div>
           </div>
@@ -99,10 +99,10 @@
         <div class="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
           <div class="flex items-center justify-between mb-4">
             <div>
-              <p class="text-xs text-white/50 uppercase tracking-widest mb-1">AI Guidance</p>
+              <p class="text-xs text-white/75 uppercase tracking-widest mb-1">AI Guidance</p>
               <h2 class="text-lg font-semibold">Today's priority actions</h2>
             </div>
-            <NuxtLink to="/app/products" class="flex items-center gap-1.5 rounded-lg border border-white/10 px-3 py-1.5 text-xs text-white/50 hover:text-white/70 hover:bg-white/5 transition-all">
+            <NuxtLink to="/app/products" class="flex items-center gap-1.5 rounded-lg border border-white/10 px-3 py-1.5 text-xs text-white/75 hover:text-white/70 hover:bg-white/5 transition-all">
               <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M9.568 3H5.25A2.25 2.25 0 003 5.25v4.318c0 .597.237 1.17.659 1.591l9.581 9.581c.699.699 1.78.872 2.607.33a18.095 18.095 0 005.223-5.223c.542-.827.369-1.908-.33-2.607L11.16 3.66A2.25 2.25 0 009.568 3z"/></svg>
               View all
             </NuxtLink>
@@ -128,7 +128,7 @@
                 </div>
                 <div>
                   <p class="text-sm font-medium">{{ item.title }}</p>
-                  <p class="text-xs text-white/40 mt-0.5 leading-relaxed">{{ item.detail }}</p>
+                  <p class="text-xs text-white/65 mt-0.5 leading-relaxed">{{ item.detail }}</p>
                 </div>
               </div>
               <div class="flex-shrink-0 flex items-center gap-2">
@@ -137,13 +137,13 @@
                 </span>
                 <NuxtLink
                   :to="item.variant === 'secondary' ? '/app/products?category=SCALE' : item.variant === 'destructive' ? '/app/products?category=KILL' : '/app/products'"
-                  class="text-xs text-white/50 hover:text-glow-400 transition-colors font-medium"
+                  class="text-xs text-white/75 hover:text-glow-400 transition-colors font-medium"
                 >Apply →</NuxtLink>
               </div>
             </div>
             <div v-if="!aiGuidance.length" class="rounded-xl border border-white/10 p-6 text-center">
               <p class="text-sm font-medium">No AI guidance yet.</p>
-              <p class="mt-1 text-xs text-white/40">We'll surface recommendations after your first sync.</p>
+              <p class="mt-1 text-xs text-white/65">We'll surface recommendations after your first sync.</p>
             </div>
           </div>
         </div>
@@ -156,10 +156,10 @@
         <div class="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
           <div class="flex items-center justify-between mb-4">
             <div>
-              <p class="text-xs text-white/50 uppercase tracking-widest mb-1">Automation</p>
+              <p class="text-xs text-white/75 uppercase tracking-widest mb-1">Automation</p>
               <h3 class="text-base font-semibold">Rules firing now</h3>
             </div>
-            <NuxtLink to="/app/settings" class="text-xs text-white/30 hover:text-glow-400 transition-colors">Manage →</NuxtLink>
+            <NuxtLink to="/app/settings" class="text-xs text-white/55 hover:text-glow-400 transition-colors">Manage →</NuxtLink>
           </div>
           <div v-if="pending" class="space-y-2">
             <div v-for="n in 3" :key="n" class="h-8 rounded-xl bg-white/5 animate-pulse"></div>
@@ -170,11 +170,11 @@
                 <span class="h-2 w-2 rounded-full flex-shrink-0" :class="rule.variant === 'secondary' ? 'bg-lime-400' : rule.variant === 'destructive' ? 'bg-ember-400' : 'bg-glow-400'"></span>
                 <span class="text-sm">{{ rule.label }}</span>
               </div>
-              <span class="text-xs px-2 py-0.5 rounded-full" :class="rule.variant === 'secondary' ? 'bg-lime-500/10 text-lime-400' : rule.variant === 'destructive' ? 'bg-ember-500/10 text-ember-400' : 'bg-white/8 text-white/50'">
+              <span class="text-xs px-2 py-0.5 rounded-full" :class="rule.variant === 'secondary' ? 'bg-lime-500/10 text-lime-400' : rule.variant === 'destructive' ? 'bg-ember-500/10 text-ember-400' : 'bg-white/8 text-white/75'">
                 {{ rule.status }}
               </span>
             </div>
-            <div v-if="!automation.liveRules.length" class="rounded-xl border border-white/10 p-4 text-center text-xs text-white/35">
+            <div v-if="!automation.liveRules.length" class="rounded-xl border border-white/10 p-4 text-center text-xs text-white/60">
               No rules active. Enable automation in Settings.
             </div>
           </div>
@@ -184,10 +184,10 @@
         <div class="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
           <div class="flex items-center justify-between mb-4">
             <div>
-              <p class="text-xs text-white/50 uppercase tracking-widest mb-1">Activity</p>
+              <p class="text-xs text-white/75 uppercase tracking-widest mb-1">Activity</p>
               <h3 class="text-base font-semibold">Recent actions</h3>
             </div>
-            <NuxtLink to="/app/audit" class="text-xs text-white/30 hover:text-glow-400 transition-colors">Full log →</NuxtLink>
+            <NuxtLink to="/app/audit" class="text-xs text-white/55 hover:text-glow-400 transition-colors">Full log →</NuxtLink>
           </div>
           <div v-if="pending" class="space-y-3">
             <div v-for="n in 4" :key="n" class="h-12 rounded-xl bg-white/5 animate-pulse"></div>
@@ -195,15 +195,15 @@
           <div v-else class="space-y-3">
             <div v-for="item in automation.recentActivity" :key="item.title" class="flex items-start gap-3">
               <div class="mt-0.5 h-6 w-6 rounded-lg bg-white/5 flex items-center justify-center flex-shrink-0">
-                <svg class="w-3 h-3 text-white/35" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z"/></svg>
+                <svg class="w-3 h-3 text-white/60" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z"/></svg>
               </div>
               <div class="flex-1 min-w-0">
                 <p class="text-sm font-medium truncate">{{ item.title }}</p>
-                <p class="text-xs text-white/35 mt-0.5">{{ item.detail }}</p>
+                <p class="text-xs text-white/60 mt-0.5">{{ item.detail }}</p>
               </div>
-              <span class="text-xs text-white/25 flex-shrink-0 mt-0.5">{{ item.time }}</span>
+              <span class="text-xs text-white/50 flex-shrink-0 mt-0.5">{{ item.time }}</span>
             </div>
-            <div v-if="!automation.recentActivity.length" class="text-center p-4 text-xs text-white/35">
+            <div v-if="!automation.recentActivity.length" class="text-center p-4 text-xs text-white/60">
               No automation actions yet.
             </div>
           </div>
@@ -211,9 +211,9 @@
 
         <!-- Quick links -->
         <div class="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-          <p class="text-xs text-white/35 uppercase tracking-widest mb-3">Quick access</p>
+          <p class="text-xs text-white/60 uppercase tracking-widest mb-3">Quick access</p>
           <div class="grid grid-cols-2 gap-2">
-            <NuxtLink v-for="link in quickLinks" :key="link.to" :to="link.to" class="flex items-center gap-2 rounded-xl bg-white/[0.04] border border-white/8 px-3 py-2.5 text-xs font-medium text-white/55 hover:text-white hover:bg-white/8 hover:border-white/15 transition-all">
+            <NuxtLink v-for="link in quickLinks" :key="link.to" :to="link.to" class="flex items-center gap-2 rounded-xl bg-white/[0.04] border border-white/8 px-3 py-2.5 text-xs font-medium text-white/80 hover:text-white hover:bg-white/8 hover:border-white/15 transition-all">
               <svg class="w-3.5 h-3.5 flex-shrink-0" :style="{ color: link.color }" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5" v-html="link.icon"></svg>
               {{ link.label }}
             </NuxtLink>

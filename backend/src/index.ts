@@ -18,6 +18,9 @@ import { storeRoutes } from "./routes/stores.js";
 import { dashboardRoutes } from "./routes/dashboard.js";
 import { securityRoutes } from "./routes/security.js";
 import { auditRoutes } from "./routes/audit.js";
+import { settingsRoutes } from "./routes/settings.js";
+import { adminRoutes } from "./routes/admin.js";
+import { debugRoutes } from "./routes/debug.js";
 
 const app = Fastify({
   logger: {
@@ -81,6 +84,9 @@ await app.register(productRoutes, { prefix: "/v1" });
 await app.register(dashboardRoutes, { prefix: "/v1" });
 await app.register(auditRoutes, { prefix: "/v1" });
 await app.register(connectionRoutes, { prefix: "/v1" });
+await app.register(settingsRoutes, { prefix: "/v1" });
+await app.register(adminRoutes, { prefix: "/v1" });
+await app.register(debugRoutes, { prefix: "/v1" });
 
 const port = Number(app.config.PORT || 4000);
 

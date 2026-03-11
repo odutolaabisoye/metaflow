@@ -6,9 +6,9 @@
       <div class="flex flex-wrap items-start justify-between gap-4">
         <div>
           <h1 class="text-2xl font-semibold tracking-tight">Workspace setup</h1>
-          <p class="mt-1 text-sm text-white/40">{{ steps[step].subtitle }}</p>
+          <p class="mt-1 text-sm text-white/65">{{ steps[step].subtitle }}</p>
         </div>
-        <span class="rounded-full bg-white/[0.08] border border-white/10 px-3 py-1 text-xs font-medium text-white/50">
+        <span class="rounded-full bg-white/[0.08] border border-white/10 px-3 py-1 text-xs font-medium text-white/75">
           Step {{ step + 1 }} of {{ steps.length }}
         </span>
       </div>
@@ -22,7 +22,7 @@
               ? 'bg-lime-500/20 border border-lime-500/30 text-lime-400'
               : i === step
                 ? 'bg-glow-500/15 border border-glow-500/40 text-glow-400'
-                : 'bg-white/5 border border-white/10 text-white/25'"
+                : 'bg-white/5 border border-white/10 text-white/50'"
           >
             <svg v-if="i < step" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
               <path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5"/>
@@ -37,7 +37,7 @@
       <div class="mt-3 hidden sm:flex items-start">
         <template v-for="(s, i) in steps" :key="i">
           <div class="flex-1 text-center" :class="i === 0 ? 'text-left' : i === steps.length - 1 ? 'text-right' : 'text-center'">
-            <p class="text-xs transition-colors" :class="i === step ? 'text-white/70' : 'text-white/25'">{{ s.label }}</p>
+            <p class="text-xs transition-colors" :class="i === step ? 'text-white/70' : 'text-white/50'">{{ s.label }}</p>
           </div>
         </template>
       </div>
@@ -47,7 +47,7 @@
     <div class="glass rounded-2xl p-6 md:p-8">
       <div class="mb-7">
         <h2 class="text-xl font-semibold">{{ steps[step].title }}</h2>
-        <p class="mt-1 text-sm text-white/45">{{ steps[step].hint }}</p>
+        <p class="mt-1 text-sm text-white/70">{{ steps[step].hint }}</p>
       </div>
 
       <!-- ── Step 0: Connect store ── -->
@@ -55,7 +55,7 @@
 
         <!-- Platform picker -->
         <div>
-          <p class="text-xs font-medium text-white/35 uppercase tracking-wider mb-3">Choose your platform</p>
+          <p class="text-xs font-medium text-white/60 uppercase tracking-wider mb-3">Choose your platform</p>
           <div class="grid gap-3 sm:grid-cols-3">
             <button
               v-for="p in platforms"
@@ -70,7 +70,7 @@
                 <svg class="w-4 h-4" :style="{ color: p.iconColor }" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5" v-html="p.icon"></svg>
               </div>
               <p class="font-semibold text-sm">{{ p.label }}</p>
-              <p class="text-xs text-white/40 mt-0.5 leading-relaxed">{{ p.note }}</p>
+              <p class="text-xs text-white/65 mt-0.5 leading-relaxed">{{ p.note }}</p>
               <!-- Checkmark -->
               <div
                 v-if="form.platform === p.value"
@@ -96,7 +96,7 @@
                 </div>
                 <div>
                   <p class="text-sm font-semibold">Shopify App Installation</p>
-                  <p class="text-xs text-white/50 mt-1 leading-relaxed">
+                  <p class="text-xs text-white/75 mt-1 leading-relaxed">
                     You'll be redirected to the Shopify App Store to install MetaFlow. Once installed, your catalog, orders, and inventory sync automatically — no API keys or webhooks needed.
                   </p>
                 </div>
@@ -111,16 +111,16 @@
             <div>
               <label class="form-label">Your Shopify store URL</label>
               <div class="flex items-stretch">
-                <div class="flex items-center rounded-l-xl border border-r-0 border-white/10 bg-white/[0.04] px-3 text-sm text-white/35 select-none flex-shrink-0">
+                <div class="flex items-center rounded-l-xl border border-r-0 border-white/10 bg-white/[0.04] px-3 text-sm text-white/60 select-none flex-shrink-0">
                   https://
                 </div>
                 <input
                   v-model.trim="form.shopifySubdomain"
                   type="text"
                   placeholder="yourstore"
-                  class="flex-1 min-w-0 border border-x-0 border-white/10 bg-white/[0.06] px-3 py-3 text-sm text-white placeholder:text-white/25 outline-none focus:border-glow-500/40 transition-all"
+                  class="flex-1 min-w-0 border border-x-0 border-white/10 bg-white/[0.06] px-3 py-3 text-sm text-white placeholder:text-white/50 outline-none focus:border-glow-500/40 transition-all"
                 />
-                <div class="flex items-center rounded-r-xl border border-l-0 border-white/10 bg-white/[0.04] px-3 text-sm text-white/35 select-none flex-shrink-0">
+                <div class="flex items-center rounded-r-xl border border-l-0 border-white/10 bg-white/[0.04] px-3 text-sm text-white/60 select-none flex-shrink-0">
                   .myshopify.com
                 </div>
               </div>
@@ -137,8 +137,8 @@
               Install MetaFlow on Shopify →
             </button>
 
-            <div class="flex items-start gap-2 text-xs text-white/35">
-              <svg class="w-3.5 h-3.5 mt-0.5 flex-shrink-0 text-white/25" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+            <div class="flex items-start gap-2 text-xs text-white/60">
+              <svg class="w-3.5 h-3.5 mt-0.5 flex-shrink-0 text-white/50" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z"/>
               </svg>
               MetaFlow requests read-only catalog and orders access. We cannot create products, process refunds, or alter your store.
@@ -158,7 +158,7 @@
                 </div>
                 <div>
                   <p class="text-sm font-semibold">WooCommerce REST API</p>
-                  <p class="text-xs text-white/50 mt-1 leading-relaxed">
+                  <p class="text-xs text-white/75 mt-1 leading-relaxed">
                     Generate API credentials in your WordPress admin at
                     <span class="text-[#9B72CF] font-medium">WooCommerce → Settings → Advanced → REST API</span>.
                     Create a key with <strong class="text-white/70">Read/Write</strong> permissions.
@@ -198,8 +198,8 @@
 
             <!-- Webhook instructions -->
             <div class="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-              <p class="text-xs font-semibold text-white/60 mb-2">Webhook setup (recommended)</p>
-              <p class="text-xs text-white/40 mb-3">Add this URL in WooCommerce → Settings → Advanced → Webhooks to receive real-time product and order updates:</p>
+              <p class="text-xs font-semibold text-white/80 mb-2">Webhook setup (recommended)</p>
+              <p class="text-xs text-white/65 mb-3">Add this URL in WooCommerce → Settings → Advanced → Webhooks to receive real-time product and order updates:</p>
               <code class="block text-xs text-[#9B72CF] bg-[#7F54B3]/5 border border-[#7F54B3]/15 rounded-lg px-3 py-2 font-mono break-all">
                 https://api.metaflow.io/v1/webhooks/woo/{your-workspace-key}
               </code>
@@ -219,7 +219,7 @@
                 </div>
                 <div>
                   <p class="text-sm font-semibold">Direct API Integration</p>
-                  <p class="text-xs text-white/50 mt-1 leading-relaxed">
+                  <p class="text-xs text-white/75 mt-1 leading-relaxed">
                     Connect any custom store, headless commerce platform, or ERP by pointing MetaFlow at your products and orders API. We'll pull catalog data on a schedule and process webhook events in real time.
                   </p>
                 </div>
@@ -240,19 +240,19 @@
             <div>
               <label class="form-label">Products API endpoint</label>
               <input v-model.trim="form.storeUrl" type="url" placeholder="https://api.yourstore.com/v1/products" class="form-input font-mono text-sm" />
-              <p class="mt-1.5 text-xs text-white/35">Should return a JSON array of products with SKU, price, inventory, and category fields.</p>
+              <p class="mt-1.5 text-xs text-white/60">Should return a JSON array of products with SKU, price, inventory, and category fields.</p>
             </div>
 
             <div>
               <label class="form-label">API Key / Bearer token</label>
               <input v-model.trim="form.apiKey" type="password" :placeholder="apiKeyPlaceholder" class="form-input font-mono text-xs" autocomplete="off" />
-              <p class="mt-1.5 text-xs text-white/35">Sent as <code class="text-glow-400">Authorization: Bearer &lt;key&gt;</code> with every request.</p>
+              <p class="mt-1.5 text-xs text-white/60">Sent as <code class="text-glow-400">Authorization: Bearer &lt;key&gt;</code> with every request.</p>
             </div>
 
             <!-- Inbound webhook -->
             <div class="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
-              <p class="text-xs font-semibold text-white/60 mb-1.5">Inbound webhook endpoint</p>
-              <p class="text-xs text-white/35 mb-2.5">POST product and order events to MetaFlow for real-time updates:</p>
+              <p class="text-xs font-semibold text-white/80 mb-1.5">Inbound webhook endpoint</p>
+              <p class="text-xs text-white/60 mb-2.5">POST product and order events to MetaFlow for real-time updates:</p>
               <code class="block text-xs text-glow-400 bg-glow-500/5 border border-glow-500/15 rounded-lg px-3 py-2 font-mono break-all">
                 https://api.metaflow.io/v1/webhooks/ingest/{your-workspace-key}
               </code>
@@ -274,7 +274,7 @@
             </div>
             <div class="flex-1">
               <p class="font-semibold text-sm">Connect Meta Ads</p>
-              <p class="text-xs text-white/50 mt-0.5">We'll pull catalog performance and manage product sets and budgets using your automation rules.</p>
+              <p class="text-xs text-white/75 mt-0.5">We'll pull catalog performance and manage product sets and budgets using your automation rules.</p>
             </div>
             <div class="flex-shrink-0">
               <span v-if="metaConnected" class="flex items-center gap-1.5 text-xs text-lime-400 font-medium">
@@ -313,7 +313,7 @@
               <option value="CAD">CAD — Canadian Dollar</option>
               <option value="AUD">AUD — Australian Dollar</option>
             </select>
-            <p class="mt-1.5 text-xs text-white/35">Used for spend + revenue reporting across your dashboard.</p>
+            <p class="mt-1.5 text-xs text-white/60">Used for spend + revenue reporting across your dashboard.</p>
           </div>
         </div>
 
@@ -322,7 +322,7 @@
           <svg class="w-4 h-4 text-glow-400 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
             <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z"/>
           </svg>
-          <p class="text-xs text-white/45 leading-relaxed">
+          <p class="text-xs text-white/70 leading-relaxed">
             MetaFlow requests <strong class="text-white/65">ads_read</strong>, <strong class="text-white/65">ads_management</strong>, and <strong class="text-white/65">catalog_management</strong> permissions. We never create campaigns, delete ads, or spend money without your explicit automation rules.
           </p>
         </div>
@@ -332,7 +332,7 @@
       <div v-else-if="step === 2" class="space-y-6">
 
         <div>
-          <p class="text-xs font-medium text-white/35 uppercase tracking-wider mb-3">Primary goal</p>
+          <p class="text-xs font-medium text-white/60 uppercase tracking-wider mb-3">Primary goal</p>
           <div class="grid gap-3 sm:grid-cols-3">
             <button
               v-for="goal in goals"
@@ -347,7 +347,7 @@
                 <svg class="w-4 h-4" :style="{ color: goal.color }" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5" v-html="goal.icon"></svg>
               </div>
               <p class="text-sm font-semibold">{{ goal.label }}</p>
-              <p class="text-xs text-white/40 mt-0.5">{{ goal.desc }}</p>
+              <p class="text-xs text-white/65 mt-0.5">{{ goal.desc }}</p>
               <div v-if="form.goal === goal.value" class="absolute top-3 right-3 h-5 w-5 rounded-full bg-lime-500/20 border border-lime-500/40 flex items-center justify-center">
                 <svg class="w-3 h-3 text-lime-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5"/></svg>
               </div>
@@ -356,9 +356,9 @@
         </div>
 
         <div>
-          <p class="text-xs font-medium text-white/35 uppercase tracking-wider mb-3">
+          <p class="text-xs font-medium text-white/60 uppercase tracking-wider mb-3">
             Scoring focus
-            <span class="normal-case text-white/20 ml-1">— select all that apply</span>
+            <span class="normal-case text-white/45 ml-1">— select all that apply</span>
           </p>
           <div class="grid gap-2.5 sm:grid-cols-2">
             <label
@@ -401,7 +401,7 @@
               </div>
               <div>
                 <p class="text-sm font-semibold">{{ toggle.label }}</p>
-                <p class="text-xs text-white/40 mt-0.5">{{ toggle.desc }}</p>
+                <p class="text-xs text-white/65 mt-0.5">{{ toggle.desc }}</p>
               </div>
             </div>
             <button
@@ -427,8 +427,8 @@
           </p>
           <div class="space-y-2.5">
             <div v-for="item in reviewItems" :key="item.label" class="flex items-center justify-between text-sm border-b border-white/[0.05] pb-2.5 last:border-0 last:pb-0">
-              <span class="text-white/40">{{ item.label }}</span>
-              <span class="font-medium" :class="item.value === '—' ? 'text-white/20' : ''">{{ item.value }}</span>
+              <span class="text-white/65">{{ item.label }}</span>
+              <span class="font-medium" :class="item.value === '—' ? 'text-white/45' : ''">{{ item.value }}</span>
             </div>
           </div>
         </div>
@@ -455,7 +455,7 @@
           v-if="step > 0"
           :disabled="saving"
           @click="step--"
-          class="flex items-center gap-2 rounded-xl border border-white/15 bg-white/5 px-5 py-2.5 text-sm font-medium text-white/60 hover:bg-white/10 hover:text-white transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+          class="flex items-center gap-2 rounded-xl border border-white/15 bg-white/5 px-5 py-2.5 text-sm font-medium text-white/80 hover:bg-white/10 hover:text-white transition-all disabled:opacity-40 disabled:cursor-not-allowed"
         >
           ← Back
         </button>

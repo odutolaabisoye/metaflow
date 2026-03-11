@@ -49,7 +49,7 @@ export async function authRoutes(app: FastifyInstance) {
       app.log.error({ err }, "Failed to send welcome email")
     );
 
-    const token = app.jwt.sign({ sub: user.id, email: user.email });
+    const token = app.jwt.sign({ sub: user.id, email: user.email, role: user.role });
     const maxAge = 60 * 60 * 24 * 7;
     reply.setCookie("mf_session", token, {
       ...COOKIE_OPTIONS,
@@ -62,7 +62,7 @@ export async function authRoutes(app: FastifyInstance) {
       maxAge
     });
 
-    return reply.send({ ok: true, user: { id: user.id, email: user.email, name: user.name } });
+    return reply.send({ ok: true, user: { id: user.id, email: user.email, name: user.name, role: user.role } });
   });
 
   app.post("/auth/login", async (request, reply) => {
@@ -84,7 +84,7 @@ export async function authRoutes(app: FastifyInstance) {
       return reply.code(401).send({ ok: false, message: "Invalid credentials" });
     }
 
-    const token = app.jwt.sign({ sub: user.id, email: user.email });
+    const token = app.jwt.sign({ sub: user.id, email: user.email, role: user.role });
     const maxAge = 60 * 60 * 24 * 7;
     reply.setCookie("mf_session", token, {
       ...COOKIE_OPTIONS,
@@ -96,13 +96,22 @@ export async function authRoutes(app: FastifyInstance) {
       secure: process.env.NODE_ENV === "production",
       maxAge
     });
+    // Set the non-httpOnly role flag so the frontend middleware can fast-path admin routes
+    if (user.role === "ADMIN") {
+      reply.setCookie("mf_role", "ADMIN", {
+        ...AUTH_FLAG_OPTIONS,
+        secure: process.env.NODE_ENV === "production",
+        maxAge
+      });
+    }
 
-    return reply.send({ ok: true, user: { id: user.id, email: user.email, name: user.name } });
+    return reply.send({ ok: true, user: { id: user.id, email: user.email, name: user.name, role: user.role } });
   });
 
   app.post("/auth/logout", async (_request, reply) => {
     reply.clearCookie("mf_session", COOKIE_OPTIONS);
     reply.clearCookie("mf_auth", AUTH_FLAG_OPTIONS);
+    reply.clearCookie("mf_role", AUTH_FLAG_OPTIONS);
     return reply.send({ ok: true });
   });
 
@@ -111,7 +120,7 @@ export async function authRoutes(app: FastifyInstance) {
       const payload = await request.jwtVerify<{ sub: string }>();
       const user = await app.prisma.user.findUnique({
         where: { id: payload.sub },
-        select: { id: true, email: true, name: true, createdAt: true }
+        select: { id: true, email: true, name: true, role: true, createdAt: true }
       });
 
       if (!user) {

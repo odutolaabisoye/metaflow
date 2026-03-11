@@ -4,13 +4,25 @@
     <!-- Page header -->
     <div class="flex flex-wrap items-center justify-between gap-3">
       <div>
-        <p class="text-[11px] uppercase tracking-widest text-white/40 mb-1">Workspace</p>
+        <p class="text-[11px] uppercase tracking-widest text-white/65 mb-1">Workspace</p>
         <h1 class="text-2xl font-semibold tracking-tight">Settings</h1>
-        <p class="mt-1 text-sm text-white/50">Manage your integrations, automation rules, and account preferences.</p>
+        <p class="mt-1 text-sm text-white/75">Manage your integrations, automation rules, and account preferences.</p>
       </div>
-      <!-- Meta connected toast -->
+      <!-- Toasts -->
       <Transition name="fade-up">
-        <div v-if="metaConnected" class="flex items-center gap-2.5 rounded-xl border border-lime-500/25 bg-lime-500/8 px-4 py-2.5 text-sm font-medium text-lime-400">
+        <div v-if="saveSuccess" class="flex items-center gap-2.5 rounded-xl border border-lime-500/25 bg-lime-500/8 px-4 py-2.5 text-sm font-medium text-lime-400">
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+          </svg>
+          Rule changes saved
+        </div>
+        <div v-else-if="saveError" class="flex items-center gap-2.5 rounded-xl border border-ember-500/25 bg-ember-500/8 px-4 py-2.5 text-sm font-medium text-ember-400">
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z"/>
+          </svg>
+          Failed to save: {{ saveError }}
+        </div>
+        <div v-else-if="metaConnected" class="flex items-center gap-2.5 rounded-xl border border-lime-500/25 bg-lime-500/8 px-4 py-2.5 text-sm font-medium text-lime-400">
           <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
             <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
           </svg>
@@ -30,13 +42,13 @@
       <div class="flex flex-wrap items-center justify-between gap-3 mb-5">
         <div>
           <h2 class="font-semibold">Integrations</h2>
-          <p class="text-xs text-white/40 mt-0.5">Your connected platforms and data sources</p>
+          <p class="text-xs text-white/65 mt-0.5">Your connected platforms and data sources</p>
         </div>
         <!-- Only show "Add integration" when no store is connected yet -->
         <NuxtLink
           v-if="!connectedStorePlatform && !loadingConnections"
           to="/app/onboarding"
-          class="flex items-center gap-2 rounded-xl border border-white/15 bg-white/5 px-4 py-2 text-xs font-medium text-white/60 hover:bg-white/10 hover:text-white transition-all"
+          class="flex items-center gap-2 rounded-xl border border-white/15 bg-white/5 px-4 py-2 text-xs font-medium text-white/80 hover:bg-white/10 hover:text-white transition-all"
         >
           <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
             <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/>
@@ -56,7 +68,7 @@
         <!-- Store platform -->
         <div class="rounded-2xl border border-white/10 bg-white/[0.03] overflow-hidden">
           <div class="p-4">
-            <p class="text-xs font-medium text-white/55 uppercase tracking-wider mb-3">Store platform</p>
+            <p class="text-xs font-medium text-white/80 uppercase tracking-wider mb-3">Store platform</p>
             <div class="grid gap-2.5 sm:grid-cols-3">
               <div
                 v-for="store in storeIntegrations"
@@ -73,10 +85,10 @@
                 </div>
                 <div class="flex-1 min-w-0">
                   <p class="text-sm font-medium truncate">{{ store.label }}</p>
-                  <p class="text-xs text-white/50 truncate mt-0.5">{{ store.detail }}</p>
+                  <p class="text-xs text-white/75 truncate mt-0.5">{{ store.detail }}</p>
                 </div>
                 <div class="flex-shrink-0 flex flex-col items-end gap-1.5">
-                  <span class="flex items-center gap-1.5 text-xs font-medium whitespace-nowrap" :class="store.connected ? 'text-lime-400' : 'text-white/25'">
+                  <span class="flex items-center gap-1.5 text-xs font-medium whitespace-nowrap" :class="store.connected ? 'text-lime-400' : 'text-white/50'">
                     <span class="h-1.5 w-1.5 rounded-full" :class="store.connected ? 'bg-lime-400 animate-pulse' : 'bg-white/15'"></span>
                     {{ store.connected ? 'Active' : 'Not connected' }}
                   </span>
@@ -91,7 +103,7 @@
                   <!-- Disabled: another platform is active -->
                   <span
                     v-else-if="store.disabled"
-                    class="text-xs text-white/15 whitespace-nowrap select-none"
+                    class="text-xs text-white/45 whitespace-nowrap select-none"
                   >
                     Connect →
                   </span>
@@ -123,11 +135,11 @@
           </div>
           <div class="flex-1 min-w-0">
             <p class="text-sm font-semibold">{{ integration.label }}</p>
-            <p class="text-xs text-white/40 mt-0.5">{{ integration.detail }}</p>
+            <p class="text-xs text-white/65 mt-0.5">{{ integration.detail }}</p>
           </div>
           <div class="flex items-center gap-4 flex-shrink-0">
             <div class="text-right hidden sm:block">
-              <span class="flex items-center gap-1.5 text-xs font-medium" :class="integration.connected ? 'text-lime-400' : 'text-white/30'">
+              <span class="flex items-center gap-1.5 text-xs font-medium" :class="integration.connected ? 'text-lime-400' : 'text-white/55'">
                 <span class="h-1.5 w-1.5 rounded-full" :class="integration.connected ? 'bg-lime-400 animate-pulse' : 'bg-white/15'"></span>
                 {{ integration.connected ? 'Connected' : 'Not connected' }}
               </span>
@@ -149,18 +161,92 @@
       </div>
     </div>
 
+    <!-- ── Meta Ads configuration (shown only when Meta is connected) ── -->
+    <div v-if="connectedMetaConn" class="glass rounded-2xl p-6">
+      <div class="flex flex-wrap items-center justify-between gap-3 mb-5">
+        <div>
+          <h2 class="font-semibold">Meta Ads configuration</h2>
+          <p class="text-xs text-white/65 mt-0.5">Select which ad account and product catalog to use for syncing</p>
+        </div>
+        <Transition name="fade-up">
+          <span v-if="metaConfigSuccess" class="flex items-center gap-1.5 text-xs font-medium text-lime-400">
+            <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+            </svg>
+            Saved
+          </span>
+        </Transition>
+      </div>
+
+      <!-- Loading skeleton -->
+      <div v-if="metaConfigLoading" class="space-y-3">
+        <div class="h-12 rounded-xl bg-white/5 animate-pulse"></div>
+        <div class="h-12 rounded-xl bg-white/5 animate-pulse"></div>
+      </div>
+
+      <div v-else class="space-y-4">
+        <!-- Ad Account -->
+        <div>
+          <label class="form-label">Ad Account</label>
+          <select
+            :value="metaConfig.adAccountId ?? ''"
+            @change="onMetaAccountChange(($event.target as HTMLSelectElement).value)"
+            class="form-input"
+          >
+            <option value="">— Select ad account —</option>
+            <option v-for="acc in metaAdAccounts" :key="acc.id" :value="acc.id">
+              {{ acc.name }} ({{ acc.currency }})
+            </option>
+          </select>
+          <p v-if="metaAdAccounts.length === 0" class="text-xs text-white/45 mt-1.5">No ad accounts found for this token.</p>
+        </div>
+
+        <!-- Product Catalog -->
+        <div>
+          <label class="form-label">Product Catalog</label>
+          <select
+            v-model="metaConfig.catalogId"
+            class="form-input"
+            :disabled="!metaConfig.adAccountId || metaCatalogLoading"
+          >
+            <option value="">{{ metaCatalogLoading ? 'Loading catalogs…' : '— Select catalog —' }}</option>
+            <option v-for="cat in metaCatalogs" :key="cat.id" :value="cat.id">
+              {{ cat.name }}{{ cat.product_count != null ? ` (${cat.product_count.toLocaleString()} products)` : '' }}
+            </option>
+          </select>
+          <p v-if="metaConfig.adAccountId && !metaCatalogLoading && metaCatalogs.length === 0" class="text-xs text-white/45 mt-1.5">
+            No product catalogs found for this ad account.
+          </p>
+        </div>
+
+        <p v-if="metaConfigError" class="text-xs text-ember-400">{{ metaConfigError }}</p>
+
+        <button
+          @click="saveMetaConfig"
+          :disabled="metaConfigSaving || !metaConfig.adAccountId"
+          class="w-full flex items-center justify-center gap-2 rounded-xl bg-white text-ink-950 py-2.5 text-sm font-semibold hover:bg-white/90 transition-all disabled:opacity-60 disabled:cursor-not-allowed"
+        >
+          <svg v-if="metaConfigSaving" class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+          </svg>
+          {{ metaConfigSaving ? 'Saving…' : 'Save configuration' }}
+        </button>
+      </div>
+    </div>
+
     <!-- ── Automation rules ── -->
     <div class="glass rounded-2xl p-6">
       <div class="flex flex-wrap items-center justify-between gap-3 mb-5">
         <div>
           <h2 class="font-semibold">Automation rules</h2>
-          <p class="text-xs text-white/40 mt-0.5">Control how MetaFlow acts on your daily scoring results</p>
+          <p class="text-xs text-white/65 mt-0.5">Control how MetaFlow acts on your daily scoring results</p>
         </div>
         <span class="rounded-full bg-glow-500/10 border border-glow-500/20 px-2.5 py-0.5 text-xs font-medium text-glow-400">Global</span>
       </div>
 
       <!-- Skeleton -->
-      <div v-if="pending" class="space-y-3">
+      <div v-if="loadingRules" class="space-y-3">
         <div v-for="i in 4" :key="i" class="h-16 rounded-2xl bg-white/5 animate-pulse"></div>
       </div>
 
@@ -176,7 +262,7 @@
             </div>
             <div>
               <p class="text-sm font-medium">{{ rule.label }}</p>
-              <p class="text-xs text-white/35 mt-0.5">{{ rule.desc }}</p>
+              <p class="text-xs text-white/60 mt-0.5">{{ rule.desc }}</p>
             </div>
           </div>
           <!-- Toggle -->
@@ -196,13 +282,13 @@
       </div>
 
       <!-- Score threshold sliders -->
-      <div v-if="!pending" class="mt-5 pt-5 border-t border-white/8 space-y-4">
-        <p class="text-xs font-medium text-white/35 uppercase tracking-wider">Score thresholds</p>
+      <div v-if="!loadingRules" class="mt-5 pt-5 border-t border-white/8 space-y-4">
+        <p class="text-xs font-medium text-white/60 uppercase tracking-wider">Score thresholds</p>
         <div class="grid gap-4 sm:grid-cols-3">
           <div v-for="threshold in thresholds" :key="threshold.key">
             <div class="flex items-center justify-between mb-2">
               <label class="text-xs font-medium" :style="{ color: threshold.color }">{{ threshold.label }}</label>
-              <span class="text-xs font-mono text-white/50">≥ {{ thresholdValues[threshold.key] }}</span>
+              <span class="text-xs font-mono text-white/75">≥ {{ thresholdValues[threshold.key] }}</span>
             </div>
             <input
               type="range"
@@ -218,10 +304,16 @@
       </div>
 
       <button
-        v-if="!pending"
-        class="mt-5 w-full flex items-center justify-center gap-2 rounded-xl bg-white text-ink-950 py-2.5 text-sm font-semibold hover:bg-white/90 transition-all"
+        v-if="!loadingRules"
+        @click="saveRules"
+        :disabled="savingRules"
+        class="mt-5 w-full flex items-center justify-center gap-2 rounded-xl bg-white text-ink-950 py-2.5 text-sm font-semibold hover:bg-white/90 transition-all disabled:opacity-60 disabled:cursor-not-allowed"
       >
-        Save rule changes
+        <svg v-if="savingRules" class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+        </svg>
+        {{ savingRules ? 'Saving…' : 'Save rule changes' }}
       </button>
     </div>
 
@@ -231,9 +323,9 @@
       <!-- Notifications -->
       <div class="glass rounded-2xl p-6">
         <h2 class="font-semibold mb-0.5">Notifications</h2>
-        <p class="text-xs text-white/40 mb-5">Choose how MetaFlow keeps you informed</p>
+        <p class="text-xs text-white/65 mb-5">Choose how MetaFlow keeps you informed</p>
 
-        <div v-if="pending" class="space-y-3">
+        <div v-if="loadingRules" class="space-y-3">
           <div v-for="i in 3" :key="i" class="h-14 rounded-xl bg-white/5 animate-pulse"></div>
         </div>
 
@@ -245,7 +337,7 @@
           >
             <div>
               <p class="text-sm font-medium">{{ notif.label }}</p>
-              <p class="text-xs text-white/35 mt-0.5">{{ notif.desc }}</p>
+              <p class="text-xs text-white/60 mt-0.5">{{ notif.desc }}</p>
             </div>
             <button
               @click="notifications[notif.key] = !notifications[notif.key]"
@@ -263,7 +355,7 @@
         </div>
 
         <!-- Email input -->
-        <div v-if="!pending && notifications.emailReports" class="mt-4 pt-4 border-t border-white/8">
+        <div v-if="!loadingRules && notifications.emailReports" class="mt-4 pt-4 border-t border-white/8">
           <label class="form-label">Report email address</label>
           <input type="email" placeholder="you@yourstore.com" class="form-input" />
         </div>
@@ -272,9 +364,9 @@
       <!-- Billing -->
       <div class="glass rounded-2xl p-6">
         <h2 class="font-semibold mb-0.5">Billing</h2>
-        <p class="text-xs text-white/40 mb-5">Your current plan and payment details</p>
+        <p class="text-xs text-white/65 mb-5">Your current plan and payment details</p>
 
-        <div v-if="pending" class="space-y-3">
+        <div v-if="loadingRules" class="space-y-3">
           <div v-for="i in 4" :key="i" class="h-6 rounded-xl bg-white/5 animate-pulse" :style="{ opacity: 1 - i * 0.15 }"></div>
         </div>
 
@@ -290,31 +382,31 @@
             </div>
             <p class="text-2xl font-bold tracking-tight">
               {{ billing.price }}
-              <span class="text-sm font-normal text-white/35">/mo</span>
+              <span class="text-sm font-normal text-white/60">/mo</span>
             </p>
           </div>
 
           <div class="space-y-2.5 text-sm mb-5">
             <div class="flex items-center justify-between">
-              <span class="text-white/40">Next invoice</span>
+              <span class="text-white/65">Next invoice</span>
               <span class="font-medium">{{ billing.nextInvoice }}</span>
             </div>
             <div class="flex items-center justify-between">
-              <span class="text-white/40">SKUs included</span>
+              <span class="text-white/65">SKUs included</span>
               <span class="font-medium">2,500</span>
             </div>
             <div class="flex items-center justify-between">
-              <span class="text-white/40">Automation rules</span>
+              <span class="text-white/65">Automation rules</span>
               <span class="font-medium">Unlimited</span>
             </div>
             <div class="flex items-center justify-between">
-              <span class="text-white/40">Team seats</span>
+              <span class="text-white/65">Team seats</span>
               <span class="font-medium">5</span>
             </div>
           </div>
 
           <div class="grid grid-cols-2 gap-2.5">
-            <button class="flex items-center justify-center gap-1.5 rounded-xl border border-white/15 bg-white/5 py-2.5 text-xs font-medium text-white/60 hover:bg-white/10 hover:text-white transition-all">
+            <button class="flex items-center justify-center gap-1.5 rounded-xl border border-white/15 bg-white/5 py-2.5 text-xs font-medium text-white/80 hover:bg-white/10 hover:text-white transition-all">
               Manage billing
             </button>
             <NuxtLink to="/pricing" class="flex items-center justify-center gap-1.5 rounded-xl border border-glow-500/25 bg-glow-500/8 py-2.5 text-xs font-medium text-glow-400 hover:bg-glow-500/15 transition-all">
@@ -329,26 +421,30 @@
     <!-- ── Danger zone ── -->
     <div class="glass rounded-2xl p-6 border-ember-500/20">
       <h2 class="font-semibold text-ember-400 mb-0.5">Danger zone</h2>
-      <p class="text-xs text-white/40 mb-5">Irreversible actions — proceed with caution</p>
+      <p class="text-xs text-white/65 mb-5">Irreversible actions — proceed with caution</p>
       <div class="grid sm:grid-cols-2 gap-3">
         <div class="rounded-xl border border-white/10 bg-white/[0.03] p-4 flex items-center justify-between">
           <div>
             <p class="text-sm font-medium">Reset all rules</p>
-            <p class="text-xs text-white/35 mt-0.5">Restore automation rules to defaults</p>
+            <p class="text-xs text-white/60 mt-0.5">Restore automation rules to defaults</p>
           </div>
-          <button class="text-xs text-white/40 hover:text-ember-400 border border-white/10 hover:border-ember-500/30 rounded-lg px-3 py-1.5 transition-all whitespace-nowrap ml-3">
+          <button
+            @click="resetRules"
+            :disabled="savingRules"
+            class="text-xs text-white/65 hover:text-ember-400 border border-white/10 hover:border-ember-500/30 rounded-lg px-3 py-1.5 transition-all whitespace-nowrap ml-3 disabled:opacity-40 disabled:cursor-not-allowed"
+          >
             Reset
           </button>
         </div>
         <div class="rounded-xl border border-white/10 bg-white/[0.03] p-4 flex items-center justify-between">
           <div>
             <p class="text-sm font-medium">Disconnect all integrations</p>
-            <p class="text-xs text-white/35 mt-0.5">Remove all store and ad connections</p>
+            <p class="text-xs text-white/60 mt-0.5">Remove all store and ad connections</p>
           </div>
           <button
             @click="connectedStore ? openDisconnect('store', connectedStore.id, 'all integrations') : undefined"
             :disabled="!connectedStore || loadingConnections"
-            class="text-xs text-white/40 hover:text-ember-400 border border-white/10 hover:border-ember-500/30 rounded-lg px-3 py-1.5 transition-all whitespace-nowrap ml-3 disabled:opacity-30 disabled:cursor-not-allowed"
+            class="text-xs text-white/65 hover:text-ember-400 border border-white/10 hover:border-ember-500/30 rounded-lg px-3 py-1.5 transition-all whitespace-nowrap ml-3 disabled:opacity-30 disabled:cursor-not-allowed"
           >
             Disconnect
           </button>
@@ -377,7 +473,7 @@
               </div>
               <div class="min-w-0">
                 <h3 class="text-base font-semibold">Disconnect {{ disconnectTarget?.label }}?</h3>
-                <p class="text-sm text-white/50 mt-1 leading-relaxed">
+                <p class="text-sm text-white/75 mt-1 leading-relaxed">
                   This will permanently remove your
                   <strong class="text-white/70">{{ disconnectTarget?.label }}</strong>
                   integration{{ disconnectTarget?.type === 'store' ? ' and all associated products, metrics, and data' : '' }}.
@@ -386,7 +482,7 @@
               </div>
             </div>
 
-            <p class="text-xs text-white/40 mb-2">
+            <p class="text-xs text-white/65 mb-2">
               Type <span class="font-mono font-semibold text-ember-400">Disconnect</span> to confirm:
             </p>
             <input
@@ -401,7 +497,7 @@
               <button
                 @click="disconnectModal = false"
                 :disabled="disconnecting"
-                class="flex-1 rounded-xl border border-white/15 bg-white/5 py-2.5 text-sm font-medium text-white/60 hover:bg-white/10 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                class="flex-1 rounded-xl border border-white/15 bg-white/5 py-2.5 text-sm font-medium text-white/80 hover:bg-white/10 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 Cancel
               </button>
@@ -425,15 +521,27 @@
 </template>
 
 <script setup lang="ts">
-const { data, pending } = await useFetch("/api/settings");
 const { public: { apiBase } } = useRuntimeConfig();
 const route = useRoute();
 
-// Read OAuth callback signals from query params
+// ── Toast state ───────────────────────────────────────────────────────────────
 const metaConnected = ref(route.query.meta_connected === '1');
 const metaError = ref(typeof route.query.meta_error === 'string' ? decodeURIComponent(route.query.meta_error as string) : '');
+const saveSuccess = ref(false);
+const saveError = ref('');
 
-// Auto-dismiss toasts after 5 s
+// Auto-dismiss toasts
+function showSaveSuccess() {
+  saveSuccess.value = true;
+  saveError.value = '';
+  setTimeout(() => { saveSuccess.value = false; }, 3500);
+}
+function showSaveError(msg: string) {
+  saveError.value = msg;
+  saveSuccess.value = false;
+  setTimeout(() => { saveError.value = ''; }, 6000);
+}
+
 if (process.client) {
   if (metaConnected.value) setTimeout(() => { metaConnected.value = false; }, 5000);
   if (metaError.value) setTimeout(() => { metaError.value = ''; }, 8000);
@@ -461,19 +569,24 @@ interface StoreRecord {
 const stores = ref<StoreRecord[]>([]);
 const loadingConnections = ref(true);
 
-// The first (and currently only) connected store
-const connectedStore = computed(() => stores.value[0] ?? null);
+// Use the same active store ID that the layout manages via mf_active_store_id state + URL ?store= param
+const activeStoreId = useState<string | null>('mf_active_store_id', () => null);
+
+// The currently selected store (matches the sidebar store switcher)
+const connectedStore = computed(() => {
+  const id = (route.query.store as string | undefined) || activeStoreId.value;
+  return stores.value.find(s => s.id === id) ?? stores.value[0] ?? null;
+});
 
 // Which store platform is active: "SHOPIFY" | "WOOCOMMERCE" | "API" | null
 const connectedStorePlatform = computed(() => connectedStore.value?.platform ?? null);
 
-// The Meta Ads connection if any store has one
+// Meta connection scoped to the currently active store only
 const connectedMetaConn = computed<(ConnRecord & { storeId: string }) | null>(() => {
-  for (const s of stores.value) {
-    const mc = s.connections.find(c => c.provider === 'META');
-    if (mc) return { ...mc, storeId: s.id };
-  }
-  return null;
+  const store = connectedStore.value;
+  if (!store) return null;
+  const mc = store.connections.find((c: ConnRecord) => c.provider === 'META');
+  return mc ? { ...mc, storeId: store.id } : null;
 });
 
 async function loadConnections() {
@@ -488,7 +601,10 @@ async function loadConnections() {
   loadingConnections.value = false;
 }
 
-onMounted(() => { loadConnections(); });
+onMounted(() => {
+  loadConnections();
+  loadSettings();
+});
 
 // ── Disconnect modal ──────────────────────────────────────────────────────────
 const disconnectModal = ref(false);
@@ -543,6 +659,94 @@ const connectMeta = () => {
   window.location.href = `${apiBase}/v1/connections/meta/auth?storeId=${storeId}`;
 };
 
+// ── Meta Ads configuration ────────────────────────────────────────────────────
+interface MetaAdAccount { id: string; name: string; currency: string; }
+interface MetaCatalog { id: string; name: string; product_count?: number; }
+
+// Use empty string instead of null so v-model on <select> options (value="") matches correctly
+const metaConfig = reactive<{ adAccountId: string; catalogId: string }>({ adAccountId: '', catalogId: '' });
+const metaAdAccounts = ref<MetaAdAccount[]>([]);
+const metaCatalogs = ref<MetaCatalog[]>([]);
+const metaConfigLoading = ref(false);
+const metaCatalogLoading = ref(false);
+const metaConfigSaving = ref(false);
+const metaConfigError = ref('');
+const metaConfigSuccess = ref(false);
+
+// Load config + ad accounts when Meta connection changes
+watch(connectedMetaConn, async (conn) => {
+  if (!conn) {
+    metaAdAccounts.value = [];
+    metaCatalogs.value = [];
+    metaConfig.adAccountId = '';
+    metaConfig.catalogId = '';
+    return;
+  }
+  await loadMetaConfig(conn.storeId);
+}, { immediate: true });
+
+async function loadMetaConfig(storeId: string) {
+  metaConfigLoading.value = true;
+  metaConfigError.value = '';
+  try {
+    const res = await $fetch<{
+      ok: boolean;
+      current: { adAccountId: string | null; catalogId: string | null };
+      adAccounts: MetaAdAccount[];
+      catalogs: MetaCatalog[];
+    }>(`${apiBase}/v1/connections/meta/config?storeId=${storeId}`, { credentials: 'include' });
+    if (res.ok) {
+      metaAdAccounts.value = res.adAccounts;
+      metaCatalogs.value = res.catalogs;
+      metaConfig.adAccountId = res.current.adAccountId ?? '';
+      metaConfig.catalogId = res.current.catalogId ?? '';
+    }
+  } catch (err: any) {
+    metaConfigError.value = err?.data?.message ?? 'Failed to load Meta configuration';
+  } finally {
+    metaConfigLoading.value = false;
+  }
+}
+
+async function onMetaAccountChange(accountId: string) {
+  metaConfig.adAccountId = accountId;
+  metaConfig.catalogId = '';
+  metaCatalogs.value = [];
+  if (!accountId) return;
+  const storeId = connectedMetaConn.value?.storeId;
+  if (!storeId) return;
+  metaCatalogLoading.value = true;
+  try {
+    const res = await $fetch<{ ok: boolean; catalogs: MetaCatalog[] }>(
+      `${apiBase}/v1/connections/meta/catalogs?storeId=${storeId}&adAccountId=${accountId}`,
+      { credentials: 'include' }
+    );
+    if (res.ok) metaCatalogs.value = res.catalogs;
+  } catch { /* silent */ } finally {
+    metaCatalogLoading.value = false;
+  }
+}
+
+async function saveMetaConfig() {
+  const storeId = connectedMetaConn.value?.storeId;
+  if (!storeId) return;
+  metaConfigSaving.value = true;
+  metaConfigError.value = '';
+  try {
+    await $fetch(`${apiBase}/v1/connections/meta/config`, {
+      method: 'PATCH',
+      credentials: 'include',
+      body: { storeId, adAccountId: metaConfig.adAccountId || null, catalogId: metaConfig.catalogId || null },
+    });
+    metaConfigSuccess.value = true;
+    setTimeout(() => { metaConfigSuccess.value = false; }, 3500);
+  } catch (err: any) {
+    metaConfigError.value = err?.data?.message ?? 'Failed to save configuration';
+  } finally {
+    metaConfigSaving.value = false;
+  }
+}
+
 // ── Integrations (computed from live connection state) ────────────────────────
 const STORE_DEFS = [
   {
@@ -594,12 +798,11 @@ const adsIntegrations = computed(() => [
 ]);
 
 // ── Automation rules ──────────────────────────────────────────────────────────
-const rules = reactive({
-  scale:     data.value?.rules?.scale     ?? true,
-  test:      data.value?.rules?.test      ?? true,
-  kill:      data.value?.rules?.kill      ?? true,
-  inventory: data.value?.rules?.inventory ?? true,
-});
+const loadingRules = ref(true);
+const savingRules  = ref(false);
+
+const rules = reactive({ scale: true, test: true, kill: true, inventory: true });
+const thresholdValues = reactive({ scale: 80, test: 50, kill: 25 });
 
 const automationRules = [
   { key: 'scale',     label: 'Scale winners (score ≥ threshold)',     desc: 'Move to SCALE set, increase budget by 15%',    bg: 'rgba(132,204,22,0.12)', color: '#84cc16' },
@@ -614,14 +817,8 @@ const thresholds = [
   { key: 'kill',  label: 'Kill threshold',  color: '#f97316' },
 ];
 
-const thresholdValues = reactive({ scale: 80, test: 50, kill: 25 });
-
 // ── Notifications ─────────────────────────────────────────────────────────────
-const notifications = reactive({
-  emailReports:   data.value?.notifications?.emailReports   ?? true,
-  whatsappAlerts: data.value?.notifications?.whatsappAlerts ?? false,
-  weeklyDigest:   data.value?.notifications?.weeklyDigest   ?? false,
-});
+const notifications = reactive({ emailReports: true, whatsappAlerts: false, weeklyDigest: false });
 
 const notificationItems = [
   { key: 'emailReports',   label: 'Email reports',     desc: 'Daily AI briefing + scoring summary sent to your inbox' },
@@ -629,8 +826,76 @@ const notificationItems = [
   { key: 'weeklyDigest',   label: 'Weekly KPI digest', desc: 'Friday summary of catalog performance and wins' },
 ];
 
+// Apply a settings response object to local reactive state
+function applySettings(s: {
+  rules:         { scale: boolean; test: boolean; kill: boolean; inventory: boolean };
+  thresholds:    { scale: number; test: number; kill: number };
+  notifications: { emailReports: boolean; whatsappAlerts: boolean; weeklyDigest: boolean };
+}) {
+  rules.scale         = s.rules.scale;
+  rules.test          = s.rules.test;
+  rules.kill          = s.rules.kill;
+  rules.inventory     = s.rules.inventory;
+  thresholdValues.scale = s.thresholds.scale;
+  thresholdValues.test  = s.thresholds.test;
+  thresholdValues.kill  = s.thresholds.kill;
+  notifications.emailReports   = s.notifications.emailReports;
+  notifications.whatsappAlerts = s.notifications.whatsappAlerts;
+  notifications.weeklyDigest   = s.notifications.weeklyDigest;
+}
+
+async function loadSettings() {
+  loadingRules.value = true;
+  try {
+    const res = await $fetch<{ ok: boolean; settings: Parameters<typeof applySettings>[0] }>(
+      `${apiBase}/v1/settings`,
+      { credentials: 'include' }
+    );
+    if (res.ok) applySettings(res.settings);
+  } catch { /* keep defaults on network error */ }
+  loadingRules.value = false;
+}
+
+async function saveRules() {
+  savingRules.value = true;
+  try {
+    const res = await $fetch<{ ok: boolean; settings: Parameters<typeof applySettings>[0] }>(
+      `${apiBase}/v1/settings`,
+      {
+        method: 'PATCH',
+        credentials: 'include',
+        body: {
+          rules:         { scale: rules.scale, test: rules.test, kill: rules.kill, inventory: rules.inventory },
+          thresholds:    { scale: thresholdValues.scale, test: thresholdValues.test, kill: thresholdValues.kill },
+          notifications: { emailReports: notifications.emailReports, whatsappAlerts: notifications.whatsappAlerts, weeklyDigest: notifications.weeklyDigest },
+        },
+      }
+    );
+    if (res.ok) { applySettings(res.settings); showSaveSuccess(); }
+    else showSaveError('Unexpected error');
+  } catch (err: unknown) {
+    const msg = (err as { data?: { message?: string } })?.data?.message ?? 'Network error';
+    showSaveError(msg);
+  } finally {
+    savingRules.value = false;
+  }
+}
+
+async function resetRules() {
+  savingRules.value = true;
+  try {
+    await $fetch(`${apiBase}/v1/settings`, { method: 'DELETE', credentials: 'include' });
+    await loadSettings();
+    showSaveSuccess();
+  } catch {
+    showSaveError('Reset failed');
+  } finally {
+    savingRules.value = false;
+  }
+}
+
 // ── Billing ───────────────────────────────────────────────────────────────────
-const billing = computed(() => data.value?.billing ?? { plan: 'Growth', price: '$149', nextInvoice: '—' });
+const billing = { plan: 'Growth', price: '$149', nextInvoice: '—' };
 </script>
 
 <style scoped>

@@ -28,11 +28,11 @@
               <span class="h-1.5 w-1.5 rounded-full" :class="badgeDot(product.category)"></span>
               {{ product.category }}
             </span>
-            <span class="text-xs font-mono text-white/40">{{ product.sku }}</span>
+            <span class="text-xs font-mono text-white/65">{{ product.sku }}</span>
           </div>
           <button
             @click="$emit('close')"
-            class="h-8 w-8 flex items-center justify-center rounded-lg border border-white/10 bg-white/5 text-white/40 hover:text-white hover:bg-white/10 transition-all"
+            class="h-8 w-8 flex items-center justify-center rounded-lg border border-white/10 bg-white/5 text-white/65 hover:text-white hover:bg-white/10 transition-all"
             aria-label="Close"
           >
             <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
@@ -68,7 +68,7 @@
           <!-- Score bar -->
           <div class="mt-3 flex items-center gap-3">
             <div class="flex items-center gap-1.5">
-              <span class="text-xs text-white/45">Score</span>
+              <span class="text-xs text-white/70">Score</span>
               <span class="font-mono text-sm font-bold" :class="scoreColor(product.score)">{{ product.score }}</span>
             </div>
             <div class="flex-1 h-2 rounded-full bg-white/10 overflow-hidden">
@@ -82,13 +82,41 @@
         </div>
 
         <!-- Performance chart -->
-        <div v-if="product.history?.length" class="px-6 mb-2 flex-shrink-0">
+        <div class="px-6 mb-2 flex-shrink-0">
           <div class="flex items-center justify-between mb-2">
-            <h3 class="text-xs text-white/40 uppercase tracking-widest font-medium">Performance</h3>
-            <span class="text-[10px] text-white/20 font-mono">daily · 30d</span>
+            <h3 class="text-xs text-white/65 uppercase tracking-widest font-medium">Performance</h3>
+            <span class="text-[10px] text-white/45 font-mono">daily · 30d</span>
           </div>
-          <div class="rounded-2xl border border-white/8 bg-white/[0.02] px-4 pt-3 pb-2">
+          <!-- Loading skeleton -->
+          <div v-if="historyLoading" class="rounded-2xl border border-white/8 bg-white/[0.02] px-4 pt-3 pb-4">
+            <div class="flex gap-1 mb-3">
+              <div class="h-6 w-16 rounded-lg bg-white/8 animate-pulse"></div>
+              <div class="h-6 w-12 rounded-lg bg-white/5 animate-pulse"></div>
+              <div class="h-6 w-12 rounded-lg bg-white/5 animate-pulse"></div>
+            </div>
+            <div class="h-[156px] w-full rounded-xl bg-white/[0.04] animate-pulse relative overflow-hidden">
+              <!-- Fake chart line shimmer -->
+              <svg class="absolute inset-0 w-full h-full opacity-20" viewBox="0 0 432 156" preserveAspectRatio="none">
+                <polyline
+                  points="0,100 60,80 120,90 180,60 240,70 300,40 360,55 432,35"
+                  fill="none"
+                  stroke="rgba(255,255,255,0.3)"
+                  stroke-width="2"
+                />
+              </svg>
+            </div>
+          </div>
+          <!-- Chart -->
+          <div v-else-if="product.history?.length" class="rounded-2xl border border-white/8 bg-white/[0.02] px-4 pt-3 pb-2">
             <PerformanceChart :data="product.history" />
+          </div>
+          <!-- No data -->
+          <div v-else class="rounded-2xl border border-white/8 bg-white/[0.02] flex flex-col items-center justify-center py-8 gap-2">
+            <svg class="w-8 h-8 text-white/25" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z"/>
+            </svg>
+            <p class="text-xs text-white/45">No performance data yet</p>
+            <p class="text-[10px] text-white/30">Sync your store to populate history</p>
           </div>
         </div>
 
@@ -100,18 +128,18 @@
           <div class="flex items-center justify-between">
             <div>
               <p class="text-xs text-glow-400/70 font-medium uppercase tracking-widest mb-0.5">Blended ROAS</p>
-              <p class="text-3xl font-bold text-glow-400">{{ product.blendedRoas }}×</p>
-              <p class="text-xs text-white/40 mt-1">Total revenue / total ad spend</p>
+              <p class="text-3xl font-bold text-glow-400">{{ Number(product.blendedRoas).toFixed(2) }}×</p>
+              <p class="text-xs text-white/65 mt-1">Total revenue / total ad spend</p>
             </div>
             <div class="text-right">
-              <p class="text-xs text-white/35 mb-1">Meta ROAS</p>
-              <p class="text-xl font-semibold">{{ product.roas }}×</p>
-              <p class="text-xs text-white/35 mt-1">Meta ads only</p>
+              <p class="text-xs text-white/60 mb-1">Meta ROAS</p>
+              <p class="text-xl font-semibold">{{ Number(product.roas).toFixed(2) }}×</p>
+              <p class="text-xs text-white/60 mt-1">Meta ads only</p>
             </div>
           </div>
           <!-- Blended vs Meta bar -->
           <div class="mt-4">
-            <div class="flex justify-between text-xs text-white/35 mb-1.5">
+            <div class="flex justify-between text-xs text-white/60 mb-1.5">
               <span>Meta</span>
               <span>Organic / Other</span>
             </div>
@@ -135,21 +163,21 @@
         <!-- Key metrics grid -->
         <div class="mx-6 mb-4 grid grid-cols-2 gap-3 flex-shrink-0">
           <div class="rounded-xl border border-white/8 bg-white/[0.03] p-3.5">
-            <p class="text-xs text-white/40 mb-1">Revenue</p>
+            <p class="text-xs text-white/65 mb-1">Revenue</p>
             <p class="text-base font-semibold">{{ formatMoney(product.revenue) }}</p>
           </div>
           <div class="rounded-xl border border-white/8 bg-white/[0.03] p-3.5">
-            <p class="text-xs text-white/40 mb-1">Ad Spend</p>
+            <p class="text-xs text-white/65 mb-1">Ad Spend</p>
             <p class="text-base font-semibold">{{ formatMoney(product.spend) }}</p>
           </div>
           <div class="rounded-xl border border-white/8 bg-white/[0.03] p-3.5">
-            <p class="text-xs text-white/40 mb-1">Gross Margin</p>
+            <p class="text-xs text-white/65 mb-1">Gross Margin</p>
             <p class="text-base font-semibold" :class="product.margin >= 30 ? 'text-lime-400' : product.margin >= 20 ? 'text-glow-400' : 'text-ember-400'">
               {{ product.margin }}%
             </p>
           </div>
           <div class="rounded-xl border border-white/8 bg-white/[0.03] p-3.5">
-            <p class="text-xs text-white/40 mb-1">Velocity</p>
+            <p class="text-xs text-white/65 mb-1">Velocity</p>
             <p class="text-base font-semibold">{{ product.velocity }}×</p>
           </div>
         </div>
@@ -159,12 +187,12 @@
 
         <!-- Traffic details -->
         <div class="px-6 mb-4 flex-shrink-0">
-          <h3 class="text-xs text-white/40 uppercase tracking-widest font-medium mb-3">Traffic</h3>
+          <h3 class="text-xs text-white/65 uppercase tracking-widest font-medium mb-3">Traffic</h3>
           <div class="space-y-2.5">
             <div class="flex items-center justify-between rounded-xl border border-white/8 bg-white/[0.03] px-4 py-3">
               <div class="flex items-center gap-2.5">
                 <div class="h-7 w-7 rounded-lg bg-white/8 flex items-center justify-center">
-                  <svg class="w-3.5 h-3.5 text-white/50" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+                  <svg class="w-3.5 h-3.5 text-white/75" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z"/>
                     <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
                   </svg>
@@ -176,7 +204,7 @@
             <div class="flex items-center justify-between rounded-xl border border-white/8 bg-white/[0.03] px-4 py-3">
               <div class="flex items-center gap-2.5">
                 <div class="h-7 w-7 rounded-lg bg-white/8 flex items-center justify-center">
-                  <svg class="w-3.5 h-3.5 text-white/50" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+                  <svg class="w-3.5 h-3.5 text-white/75" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M15.042 21.672L13.684 16.6m0 0l-2.51 2.225.569-9.47 5.227 7.917-3.286-.672zm-7.518-.267A8.25 8.25 0 1120.25 10.5M8.288 14.212A5.25 5.25 0 1117.25 10.5"/>
                   </svg>
                 </div>
@@ -187,7 +215,7 @@
             <div class="flex items-center justify-between rounded-xl border border-white/8 bg-white/[0.03] px-4 py-3">
               <div class="flex items-center gap-2.5">
                 <div class="h-7 w-7 rounded-lg bg-white/8 flex items-center justify-center">
-                  <svg class="w-3.5 h-3.5 text-white/50" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+                  <svg class="w-3.5 h-3.5 text-white/75" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75z"/>
                     <path stroke-linecap="round" stroke-linejoin="round" d="M9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625z"/>
                     <path stroke-linecap="round" stroke-linejoin="round" d="M16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z"/>
@@ -202,38 +230,38 @@
 
         <!-- Conversion details -->
         <div class="px-6 mb-6 flex-shrink-0">
-          <h3 class="text-xs text-white/40 uppercase tracking-widest font-medium mb-3">Conversions</h3>
+          <h3 class="text-xs text-white/65 uppercase tracking-widest font-medium mb-3">Conversions</h3>
           <div class="rounded-2xl border border-lime-500/15 bg-lime-500/[0.04] p-4">
             <div class="grid grid-cols-2 gap-4">
               <div>
-                <p class="text-xs text-white/40 mb-1">Total Conversions</p>
+                <p class="text-xs text-white/65 mb-1">Total Conversions</p>
                 <p class="text-xl font-bold text-lime-400">{{ formatNumber(product.conversions) }}</p>
               </div>
               <div>
-                <p class="text-xs text-white/40 mb-1">Conv. Rate</p>
+                <p class="text-xs text-white/65 mb-1">Conv. Rate</p>
                 <p class="text-xl font-bold text-lime-400">{{ product.conversionRate }}%</p>
               </div>
             </div>
             <!-- Funnel bar -->
             <div class="mt-4 space-y-1.5">
-              <div class="flex justify-between text-xs text-white/35 mb-2">
+              <div class="flex justify-between text-xs text-white/60 mb-2">
                 <span>Funnel</span>
                 <span>{{ formatNumber(product.impressions) }} → {{ formatNumber(product.clicks) }} → {{ formatNumber(product.conversions) }}</span>
               </div>
               <div class="flex items-center gap-1.5">
-                <span class="text-xs text-white/35 w-24 text-right">Impressions</span>
+                <span class="text-xs text-white/60 w-24 text-right">Impressions</span>
                 <div class="flex-1 h-1.5 rounded-full bg-white/10">
                   <div class="h-full rounded-full bg-white/25" style="width: 100%"></div>
                 </div>
               </div>
               <div class="flex items-center gap-1.5">
-                <span class="text-xs text-white/35 w-24 text-right">Clicks</span>
+                <span class="text-xs text-white/60 w-24 text-right">Clicks</span>
                 <div class="flex-1 h-1.5 rounded-full bg-white/10">
                   <div class="h-full rounded-full bg-glow-400/60" :style="{ width: clickRate + '%' }"></div>
                 </div>
               </div>
               <div class="flex items-center gap-1.5">
-                <span class="text-xs text-white/35 w-24 text-right">Conversions</span>
+                <span class="text-xs text-white/60 w-24 text-right">Conversions</span>
                 <div class="flex-1 h-1.5 rounded-full bg-white/10">
                   <div class="h-full rounded-full bg-lime-400/70" :style="{ width: convFunnelWidth + '%' }"></div>
                 </div>
@@ -280,6 +308,7 @@ interface Product {
 const props = defineProps<{
   product: Product | null
   currency?: string
+  historyLoading?: boolean
 }>()
 
 defineEmits<{
@@ -319,7 +348,7 @@ const scoreColor = (score: number) => {
   if (score >= 75) return 'text-lime-400'
   if (score >= 50) return 'text-glow-400'
   if (score >= 25) return 'text-ember-400'
-  return 'text-white/40'
+  return 'text-white/65'
 }
 
 const scoreBarColor = (score: number) => {

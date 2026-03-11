@@ -4,9 +4,9 @@
     <!-- Page Header -->
     <div class="flex flex-wrap items-start justify-between gap-4">
       <div>
-        <p class="text-[11px] uppercase tracking-widest text-white/40 mb-1">Transparency</p>
+        <p class="text-[11px] uppercase tracking-widest text-white/65 mb-1">Transparency</p>
         <h1 class="text-2xl font-semibold tracking-tight">Audit Log</h1>
-        <p class="mt-1 text-sm text-white/50">Full history of all automation actions taken by MetaFlow</p>
+        <p class="mt-1 text-sm text-white/75">Full history of all automation actions taken by MetaFlow</p>
       </div>
       <button
         @click="downloadCsv"
@@ -28,7 +28,7 @@
         class="flex items-center gap-2 rounded-lg px-3 py-1.5 text-xs font-medium transition-all border"
         :class="activeFilter === f.value
           ? 'bg-white/15 text-white border-white/20'
-          : 'text-white/40 hover:text-white/70 border-transparent hover:border-white/10 hover:bg-white/5'"
+          : 'text-white/65 hover:text-white/70 border-transparent hover:border-white/10 hover:bg-white/5'"
       >
         <span v-if="f.dot" class="h-1.5 w-1.5 rounded-full" :class="f.dot"></span>
         {{ f.label }}
@@ -47,7 +47,7 @@
         :key="stat.label"
         class="glass rounded-2xl p-4"
       >
-        <p class="text-xs text-white/40">{{ stat.label }}</p>
+        <p class="text-xs text-white/65">{{ stat.label }}</p>
         <p class="mt-1.5 text-xl font-semibold" :class="stat.color">{{ stat.value }}</p>
       </div>
     </div>
@@ -81,10 +81,10 @@
               <!-- Text content -->
               <div>
                 <p class="font-semibold text-sm">{{ event.title }}</p>
-                <p class="mt-0.5 text-xs text-white/55">{{ event.detail }}</p>
+                <p class="mt-0.5 text-xs text-white/80">{{ event.detail }}</p>
                 <div v-if="event.meta" class="mt-2 inline-flex items-center gap-1.5 rounded-lg bg-white/[0.04] border border-white/[0.07] px-2.5 py-1">
-                  <svg class="w-3 h-3 text-white/30" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M6.75 7.5l3 2.25-3 2.25m4.5 0h3m-9 8.25h13.5A2.25 2.25 0 0021 18V6a2.25 2.25 0 00-2.25-2.25H5.25A2.25 2.25 0 003 6v12a2.25 2.25 0 002.25 2.25z"/></svg>
-                  <span class="text-xs text-white/35 font-mono">{{ event.meta }}</span>
+                  <svg class="w-3 h-3 text-white/55" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M6.75 7.5l3 2.25-3 2.25m4.5 0h3m-9 8.25h13.5A2.25 2.25 0 0021 18V6a2.25 2.25 0 00-2.25-2.25H5.25A2.25 2.25 0 003 6v12a2.25 2.25 0 002.25 2.25z"/></svg>
+                  <span class="text-xs text-white/60 font-mono">{{ event.meta }}</span>
                 </div>
               </div>
             </div>
@@ -95,7 +95,7 @@
                 <span class="h-1.5 w-1.5 rounded-full" :class="tagDot(event.variant)"></span>
                 {{ event.tag }}
               </span>
-              <span class="text-xs text-white/30">{{ event.time }}</span>
+              <span class="text-xs text-white/55">{{ event.time }}</span>
             </div>
           </div>
         </div>
@@ -104,12 +104,12 @@
       <!-- Empty state -->
       <div v-else class="glass rounded-2xl p-16 text-center">
         <div class="mx-auto mb-4 h-12 w-12 rounded-2xl bg-white/5 flex items-center justify-center">
-          <svg class="w-6 h-6 text-white/25" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+          <svg class="w-6 h-6 text-white/50" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
             <path stroke-linecap="round" stroke-linejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"/>
           </svg>
         </div>
         <p class="text-sm font-medium">No audit activity yet</p>
-        <p class="mt-1 text-xs text-white/50">Enable automation rules to start logging actions here.</p>
+        <p class="mt-1 text-xs text-white/75">Enable automation rules to start logging actions here.</p>
       </div>
 
     </div>
@@ -136,7 +136,7 @@ const pauseCount = computed(() => events.value.filter((e: any) => e.variant === 
 const infoCount  = computed(() => events.value.filter((e: any) => e.variant === 'default').length);
 
 const actionFilters = computed(() => [
-  { value: 'all',   label: 'All events',     dot: null,             count: events.value.length, countClass: 'bg-white/10 text-white/50' },
+  { value: 'all',   label: 'All events',     dot: null,             count: events.value.length, countClass: 'bg-white/10 text-white/75' },
   { value: 'scale', label: 'Budget scaled',  dot: 'bg-lime-400',    count: scaleCount.value,    countClass: 'bg-lime-500/20 text-lime-400' },
   { value: 'pause', label: 'Paused / killed', dot: 'bg-ember-500',  count: pauseCount.value,    countClass: 'bg-ember-500/20 text-ember-400' },
   { value: 'info',  label: 'Informational',  dot: 'bg-glow-400',    count: infoCount.value,     countClass: 'bg-glow-500/20 text-glow-400' },

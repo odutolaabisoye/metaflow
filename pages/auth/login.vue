@@ -3,7 +3,7 @@
     <!-- Header -->
     <div class="mb-8">
       <h1 class="text-2xl font-semibold tracking-tight">Welcome back</h1>
-      <p class="mt-2 text-sm text-white/50">Sign in to your MetaFlow workspace.</p>
+      <p class="mt-2 text-sm text-white/75">Sign in to your MetaFlow workspace.</p>
     </div>
 
     <!-- Google OAuth -->
@@ -21,7 +21,7 @@
     </button>
 
     <!-- Divider -->
-    <div class="my-6 flex items-center gap-3 text-xs text-white/25">
+    <div class="my-6 flex items-center gap-3 text-xs text-white/50">
       <div class="h-px flex-1 bg-white/10"></div>
       or continue with email
       <div class="h-px flex-1 bg-white/10"></div>
@@ -43,7 +43,7 @@
       <div>
         <div class="flex items-center justify-between mb-1.5">
           <label class="form-label mb-0">Password</label>
-          <NuxtLink to="/auth/forgot-password" class="text-xs text-white/40 hover:text-glow-500 transition-colors">Forgot?</NuxtLink>
+          <NuxtLink to="/auth/forgot-password" class="text-xs text-white/65 hover:text-glow-500 transition-colors">Forgot?</NuxtLink>
         </div>
         <div class="relative">
           <input
@@ -55,7 +55,7 @@
           />
           <button
             type="button"
-            class="absolute right-3 top-1/2 -translate-y-1/2 text-white/30 hover:text-white/60 transition-colors"
+            class="absolute right-3 top-1/2 -translate-y-1/2 text-white/55 hover:text-white/80 transition-colors"
             @click="showPassword = !showPassword"
           >
             <svg v-if="!showPassword" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
@@ -70,7 +70,7 @@
 
       <label class="flex items-center gap-2.5 cursor-pointer mt-1">
         <input type="checkbox" v-model="rememberMe" class="w-4 h-4 rounded border-white/20 bg-white/5 accent-glow-500" />
-        <span class="text-xs text-white/50">Keep me signed in for 30 days</span>
+        <span class="text-xs text-white/75">Keep me signed in for 30 days</span>
       </label>
 
       <!-- Error -->
@@ -96,7 +96,7 @@
     </form>
 
     <!-- Sign up link -->
-    <p class="mt-6 text-center text-sm text-white/40">
+    <p class="mt-6 text-center text-sm text-white/65">
       New to MetaFlow?
       <NuxtLink to="/auth/signup" class="font-medium text-glow-500 hover:text-glow-600 transition-colors">Create an account</NuxtLink>
     </p>
