@@ -10,6 +10,13 @@ interface WCProduct {
   images: Array<{ src: string }>;
   stock_quantity: number | null;
   status: string;
+  /** "simple" | "variable" | "grouped" | "external" */
+  type: string;
+}
+
+interface WCVariation {
+  id: number;
+  stock_quantity: number | null;
 }
 
 interface WCOrder {
@@ -85,9 +92,13 @@ interface SyncWooCommerceData {
  *
  * 1. Parses consumer key + secret from the accessToken field
  * 2. Fetches all published products from WooCommerce
- * 3. Fetches orders from last 30 days
- * 4. Aggregates per-product revenue + order count
- * 5. Upserts ProductMeta + DailyMetric
+ * 3. For variable products, fetches ALL variation IDs (in-stock + out-of-stock)
+ *    and stores them in the product's `altIds` field.
+ *    Meta catalogs report spend at the variation level — syncMeta uses altIds
+ *    to map any variation ID back to the parent product for correct attribution.
+ * 4. Fetches orders from last 30 days
+ * 5. Aggregates revenue by parent product_id (not variation_id)
+ * 6. Upserts ProductMeta + DailyMetric for each parent product
  */
 export async function runWooCommerceSync(
   prisma: PrismaClient,
@@ -116,7 +127,9 @@ export async function runWooCommerceSync(
     `/orders?status=completed,processing&after=${afterIso}`
   );
 
-  // --- Step 3: Aggregate revenue per product ---
+  // --- Step 3: Aggregate revenue per PARENT product ---
+  // Always key by product_id (the parent), not variation_id.
+  // This keeps revenue attributed to the single ProductMeta record per product.
   const revenueMap = new Map<number, { revenue: number; orderCount: number }>();
 
   for (const order of orders) {
@@ -134,7 +147,7 @@ export async function runWooCommerceSync(
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
-  // --- Step 4: Upsert products + metrics ---
+  // --- Step 4: Upsert parent products + daily metrics ---
   for (const product of products) {
     const externalId = String(product.id);
     const imageUrl = product.images[0]?.src ?? null;
@@ -146,11 +159,30 @@ export async function runWooCommerceSync(
     const productOrders = revenueMap.get(product.id)?.orderCount ?? 0;
     const velocity = productRevenue / 30;
 
+    // For variable products, collect ALL variation IDs (in-stock and out-of-stock).
+    // These go into `altIds` so that when Meta reports spend for variation 34523,
+    // syncMeta can find this parent product (34520) via the altIds lookup map.
+    let altIds: string[] = [];
+    if (product.type === "variable") {
+      try {
+        const variations = await wcPaginate<WCVariation>(
+          storeUrl, consumerKey, consumerSecret,
+          `/products/${product.id}/variations?status=any`
+        );
+        altIds = variations.map((v) => String(v.id));
+      } catch {
+        // Non-fatal: if variations can't be fetched, syncMeta falls back to
+        // matching by parent externalId or SKU
+      }
+    }
+
+    // Upsert the parent product (never overwrite score/category)
     const upserted = await prisma.productMeta.upsert({
       where: { storeId_externalId: { storeId, externalId } },
       create: {
         externalId,
         sku,
+        altIds,
         title: product.name,
         imageUrl,
         productUrl,
@@ -162,6 +194,7 @@ export async function runWooCommerceSync(
         title: product.name,
         imageUrl,
         sku,
+        altIds,
         productUrl
       }
     });

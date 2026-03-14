@@ -86,7 +86,25 @@ export async function runScoringJob(
   const { storeId } = data;
 
   const products = await prisma.productMeta.findMany({
-    where: { storeId },
+    where: { storeId, isVariant: false },
+    include: {
+      dailyMetrics: {
+        orderBy: { date: "desc" },
+        take: 1
+      },
+      variants: {
+        include: {
+          dailyMetrics: {
+            orderBy: { date: "desc" },
+            take: 1
+          }
+        }
+      }
+    }
+  });
+
+  const variants = await prisma.productMeta.findMany({
+    where: { storeId, isVariant: true },
     include: {
       dailyMetrics: {
         orderBy: { date: "desc" },
@@ -95,7 +113,7 @@ export async function runScoringJob(
     }
   });
 
-  if (products.length === 0) {
+  if (products.length === 0 && variants.length === 0) {
     return { scored: 0, changed: 0, scaled: 0, killed: 0, tested: 0, risked: 0 };
   }
 
@@ -107,12 +125,57 @@ export async function runScoringJob(
 
   // Process in batches to avoid overwhelming the DB
   const BATCH_SIZE = 50;
-  for (let i = 0; i < products.length; i += BATCH_SIZE) {
-    const batch = products.slice(i, i + BATCH_SIZE);
+  const allTargets = [...products, ...variants];
+  for (let i = 0; i < allTargets.length; i += BATCH_SIZE) {
+    const batch = allTargets.slice(i, i + BATCH_SIZE);
 
     await Promise.all(
       batch.map(async (product) => {
-        const metric = product.dailyMetrics[0];
+        let metric = product.dailyMetrics[0];
+
+        // If this is a parent product with variants, compute aggregate metrics
+        // from the latest variant rows (prevents parent scores from being 0).
+        if (!product.isVariant && product.variants?.length) {
+          let spend = 0;
+          let metaRevenue = 0;
+          let impressions = 0;
+          let clicks = 0;
+          let conversions = 0;
+          let marginSum = 0;
+          let marginCount = 0;
+          let inventorySum = 0;
+          let inventoryCount = 0;
+
+          for (const v of product.variants) {
+            const vm = v.dailyMetrics?.[0];
+            if (!vm) continue;
+            spend += vm.spend ?? 0;
+            metaRevenue += vm.metaRevenue ?? 0;
+            impressions += vm.impressions ?? 0;
+            clicks += vm.clicks ?? 0;
+            conversions += vm.conversions ?? 0;
+            if (typeof vm.margin === "number") {
+              marginSum += vm.margin;
+              marginCount += 1;
+            }
+            if (typeof vm.inventoryLevel === "number") {
+              inventorySum += vm.inventoryLevel;
+              inventoryCount += 1;
+            }
+          }
+
+          if (spend > 0 || impressions > 0 || clicks > 0 || conversions > 0) {
+            metric = {
+              ...metric,
+              roas: spend > 0 ? metaRevenue / spend : 0,
+              ctr: impressions > 0 ? clicks / impressions : 0,
+              conversionRate: clicks > 0 ? conversions / clicks : 0,
+              margin: marginCount > 0 ? marginSum / marginCount : 0,
+              inventoryLevel: inventoryCount > 0 ? inventorySum : null
+            } as any;
+          }
+        }
+
         if (!metric) return;
 
         const newScore = computeProductScore({

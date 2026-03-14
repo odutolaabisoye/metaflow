@@ -15,12 +15,12 @@
         {{ tab.label }}
       </button>
 
-      <!-- Range pills -->
-      <div class="ml-auto flex gap-0.5">
+      <!-- Range pills — only shown when range is wide enough to zoom into -->
+      <div v-if="showRangePills" class="ml-auto flex gap-0.5">
         <button
-          v-for="r in RANGES"
+          v-for="r in visibleRanges"
           :key="r"
-          @click="activeRange = r"
+          @click="setRange(r)"
           class="rounded px-1.5 py-0.5 text-[10px] font-medium transition-all"
           :class="activeRange === r ? 'bg-white/10 text-white/80' : 'text-white/55 hover:text-white/75'"
         >{{ r }}</button>
@@ -75,6 +75,15 @@
           stroke-width="1.75"
           stroke-linecap="round"
           stroke-linejoin="round"
+        />
+
+        <!-- Single-point dot (when range is "today" / one day) -->
+        <circle
+          v-if="slicedPoints.length === 1"
+          :cx="slicedPoints[0].x"
+          :cy="slicedPoints[0].y"
+          r="4"
+          :fill="activeColor"
         />
 
         <!-- Hover crosshair -->
@@ -135,7 +144,7 @@
 
 <script setup lang="ts">
 export interface HistoryPoint {
-  date: string       // ISO "YYYY-MM-DD"
+  date: string       // ISO "YYYY-MM-DD" or "YYYY-MM-DDTHH:mm:ss.sssZ"
   revenue: number
   roas: number
   spend: number
@@ -143,6 +152,15 @@ export interface HistoryPoint {
 
 const props = defineProps<{
   data: HistoryPoint[]
+  currency?: string
+  /** ISO date string (YYYY-MM-DD) — filter chart to start from this date */
+  rangeStart?: string
+  /** ISO date string (YYYY-MM-DD) — filter chart to end at this date */
+  rangeEnd?: string
+}>()
+
+const emit = defineEmits<{
+  rangeChange: [range: string]
 }>()
 
 // ─── Chart geometry ───────────────────────────────────────────────────────────
@@ -165,13 +183,63 @@ const RANGES = ['7D', '14D', '30D'] as const
 type RangeKey = (typeof RANGES)[number]
 type TabKey = (typeof TABS)[number]['key']
 
-const activeTab = ref<TabKey>('revenue')
+const activeTab   = ref<TabKey>('revenue')
 const activeRange = ref<RangeKey>('30D')
-const hoveredIdx = ref(-1)
-const chartEl = ref<HTMLDivElement | null>(null)
+const hoveredIdx  = ref(-1)
+const chartEl     = ref<HTMLDivElement | null>(null)
+
+// ─── Range width from parent props ────────────────────────────────────────────
+/** Number of calendar days in the global date range. */
+const rangeDays = computed(() => {
+  if (!props.rangeStart || !props.rangeEnd) return 30
+  const s = new Date(props.rangeStart + 'T00:00:00')
+  const e = new Date(props.rangeEnd   + 'T00:00:00')
+  return Math.max(1, Math.round((e.getTime() - s.getTime()) / 86_400_000) + 1)
+})
+
+/**
+ * Zoom pills are only meaningful when the range is wide enough to zoom.
+ * For today/yesterday/7d, hiding pills avoids confusing "7D inside 1 day" UX.
+ */
+const showRangePills = computed(() => rangeDays.value > 14)
+
+/** Only show zoom pills narrower than the current global range. */
+const visibleRanges = computed(() => {
+  const rd = rangeDays.value
+  return RANGES.filter(r => {
+    const d = r === '7D' ? 7 : r === '14D' ? 14 : 30
+    return d < rd
+  })
+})
+
+/** Auto-select the largest zoom pill that fits the global range. */
+watch(
+  () => [props.rangeStart, props.rangeEnd],
+  () => {
+    const rd = rangeDays.value
+    if (rd <= 7)       activeRange.value = '7D'
+    else if (rd <= 14) activeRange.value = '14D'
+    else               activeRange.value = '30D'
+  },
+  { immediate: true }
+)
+
+function setRange(r: RangeKey) {
+  activeRange.value = r
+  emit('rangeChange', r)
+}
+
+// Currency locale map for native symbols (e.g. NGN → ₦)
+const CURRENCY_LOCALE: Record<string, string> = {
+  NGN: 'en-NG', GBP: 'en-GB', EUR: 'de-DE', JPY: 'ja-JP',
+  AUD: 'en-AU', CAD: 'en-CA', INR: 'en-IN', ZAR: 'en-ZA',
+  GHS: 'en-GH', KES: 'sw-KE',
+}
+const activeCurrency  = computed(() => props.currency ?? 'USD')
+const currencyLocale  = computed(() => CURRENCY_LOCALE[activeCurrency.value] ?? 'en-US')
 
 // Unique gradient ID per component instance (avoids collisions with multiple sidekick instances)
-const uid = Math.random().toString(36).slice(2, 7)
+const uid    = Math.random().toString(36).slice(2, 7)
 const gradId = computed(() => `pg-${uid}-${activeTab.value}`)
 
 // ─── Colors ───────────────────────────────────────────────────────────────────
@@ -187,14 +255,44 @@ const activeColorClass = computed(() => {
   return 'text-orange-400'
 })
 
-// ─── Data slicing (by range) ──────────────────────────────────────────────────
+// ─── Date helpers ─────────────────────────────────────────────────────────────
+/** Extract YYYY-MM-DD from any date string (strips time/zone portion). */
+function toDateStr(d: string): string {
+  return d.slice(0, 10)
+}
+
+/** Format YYYY-MM-DD as "Mar 5" using local date (avoids UTC off-by-one). */
+function dateLabel(dateStr: string): string {
+  const s = toDateStr(dateStr)
+  const [y, m, d] = s.split('-').map(Number)
+  return new Date(y, m - 1, d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+}
+
+// ─── Data filtering ───────────────────────────────────────────────────────────
+/**
+ * 1. Filter data to the parent-provided global date window (rangeStart…rangeEnd).
+ * 2. Then apply the zoom pill (7D/14D/30D) if the window is wide enough.
+ */
 const slicedData = computed<(HistoryPoint & { dateLabel: string })[]>(() => {
-  const days = activeRange.value === '7D' ? 7 : activeRange.value === '14D' ? 14 : 30
-  const raw = props.data.slice(-days)
-  return raw.map(d => ({
-    ...d,
-    dateLabel: new Date(d.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-  }))
+  let raw = [...props.data]
+
+  // Step 1: Date range filter (respects global date picker)
+  if (props.rangeStart && props.rangeEnd) {
+    raw = raw.filter(d => {
+      const ds = toDateStr(d.date)
+      return ds >= props.rangeStart! && ds <= props.rangeEnd!
+    })
+  }
+
+  // Step 2: Zoom pill — only applied when range is wider than the pill
+  if (showRangePills.value) {
+    const pillDays = activeRange.value === '7D' ? 7 : activeRange.value === '14D' ? 14 : 30
+    if (raw.length > pillDays) {
+      raw = raw.slice(-pillDays)
+    }
+  }
+
+  return raw.map(d => ({ ...d, dateLabel: dateLabel(d.date) }))
 })
 
 // ─── Numeric values for active tab ───────────────────────────────────────────
@@ -202,20 +300,20 @@ const values = computed(() => slicedData.value.map(d => d[activeTab.value] as nu
 
 const yMin = computed(() => {
   const min = Math.min(...values.value)
-  // Don't let min go below 0; give 10% padding below
   return Math.max(0, min * 0.88)
 })
 const yMax = computed(() => {
-  const max = Math.max(...values.value)
-  return max * 1.08
+  const max = Math.max(...values.value, 0)
+  return max * 1.08 || 1
 })
-const yMid = computed(() => (yMin.value + yMax.value) / 2)
+const yMid   = computed(() => (yMin.value + yMax.value) / 2)
 const yRange = computed(() => yMax.value - yMin.value || 1)
 
 // ─── SVG point computation ────────────────────────────────────────────────────
 const slicedPoints = computed(() => {
+  const n = Math.max(values.value.length - 1, 1)
   return values.value.map((v, i) => ({
-    x: PAD_L + (i / Math.max(values.value.length - 1, 1)) * chartW,
+    x: PAD_L + (i / n) * chartW,
     y: PAD_T + chartH - ((v - yMin.value) / yRange.value) * chartH,
   }))
 })
@@ -249,7 +347,7 @@ const linePath = computed(() => smoothPath(slicedPoints.value))
 const areaPath = computed(() => {
   if (slicedPoints.value.length < 2) return ''
   const bottom = PAD_T + chartH
-  const last = slicedPoints.value[slicedPoints.value.length - 1]
+  const last  = slicedPoints.value[slicedPoints.value.length - 1]
   const first = slicedPoints.value[0]
   return `${linePath.value} L ${last.x} ${bottom} L ${first.x} ${bottom} Z`
 })
@@ -270,10 +368,24 @@ const xLabels = computed(() => {
 })
 
 // ─── Y-axis formatting ────────────────────────────────────────────────────────
+const formatMoney = (v: number) => new Intl.NumberFormat(currencyLocale.value, {
+  style: 'currency', currency: activeCurrency.value, maximumFractionDigits: 0
+}).format(v)
+
+// Extract just the currency symbol (e.g. "₦" for NGN, "$" for USD)
+const currencySymbol = computed(() => {
+  const parts = new Intl.NumberFormat(currencyLocale.value, {
+    style: 'currency', currency: activeCurrency.value
+  }).formatToParts(0)
+  return parts.find(p => p.type === 'currency')?.value ?? ''
+})
+
 const formatY = (v: number) => {
   if (activeTab.value === 'roas') return `${v.toFixed(1)}×`
-  if (v >= 1000) return `$${(v / 1000).toFixed(1)}k`
-  return `$${Math.round(v)}`
+  const sym = currencySymbol.value
+  if (v >= 1_000_000) return `${sym}${(v / 1_000_000).toFixed(1)}M`
+  if (v >= 1_000)     return `${sym}${(v / 1_000).toFixed(0)}k`
+  return `${sym}${Math.round(v)}`
 }
 
 // ─── Tooltip ──────────────────────────────────────────────────────────────────
@@ -281,43 +393,38 @@ const tooltipValue = computed(() => {
   if (hoveredIdx.value < 0 || hoveredIdx.value >= slicedData.value.length) return ''
   const v = slicedData.value[hoveredIdx.value][activeTab.value] as number
   if (activeTab.value === 'roas') return `${v.toFixed(2)}×`
-  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(v)
+  return formatMoney(v)
 })
 
 const tooltipStyle = computed(() => {
   if (hoveredIdx.value < 0 || hoveredIdx.value >= slicedPoints.value.length) return {}
-  const pt = slicedPoints.value[hoveredIdx.value]
+  const pt   = slicedPoints.value[hoveredIdx.value]
   const svgW = chartEl.value?.clientWidth ?? W
   const scale = svgW / W
-  const px = pt.x * scale
-  const py = pt.y * scale
+  const px   = pt.x * scale
+  const py   = pt.y * scale
   const tipW = 96
   const left = Math.min(px - tipW / 2, svgW - tipW - 4)
   return {
     left: Math.max(0, left) + 'px',
-    top: Math.max(0, py - 52) + 'px',
+    top:  Math.max(0, py - 52) + 'px',
   }
 })
 
 // ─── Mouse interaction ────────────────────────────────────────────────────────
 function onMouseMove(e: MouseEvent) {
   if (!chartEl.value || slicedPoints.value.length === 0) return
-  const rect = chartEl.value.getBoundingClientRect()
-  const svgW = rect.width
+  const rect  = chartEl.value.getBoundingClientRect()
+  const svgW  = rect.width
   const scale = svgW / W
   const localX = e.clientX - rect.left
-  // Convert to SVG coordinates
-  const svgX = localX / scale
+  const svgX   = localX / scale
 
-  // Find closest point
   let closest = 0
   let minDist = Infinity
   slicedPoints.value.forEach((pt, i) => {
     const dist = Math.abs(pt.x - svgX)
-    if (dist < minDist) {
-      minDist = dist
-      closest = i
-    }
+    if (dist < minDist) { minDist = dist; closest = i }
   })
   hoveredIdx.value = closest
 }

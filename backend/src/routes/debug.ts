@@ -3,6 +3,41 @@ import type { FastifyInstance } from "fastify";
 const META_GRAPH_VERSION = "v19.0";
 const META_GRAPH_BASE = `https://graph.facebook.com/${META_GRAPH_VERSION}`;
 
+// ── Date-range helpers (mirrors products.ts) ────────────────────────────────
+function isValidDate(value?: string) {
+  if (!value) return false;
+  return !Number.isNaN(new Date(value).getTime());
+}
+
+function parseRange(range?: string, start?: string, end?: string) {
+  if (start && end && isValidDate(start) && isValidDate(end)) {
+    const s = new Date(start);
+    const e = new Date(end);
+    if (s <= e) {
+      s.setHours(0, 0, 0, 0);
+      e.setHours(23, 59, 59, 999);
+      return { start: s, end: e, range: range ?? "custom" };
+    }
+  }
+  const now = new Date();
+  const e = new Date(now);
+  e.setHours(23, 59, 59, 999);
+  if (range === "today") {
+    const s = new Date(now); s.setHours(0, 0, 0, 0);
+    return { start: s, end: e, range: "today" };
+  }
+  if (range === "yesterday") {
+    const s = new Date(now); s.setDate(s.getDate() - 1); s.setHours(0, 0, 0, 0);
+    const ye = new Date(s); ye.setHours(23, 59, 59, 999);
+    return { start: s, end: ye, range: "yesterday" };
+  }
+  const days = range === "7d" ? 7 : range === "90d" ? 90 : 30;
+  const s = new Date(now);
+  s.setDate(s.getDate() - days + 1);
+  s.setHours(0, 0, 0, 0);
+  return { start: s, end: e, range: range ?? "30d" };
+}
+
 async function verifyAdmin(app: FastifyInstance, request: any, reply: any) {
   try {
     const payload = await request.jwtVerify<{ sub: string; role: string }>();
@@ -324,5 +359,352 @@ export async function debugRoutes(app: FastifyInstance) {
     });
 
     return reply.send({ ok: true, stores });
+  });
+
+  /**
+   * GET /admin/products-debug?storeId=xxx&range=30d&start=xxx&end=xxx&sortBy=spend&sortDir=desc&page=0&limit=50
+   *
+   * Returns raw aggregated metric data for every product in a store over the
+   * selected date range — useful for diagnosing why the product listing shows
+   * wrong ROAS / revenue / spend values.
+   *
+   * Response includes:
+   *  - Resolved date range (ISO since/until + human label)
+   *  - Stats: totalProducts, productsWithMetrics, productsWithNoMetrics, totalMetricRows
+   *  - Paginated items with rawSums, rawAvgs, computed metrics, and latest snapshot
+   */
+  app.get("/admin/products-debug", async (request, reply) => {
+    const admin = await verifyAdmin(app, request, reply);
+    if (!admin) return;
+
+    const {
+      storeId,
+      range  = "30d",
+      start,
+      end,
+      sortBy  = "spend",
+      sortDir = "desc",
+      page    = "0",
+      limit   = "50",
+    } = request.query as Record<string, string>;
+
+    if (!storeId) {
+      return reply.code(400).send({ ok: false, message: "storeId query param is required" });
+    }
+
+    const store = await app.prisma.store.findUnique({
+      where: { id: storeId },
+      select: { id: true, name: true, currency: true },
+    });
+    if (!store) {
+      return reply.code(404).send({ ok: false, message: "Store not found" });
+    }
+
+    const { start: since, end: until, range: resolvedRange } = parseRange(range, start, end);
+    const take    = Math.min(parseInt(limit, 10) || 50, 200);
+    const pageNum = Math.max(0, parseInt(page, 10) || 0);
+
+    // ── 1. Counts ─────────────────────────────────────────────────────────────
+    const [totalProducts, totalMetricRows] = await Promise.all([
+      app.prisma.productMeta.count({ where: { storeId } }),
+      app.prisma.dailyMetric.count({ where: { storeId, date: { gte: since, lte: until } } }),
+    ]);
+
+    // ── 2. All product meta (for lookup) ─────────────────────────────────────
+    const allProductsMeta = await app.prisma.productMeta.findMany({
+      where: { storeId },
+      select: { id: true, title: true, sku: true, category: true, score: true },
+    });
+    const productLookup = new Map(allProductsMeta.map(p => [p.id, p]));
+
+    // ── 3. Aggregate metrics in date range for every product ──────────────────
+    const metricsAgg = await app.prisma.dailyMetric.groupBy({
+      by: ["productId"],
+      where: { storeId, date: { gte: since, lte: until } },
+      _sum: {
+        revenue: true, metaRevenue: true, spend: true,
+        impressions: true, clicks: true, conversions: true,
+      },
+      _avg: { margin: true, velocity: true },
+      _count: { date: true },
+    });
+
+    const productsWithMetrics    = metricsAgg.length;
+    const productsWithNoMetrics  = totalProducts - productsWithMetrics;
+    const metricMap              = new Map(metricsAgg.map(m => [m.productId, m]));
+
+    // ── 4. Build flat list with computed values ───────────────────────────────
+    const allRows = allProductsMeta.map(p => {
+      const m      = metricMap.get(p.id);
+      const metaRev = m?._sum.metaRevenue ?? 0;
+      const rev     = m?._sum.revenue     ?? 0;
+      const spd     = m?._sum.spend       ?? 0;
+      const imp     = m?._sum.impressions ?? 0;
+      const clk     = m?._sum.clicks      ?? 0;
+      const cvt     = m?._sum.conversions ?? 0;
+
+      return {
+        productId:      p.id,
+        title:          p.title,
+        sku:            p.sku ?? null,
+        category:       p.category ?? null,
+        score:          p.score,
+        metricRowCount: m?._count.date ?? 0,
+        hasMetrics:     !!m,
+        rawSums: { revenue: rev, metaRevenue: metaRev, spend: spd, impressions: imp, clicks: clk, conversions: cvt },
+        rawAvgs: { margin: m?._avg.margin ?? null, velocity: m?._avg.velocity ?? null },
+        computed: {
+          roas:           spd > 0 ? metaRev / spd : 0,
+          blendedRoas:    spd > 0 && rev > 0 ? rev / spd : null,
+          ctr:            imp > 0 ? clk / imp : 0,
+          conversionRate: clk > 0 ? cvt / clk : 0,
+        },
+      };
+    });
+
+    // ── 5. Sort in-memory ─────────────────────────────────────────────────────
+    allRows.sort((a, b) => {
+      let va = 0, vb = 0;
+      if      (sortBy === "revenue")     { va = a.rawSums.revenue;     vb = b.rawSums.revenue; }
+      else if (sortBy === "metaRevenue") { va = a.rawSums.metaRevenue; vb = b.rawSums.metaRevenue; }
+      else if (sortBy === "spend")       { va = a.rawSums.spend;       vb = b.rawSums.spend; }
+      else if (sortBy === "impressions") { va = a.rawSums.impressions; vb = b.rawSums.impressions; }
+      else if (sortBy === "clicks")      { va = a.rawSums.clicks;      vb = b.rawSums.clicks; }
+      else if (sortBy === "roas")        { va = a.computed.roas;       vb = b.computed.roas; }
+      else if (sortBy === "score")       { va = a.score;               vb = b.score; }
+      else if (sortBy === "metricRows")  { va = a.metricRowCount;      vb = b.metricRowCount; }
+      return sortDir === "asc" ? va - vb : vb - va;
+    });
+
+    // ── 6. Paginate ───────────────────────────────────────────────────────────
+    const paged      = allRows.slice(pageNum * take, (pageNum + 1) * take);
+    const totalPages = Math.ceil(allRows.length / take);
+
+    // ── 7. Latest snapshot per page product (inventoryLevel, blendedRoas) ────
+    const pageProductIds = paged.map(r => r.productId);
+    const latestSnapshots = pageProductIds.length > 0
+      ? await app.prisma.dailyMetric.findMany({
+          where:    { storeId, productId: { in: pageProductIds } },
+          orderBy:  { date: "desc" },
+          distinct: ["productId"],
+          select:   { productId: true, inventoryLevel: true, blendedRoas: true, date: true },
+        })
+      : [];
+    const snapMap = new Map(latestSnapshots.map(s => [s.productId, s]));
+
+    const items = paged.map(r => ({
+      ...r,
+      snapshot: snapMap.get(r.productId) ?? null,
+    }));
+
+    return reply.send({
+      ok: true,
+      store:   { id: store.id, name: store.name, currency: store.currency },
+      params:  { range, start: start ?? null, end: end ?? null, sortBy, sortDir, page: pageNum, limit: take },
+      dateRange: {
+        resolved:  resolvedRange,
+        since:     since.toISOString(),
+        until:     until.toISOString(),
+        sinceDate: since.toISOString().slice(0, 10),
+        untilDate: until.toISOString().slice(0, 10),
+      },
+      stats: { totalProducts, productsWithMetrics, productsWithNoMetrics, totalMetricRows },
+      page:       pageNum,
+      totalPages,
+      total:      allRows.length,
+      items,
+    });
+  });
+
+  /**
+   * GET /admin/products-debug/sku?storeId=xxx&sku=SKU123&range=30d
+   *
+   * Looks up one or more products by SKU / title / externalId and returns their
+   * complete day-by-day DailyMetric breakdown for the given date range.
+   *
+   * Each daily row shows BOTH the stored values written by syncMeta (campaign-level,
+   * often the same across products) AND the per-product computed values derived from
+   * the per-product sums — making it easy to see exactly where discrepancies arise.
+   */
+  app.get("/admin/products-debug/sku", async (request, reply) => {
+    const admin = await verifyAdmin(app, request, reply);
+    if (!admin) return;
+
+    const { storeId, sku, range = "30d", start, end } = request.query as Record<string, string>;
+
+    if (!storeId) {
+      return reply.code(400).send({ ok: false, message: "storeId query param is required" });
+    }
+    if (!sku?.trim()) {
+      return reply.code(400).send({ ok: false, message: "sku query param is required" });
+    }
+
+    const store = await app.prisma.store.findUnique({
+      where:  { id: storeId },
+      select: { id: true, name: true, currency: true },
+    });
+    if (!store) {
+      return reply.code(404).send({ ok: false, message: "Store not found" });
+    }
+
+    const { start: since, end: until, range: resolvedRange } = parseRange(range, start, end);
+
+    // ── 1. Find matching products ─────────────────────────────────────────────
+    const matchedProducts = await app.prisma.productMeta.findMany({
+      where: {
+        storeId,
+        OR: [
+          { sku:        { contains: sku.trim(), mode: "insensitive" } },
+          { title:      { contains: sku.trim(), mode: "insensitive" } },
+          { externalId: { contains: sku.trim(), mode: "insensitive" } },
+        ],
+      },
+      select: { id: true, title: true, sku: true, externalId: true, category: true, score: true, updatedAt: true },
+      take: 10,
+    });
+
+    if (!matchedProducts.length) {
+      return reply.send({
+        ok: true,
+        store:     { id: store.id, name: store.name, currency: store.currency },
+        dateRange: {
+          resolved:  resolvedRange,
+          since:     since.toISOString(),
+          until:     until.toISOString(),
+          sinceDate: since.toISOString().slice(0, 10),
+          untilDate: until.toISOString().slice(0, 10),
+        },
+        query:   sku.trim(),
+        matches: [],
+      });
+    }
+
+    // ── 2. Fetch daily rows for all matched products ───────────────────────────
+    const productIds = matchedProducts.map(p => p.id);
+
+    const allDailyRows = await app.prisma.dailyMetric.findMany({
+      where: {
+        storeId,
+        productId: { in: productIds },
+        date:      { gte: since, lte: until },
+      },
+      orderBy: [{ productId: "asc" }, { date: "desc" }],
+      select: {
+        productId:      true,
+        date:           true,
+        revenue:        true,
+        metaRevenue:    true,
+        spend:          true,
+        impressions:    true,
+        clicks:         true,
+        conversions:    true,
+        inventoryLevel: true,
+        // Stored values written by syncMeta (campaign-level, often shared across products)
+        roas:           true,
+        ctr:            true,
+        conversionRate: true,
+        blendedRoas:    true,
+        margin:         true,
+        velocity:       true,
+      },
+    });
+
+    // ── 3. Group rows by product and compute totals ────────────────────────────
+    const rowsByProduct = new Map<string, typeof allDailyRows>();
+    for (const row of allDailyRows) {
+      if (!rowsByProduct.has(row.productId)) rowsByProduct.set(row.productId, []);
+      rowsByProduct.get(row.productId)!.push(row);
+    }
+
+    const matches = matchedProducts.map(p => {
+      const rows = rowsByProduct.get(p.id) ?? [];
+
+      // Aggregate totals from raw sums
+      let totSpend = 0, totRev = 0, totMetaRev = 0, totImp = 0, totClk = 0, totCvt = 0;
+      for (const r of rows) {
+        totSpend    += r.spend          ?? 0;
+        totRev      += r.revenue        ?? 0;
+        totMetaRev  += r.metaRevenue    ?? 0;
+        totImp      += r.impressions    ?? 0;
+        totClk      += r.clicks         ?? 0;
+        totCvt      += r.conversions    ?? 0;
+      }
+
+      return {
+        product: {
+          id:         p.id,
+          title:      p.title,
+          sku:        p.sku       ?? null,
+          externalId: p.externalId ?? null,
+          category:   p.category  ?? null,
+          score:      p.score,
+          updatedAt:  p.updatedAt,
+        },
+        rowCount: rows.length,
+        // Day-by-day rows — most recent first
+        dailyRows: rows.map(r => {
+          const spd     = r.spend       ?? 0;
+          const metaRev = r.metaRevenue ?? 0;
+          const rev     = r.revenue     ?? 0;
+          const imp     = r.impressions ?? 0;
+          const clk     = r.clicks      ?? 0;
+          const cvt     = r.conversions ?? 0;
+          return {
+            date:           r.date.toISOString().slice(0, 10),
+            spend:          spd,
+            revenue:        rev,
+            metaRevenue:    metaRev,
+            impressions:    imp,
+            clicks:         clk,
+            conversions:    cvt,
+            inventoryLevel: r.inventoryLevel ?? null,
+            margin:         r.margin         ?? null,
+            velocity:       r.velocity       ?? null,
+            // Stored values as written by syncMeta (campaign-level — same for all products in the campaign)
+            stored: {
+              roas:           r.roas           ?? null,
+              ctr:            r.ctr            ?? null,
+              conversionRate: r.conversionRate ?? null,
+              blendedRoas:    r.blendedRoas    ?? null,
+            },
+            // Computed per-product values derived from the raw sums
+            computed: {
+              roas:           spd > 0 ? metaRev / spd : 0,
+              blendedRoas:    spd > 0 && rev > 0 ? rev / spd : null,
+              ctr:            imp > 0 ? clk / imp : 0,
+              conversionRate: clk > 0 ? cvt / clk : 0,
+            },
+          };
+        }),
+        totals: {
+          spend:       totSpend,
+          revenue:     totRev,
+          metaRevenue: totMetaRev,
+          impressions: totImp,
+          clicks:      totClk,
+          conversions: totCvt,
+          computed: {
+            roas:           totSpend > 0 ? totMetaRev / totSpend : 0,
+            blendedRoas:    totSpend > 0 && totRev > 0 ? totRev / totSpend : null,
+            ctr:            totImp > 0 ? totClk / totImp : 0,
+            conversionRate: totClk > 0 ? totCvt / totClk : 0,
+          },
+        },
+      };
+    });
+
+    return reply.send({
+      ok: true,
+      store:     { id: store.id, name: store.name, currency: store.currency },
+      dateRange: {
+        resolved:  resolvedRange,
+        since:     since.toISOString(),
+        until:     until.toISOString(),
+        sinceDate: since.toISOString().slice(0, 10),
+        untilDate: until.toISOString().slice(0, 10),
+      },
+      query:   sku.trim(),
+      matches,
+    });
   });
 }

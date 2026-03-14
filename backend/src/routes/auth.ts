@@ -61,8 +61,14 @@ export async function authRoutes(app: FastifyInstance) {
       secure: process.env.NODE_ENV === "production",
       maxAge
     });
+    // Plan cookie — readable by JS/Nuxt middleware for feature gating
+    reply.setCookie("mf_plan", user.plan, {
+      ...AUTH_FLAG_OPTIONS,
+      secure: process.env.NODE_ENV === "production",
+      maxAge
+    });
 
-    return reply.send({ ok: true, user: { id: user.id, email: user.email, name: user.name, role: user.role } });
+    return reply.send({ ok: true, user: { id: user.id, email: user.email, name: user.name, role: user.role, plan: user.plan } });
   });
 
   app.post("/auth/login", async (request, reply) => {
@@ -104,14 +110,21 @@ export async function authRoutes(app: FastifyInstance) {
         maxAge
       });
     }
+    // Plan cookie — readable by JS/Nuxt middleware for feature gating
+    reply.setCookie("mf_plan", user.plan, {
+      ...AUTH_FLAG_OPTIONS,
+      secure: process.env.NODE_ENV === "production",
+      maxAge
+    });
 
-    return reply.send({ ok: true, user: { id: user.id, email: user.email, name: user.name, role: user.role } });
+    return reply.send({ ok: true, user: { id: user.id, email: user.email, name: user.name, role: user.role, plan: user.plan } });
   });
 
   app.post("/auth/logout", async (_request, reply) => {
     reply.clearCookie("mf_session", COOKIE_OPTIONS);
     reply.clearCookie("mf_auth", AUTH_FLAG_OPTIONS);
     reply.clearCookie("mf_role", AUTH_FLAG_OPTIONS);
+    reply.clearCookie("mf_plan", AUTH_FLAG_OPTIONS);
     return reply.send({ ok: true });
   });
 
@@ -120,7 +133,7 @@ export async function authRoutes(app: FastifyInstance) {
       const payload = await request.jwtVerify<{ sub: string }>();
       const user = await app.prisma.user.findUnique({
         where: { id: payload.sub },
-        select: { id: true, email: true, name: true, role: true, createdAt: true }
+        select: { id: true, email: true, name: true, role: true, plan: true, createdAt: true }
       });
 
       if (!user) {

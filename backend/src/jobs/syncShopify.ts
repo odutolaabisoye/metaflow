@@ -9,6 +9,10 @@ interface ShopifyProduct {
   variants: Array<{
     id: number;
     sku: string;
+    title?: string;
+    option1?: string | null;
+    option2?: string | null;
+    option3?: string | null;
     inventory_quantity: number;
     price: string;
   }>;
@@ -124,7 +128,7 @@ export async function runShopifySync(
 
   for (const order of orders) {
     for (const item of order.line_items) {
-      const productId = item.product_id;
+      const productId = item.variant_id && item.variant_id > 0 ? item.variant_id : item.product_id;
       const itemRevenue = parseFloat(item.price) * item.quantity;
 
       const existing = revenueMap.get(productId) ?? { revenue: 0, orderCount: 0 };
@@ -147,6 +151,19 @@ export async function runShopifySync(
     const imageUrl = product.images[0]?.src ?? null;
     const sku = firstVariant.sku || `SHOPIFY-${firstVariant.id}`;
     const productUrl = product.handle ? `https://${shop}/products/${product.handle}` : null;
+    // All variant IDs for this product — Meta catalogs report at variant level.
+    // Storing these lets syncMeta match "variant_id" insights back to this product.
+    const altIds = product.variants.map((v) => String(v.id));
+    const variantRecords = product.variants.map((v) => {
+      const options = [v.option1, v.option2, v.option3].filter(Boolean).join(" / ");
+      const title = options ? `${product.title} — ${options}` : (v.title || product.title);
+      return {
+        id: v.id,
+        sku: v.sku || `SHOPIFY-VAR-${v.id}`,
+        title,
+        inventoryLevel: v.inventory_quantity ?? 0
+      };
+    });
     const inventoryLevel = product.variants.reduce(
       (sum, v) => sum + (v.inventory_quantity ?? 0),
       0
@@ -161,17 +178,20 @@ export async function runShopifySync(
       create: {
         externalId,
         sku,
+        altIds,
         title: product.title,
         imageUrl,
         productUrl,
         score: 0,
         category: "TEST",
+        isVariant: false,
         storeId
       },
       update: {
         title: product.title,
         imageUrl,
         sku,
+        altIds,
         productUrl
       }
     });
@@ -211,6 +231,71 @@ export async function runShopifySync(
         inventoryLevel
       }
     });
+
+    // --- Step 4b: Upsert variant products ---
+    for (const v of variantRecords) {
+      const vExternalId = String(v.id);
+      const vRevenue = revenueMap.get(v.id)?.revenue ?? 0;
+      const vOrders = revenueMap.get(v.id)?.orderCount ?? 0;
+      const vVelocity = vRevenue / 30;
+
+      const vProduct = await prisma.productMeta.upsert({
+        where: { storeId_externalId: { storeId, externalId: vExternalId } },
+        create: {
+          externalId: vExternalId,
+          sku: v.sku,
+          altIds: [],
+          title: v.title,
+          imageUrl,
+          productUrl,
+          score: 0,
+          category: "TEST",
+          isVariant: true,
+          parentId: upserted.id,
+          storeId
+        },
+        update: {
+          sku: v.sku,
+          title: v.title,
+          imageUrl,
+          productUrl,
+          isVariant: true,
+          parentId: upserted.id
+        }
+      });
+
+      const existingVMetric = await prisma.dailyMetric.findUnique({
+        where: { storeId_productId_date: { storeId, productId: vProduct.id, date: today } }
+      });
+
+      await prisma.dailyMetric.upsert({
+        where: { storeId_productId_date: { storeId, productId: vProduct.id, date: today } },
+        create: {
+          date: today,
+          roas: existingVMetric?.roas ?? 0,
+          blendedRoas: existingVMetric?.blendedRoas ?? null,
+          ctr: existingVMetric?.ctr ?? 0,
+          conversionRate: vOrders > 0 ? vOrders / Math.max(1, vOrders * 40) : 0,
+          margin: 0.35,
+          velocity: vVelocity,
+          spend: existingVMetric?.spend ?? 0,
+          revenue: vRevenue,
+          metaRevenue: existingVMetric?.metaRevenue ?? null,
+          impressions: existingVMetric?.impressions ?? null,
+          clicks: existingVMetric?.clicks ?? null,
+          conversions: vOrders,
+          inventoryLevel: v.inventoryLevel ?? null,
+          storeId,
+          productId: vProduct.id
+        },
+        update: {
+          revenue: vRevenue,
+          conversions: vOrders,
+          velocity: vVelocity,
+          ...(v.inventoryLevel !== null ? { inventoryLevel: v.inventoryLevel } : {})
+        }
+      });
+    }
   }
 
   return { products: products.length, orders: orders.length };

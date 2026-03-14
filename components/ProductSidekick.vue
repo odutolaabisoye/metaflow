@@ -45,10 +45,11 @@
         <div class="px-6 pt-5 pb-4 flex-shrink-0">
           <div class="relative w-full aspect-[16/9] rounded-2xl overflow-hidden border border-white/10 bg-white/5 mb-4">
             <img
-              :src="product.imageUrl"
+              :src="thumbUrl(product.imageUrl, 600)"
               :alt="product.title"
               class="w-full h-full object-cover"
               loading="lazy"
+              @error="(e) => { const t = e.target as HTMLImageElement; if (t.src !== product.imageUrl) t.src = product.imageUrl || '' }"
             />
             <!-- View product link -->
             <a
@@ -85,7 +86,7 @@
         <div class="px-6 mb-2 flex-shrink-0">
           <div class="flex items-center justify-between mb-2">
             <h3 class="text-xs text-white/65 uppercase tracking-widest font-medium">Performance</h3>
-            <span class="text-[10px] text-white/45 font-mono">daily · 30d</span>
+            <span class="text-[10px] text-white/45 font-mono">{{ rangeLabel }}</span>
           </div>
           <!-- Loading skeleton -->
           <div v-if="historyLoading" class="rounded-2xl border border-white/8 bg-white/[0.02] px-4 pt-3 pb-4">
@@ -108,7 +109,13 @@
           </div>
           <!-- Chart -->
           <div v-else-if="product.history?.length" class="rounded-2xl border border-white/8 bg-white/[0.02] px-4 pt-3 pb-2">
-            <PerformanceChart :data="product.history" />
+            <PerformanceChart
+              :data="product.history"
+              :currency="currency"
+              :range-start="rangeStart"
+              :range-end="rangeEnd"
+              @range-change="onChartRangeChange"
+            />
           </div>
           <!-- No data -->
           <div v-else class="rounded-2xl border border-white/8 bg-white/[0.02] flex flex-col items-center justify-center py-8 gap-2">
@@ -128,7 +135,7 @@
           <div class="flex items-center justify-between">
             <div>
               <p class="text-xs text-glow-400/70 font-medium uppercase tracking-widest mb-0.5">Blended ROAS</p>
-              <p class="text-3xl font-bold text-glow-400">{{ Number(product.blendedRoas).toFixed(2) }}×</p>
+              <p class="text-3xl font-bold text-glow-400">{{ displayBlendedRoas }}×</p>
               <p class="text-xs text-white/65 mt-1">Total revenue / total ad spend</p>
             </div>
             <div class="text-right">
@@ -164,21 +171,21 @@
         <div class="mx-6 mb-4 grid grid-cols-2 gap-3 flex-shrink-0">
           <div class="rounded-xl border border-white/8 bg-white/[0.03] p-3.5">
             <p class="text-xs text-white/65 mb-1">Revenue</p>
-            <p class="text-base font-semibold">{{ formatMoney(product.revenue) }}</p>
+            <p class="text-base font-semibold">{{ formatMoney(displayRevenue) }}</p>
           </div>
           <div class="rounded-xl border border-white/8 bg-white/[0.03] p-3.5">
             <p class="text-xs text-white/65 mb-1">Ad Spend</p>
-            <p class="text-base font-semibold">{{ formatMoney(product.spend) }}</p>
+            <p class="text-base font-semibold">{{ formatMoney(displaySpend) }}</p>
           </div>
           <div class="rounded-xl border border-white/8 bg-white/[0.03] p-3.5">
             <p class="text-xs text-white/65 mb-1">Gross Margin</p>
-            <p class="text-base font-semibold" :class="product.margin >= 30 ? 'text-lime-400' : product.margin >= 20 ? 'text-glow-400' : 'text-ember-400'">
-              {{ product.margin }}%
+            <p class="text-base font-semibold" :class="displayMarginPct >= 30 ? 'text-lime-400' : displayMarginPct >= 20 ? 'text-glow-400' : 'text-ember-400'">
+              {{ displayMarginPct.toFixed(1) }}%
             </p>
           </div>
           <div class="rounded-xl border border-white/8 bg-white/[0.03] p-3.5">
             <p class="text-xs text-white/65 mb-1">Velocity</p>
-            <p class="text-base font-semibold">{{ product.velocity }}×</p>
+            <p class="text-base font-semibold">{{ Number(product.velocity).toFixed(1) }}×</p>
           </div>
         </div>
 
@@ -199,7 +206,7 @@
                 </div>
                 <span class="text-sm text-white/65">Impressions</span>
               </div>
-              <span class="font-mono text-sm font-medium">{{ formatNumber(product.impressions) }}</span>
+              <span class="font-mono text-sm font-medium">{{ formatNumber(displayImpressions) }}</span>
             </div>
             <div class="flex items-center justify-between rounded-xl border border-white/8 bg-white/[0.03] px-4 py-3">
               <div class="flex items-center gap-2.5">
@@ -210,7 +217,7 @@
                 </div>
                 <span class="text-sm text-white/65">Clicks</span>
               </div>
-              <span class="font-mono text-sm font-medium">{{ formatNumber(product.clicks) }}</span>
+              <span class="font-mono text-sm font-medium">{{ formatNumber(displayClicks) }}</span>
             </div>
             <div class="flex items-center justify-between rounded-xl border border-white/8 bg-white/[0.03] px-4 py-3">
               <div class="flex items-center gap-2.5">
@@ -223,7 +230,7 @@
                 </div>
                 <span class="text-sm text-white/65">CTR</span>
               </div>
-              <span class="font-mono text-sm font-medium text-glow-400">{{ product.ctr }}%</span>
+              <span class="font-mono text-sm font-medium text-glow-400">{{ displayCtrPct }}%</span>
             </div>
           </div>
         </div>
@@ -235,18 +242,18 @@
             <div class="grid grid-cols-2 gap-4">
               <div>
                 <p class="text-xs text-white/65 mb-1">Total Conversions</p>
-                <p class="text-xl font-bold text-lime-400">{{ formatNumber(product.conversions) }}</p>
+                <p class="text-xl font-bold text-lime-400">{{ formatNumber(displayConversions) }}</p>
               </div>
               <div>
                 <p class="text-xs text-white/65 mb-1">Conv. Rate</p>
-                <p class="text-xl font-bold text-lime-400">{{ product.conversionRate }}%</p>
+                <p class="text-xl font-bold text-lime-400">{{ displayConvRatePct }}%</p>
               </div>
             </div>
             <!-- Funnel bar -->
             <div class="mt-4 space-y-1.5">
               <div class="flex justify-between text-xs text-white/60 mb-2">
                 <span>Funnel</span>
-                <span>{{ formatNumber(product.impressions) }} → {{ formatNumber(product.clicks) }} → {{ formatNumber(product.conversions) }}</span>
+                <span>{{ formatNumber(displayImpressions) }} → {{ formatNumber(displayClicks) }} → {{ formatNumber(displayConversions) }}</span>
               </div>
               <div class="flex items-center gap-1.5">
                 <span class="text-xs text-white/60 w-24 text-right">Impressions</span>
@@ -279,8 +286,17 @@
 interface HistoryPoint {
   date: string
   revenue: number
+  metaRevenue: number
   roas: number
+  blendedRoas: number
   spend: number
+  ctr: number
+  margin: number
+  velocity: number
+  impressions: number
+  clicks: number
+  conversions: number
+  conversionRate: number
 }
 
 interface Product {
@@ -309,6 +325,10 @@ const props = defineProps<{
   product: Product | null
   currency?: string
   historyLoading?: boolean
+  /** ISO date string (YYYY-MM-DD) matching the global date filter start */
+  rangeStart?: string
+  /** ISO date string (YYYY-MM-DD) matching the global date filter end */
+  rangeEnd?: string
 }>()
 
 defineEmits<{
@@ -317,31 +337,162 @@ defineEmits<{
 
 const currency = computed(() => props.currency ?? 'USD')
 
-const formatMoney = (value: number) => new Intl.NumberFormat('en-US', {
+// Map currency codes to the locale that produces native symbols (e.g. NGN → ₦)
+const CURRENCY_LOCALE: Record<string, string> = {
+  NGN: 'en-NG', GBP: 'en-GB', EUR: 'de-DE', JPY: 'ja-JP',
+  AUD: 'en-AU', CAD: 'en-CA', INR: 'en-IN', ZAR: 'en-ZA',
+  GHS: 'en-GH', KES: 'sw-KE', EGP: 'ar-EG', MAD: 'ar-MA',
+}
+const currencyLocale = computed(() => CURRENCY_LOCALE[currency.value] ?? 'en-US')
+
+const formatMoney = (value: number) => new Intl.NumberFormat(currencyLocale.value, {
   style: 'currency',
   currency: currency.value,
   maximumFractionDigits: 0,
 }).format(value)
 
+/**
+ * Generates a smaller image URL for known CDN patterns.
+ * WordPress: inserts -{size}x{size} before the extension.
+ * Shopify: inserts _{size}x{size} before the extension.
+ * Falls back to the original URL on error via @error handler.
+ */
+function thumbUrl(url: string | null | undefined, size = 600): string {
+  if (!url) return ''
+  try {
+    const u = new URL(url)
+    if (u.pathname.startsWith('/s/files/') || u.hostname.includes('cdn.shopify.com')) {
+      return url.replace(/(\.\w{2,5})(\?.*)?$/, `_${size}x${size}$1$2`)
+    }
+    if (u.pathname.includes('/wp-content/uploads/')) {
+      return url.replace(/(\.\w{2,5})(\?.*)?$/, `-${size}x${size}$1$2`)
+    }
+    return url
+  } catch {
+    return url || ''
+  }
+}
+
 const formatNumber = (value: number) => new Intl.NumberFormat('en-US').format(value)
 
-// Meta revenue share estimate based on roas vs blendedRoas ratio
+// ── Chart range tracking ───────────────────────────────────────────────────────
+// chartRange mirrors the zoom pill selected in PerformanceChart (7D / 14D / 30D).
+// Only meaningful when the global range is wide (30d / 90d) and pills are visible.
+const chartRange = ref('30D')
+
+function onChartRangeChange(range: string) {
+  chartRange.value = range
+}
+
+// Reset range when a new product is opened
+watch(() => props.product?.id, () => { chartRange.value = '30D' })
+
+/** Number of calendar days in the provided date range. */
+const globalRangeDays = computed(() => {
+  if (!props.rangeStart || !props.rangeEnd) return 30
+  const s = new Date(props.rangeStart + 'T00:00:00')
+  const e = new Date(props.rangeEnd   + 'T00:00:00')
+  return Math.max(1, Math.round((e.getTime() - s.getTime()) / 86_400_000) + 1)
+})
+
+/** Human-readable label for the chart header */
+const rangeLabel = computed(() => {
+  if (!props.rangeStart || !props.rangeEnd) return `daily · ${chartRange.value.toLowerCase()}`
+  const days = globalRangeDays.value
+  if (days === 1) {
+    // Format as "Mar 5"
+    const [y, m, d] = props.rangeStart.split('-').map(Number)
+    const label = new Date(y, m - 1, d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+    return `daily · ${label}`
+  }
+  return `daily · ${days}d`
+})
+
+/** Extract YYYY-MM-DD from any date string (strips time/zone portion). */
+function toDateStr(d: string): string { return d.slice(0, 10) }
+
+// ── Aggregated metrics for the active date window ─────────────────────────────
+const rangeMetrics = computed(() => {
+  const history = props.product?.history
+  if (!history?.length) return null
+
+  // Step 1: filter to the global date range
+  let slice = props.rangeStart && props.rangeEnd
+    ? history.filter(d => {
+        const ds = toDateStr(d.date)
+        return ds >= props.rangeStart! && ds <= props.rangeEnd!
+      })
+    : [...history]
+
+  // Step 2: apply zoom pill when the window is wide enough (mirrors chart logic)
+  if (globalRangeDays.value > 14) {
+    const pillDays = chartRange.value === '7D' ? 7 : chartRange.value === '14D' ? 14 : 30
+    if (slice.length > pillDays) {
+      slice = slice.slice(-pillDays)
+    }
+  }
+
+  const n = slice.length || 1
+
+  const totalRevenue     = slice.reduce((s, d) => s + (d.revenue ?? 0), 0)
+  const totalMetaRevenue = slice.reduce((s, d) => s + (d.metaRevenue ?? 0), 0)
+  const totalSpend       = slice.reduce((s, d) => s + (d.spend ?? 0), 0)
+  const totalImpressions = slice.reduce((s, d) => s + (d.impressions ?? 0), 0)
+  const totalClicks      = slice.reduce((s, d) => s + (d.clicks ?? 0), 0)
+  const totalConversions = slice.reduce((s, d) => s + (d.conversions ?? 0), 0)
+  // Weighted avg margin (weight by revenue)
+  const avgMargin = totalRevenue > 0
+    ? slice.reduce((s, d) => s + (d.margin ?? 0) * (d.revenue ?? 0), 0) / totalRevenue
+    : slice.reduce((s, d) => s + (d.margin ?? 0), 0) / n
+
+  return {
+    revenue:        totalRevenue,
+    metaRevenue:    totalMetaRevenue,
+    spend:          totalSpend,
+    impressions:    totalImpressions,
+    clicks:         totalClicks,
+    conversions:    totalConversions,
+    ctr:            totalImpressions > 0 ? totalClicks / totalImpressions : 0,
+    conversionRate: totalClicks > 0 ? totalConversions / totalClicks : 0,
+    blendedRoas:    totalSpend > 0 ? totalRevenue / totalSpend : 0,
+    margin:         avgMargin,
+  }
+})
+
+// ── Display values: prefer rangeMetrics (when history loaded), else product prop ──
+const displayRevenue     = computed(() => rangeMetrics.value?.revenue     ?? props.product?.revenue     ?? 0)
+const displaySpend       = computed(() => rangeMetrics.value?.spend       ?? props.product?.spend       ?? 0)
+const displayImpressions = computed(() => rangeMetrics.value?.impressions ?? props.product?.impressions ?? 0)
+const displayClicks      = computed(() => rangeMetrics.value?.clicks      ?? props.product?.clicks      ?? 0)
+const displayConversions = computed(() => rangeMetrics.value?.conversions ?? props.product?.conversions ?? 0)
+// Stored as decimal (0.025 = 2.5%), multiply × 100 for display
+const displayCtrPct      = computed(() => ((rangeMetrics.value?.ctr      ?? props.product?.ctr      ?? 0) * 100).toFixed(2))
+const displayConvRatePct = computed(() => ((rangeMetrics.value?.conversionRate ?? props.product?.conversionRate ?? 0) * 100).toFixed(2))
+// Stored as decimal (0.35 = 35%), multiply × 100 for display
+const displayMarginPct   = computed(() => (rangeMetrics.value?.margin ?? props.product?.margin ?? 0) * 100)
+const displayBlendedRoas = computed(() => (rangeMetrics.value?.blendedRoas ?? Number(props.product?.blendedRoas) ?? 0).toFixed(2))
+
+// ── Meta share bar ─────────────────────────────────────────────────────────────
 const metaShare = computed(() => {
-  if (!props.product) return 70
-  const p = props.product
-  if (p.blendedRoas <= 0) return 70
-  const share = Math.round((p.roas / Math.max(p.blendedRoas, 0.1)) * 100)
+  const blended = rangeMetrics.value?.blendedRoas ?? Number(props.product?.blendedRoas ?? 0)
+  const meta    = Number(props.product?.roas ?? 0)
+  if (blended <= 0) return 70
+  const share = Math.round((meta / Math.max(blended, 0.1)) * 100)
   return Math.min(Math.max(share, 20), 95)
 })
 
 const clickRate = computed(() => {
-  if (!props.product || !props.product.impressions) return 0
-  return Math.min((props.product.clicks / props.product.impressions) * 100 * 10, 100)
+  const imp = displayImpressions.value
+  const clk = displayClicks.value
+  if (!imp) return 0
+  return Math.min((clk / imp) * 100 * 10, 100)
 })
 
 const convFunnelWidth = computed(() => {
-  if (!props.product || !props.product.impressions) return 0
-  return Math.min((props.product.conversions / props.product.impressions) * 100 * 50, 100)
+  const imp = displayImpressions.value
+  const con = displayConversions.value
+  if (!imp) return 0
+  return Math.min((con / imp) * 100 * 50, 100)
 })
 
 const scoreColor = (score: number) => {

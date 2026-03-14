@@ -3,6 +3,14 @@ import type { FastifyInstance } from "fastify";
 const VALID_PLATFORMS = ["SHOPIFY", "WOOCOMMERCE", "API"] as const;
 type StorePlatform = (typeof VALID_PLATFORMS)[number];
 
+/** Maximum stores allowed per subscription plan. */
+const PLAN_STORE_LIMITS: Record<string, number> = {
+  STARTER: 1,
+  GROWTH: 5,
+  SCALE: Infinity,
+  GRANDFATHERED: Infinity,
+};
+
 export async function storeRoutes(app: FastifyInstance) {
   /**
    * GET /stores
@@ -112,6 +120,26 @@ export async function storeRoutes(app: FastifyInstance) {
         ok: false,
         message: `platform must be one of: ${VALID_PLATFORMS.join(", ")}`
       });
+    }
+
+    // Enforce per-plan store limit
+    try {
+      const user = await app.prisma.user.findUnique({
+        where: { id: payload.sub },
+        select: { plan: true }
+      });
+      const limit = PLAN_STORE_LIMITS[user?.plan ?? "STARTER"] ?? 1;
+      const storeCount = await app.prisma.store.count({ where: { ownerId: payload.sub } });
+      if (storeCount >= limit) {
+        return reply.code(403).send({
+          ok: false,
+          code: "PLAN_LIMIT",
+          message: `Your plan allows up to ${limit} store${limit === 1 ? "" : "s"}. Upgrade to add more.`
+        });
+      }
+    } catch (err) {
+      app.log.error({ err }, "Failed to check store limit");
+      return reply.code(500).send({ ok: false, message: "Internal server error" });
     }
 
     try {

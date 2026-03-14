@@ -37,16 +37,48 @@ export default defineNuxtRouteMiddleware(async (to) => {
     }
   }
 
+  // Protect /app/analytics routes — requires SCALE plan or ADMIN role
+  if (to.path.startsWith("/app/analytics")) {
+    const roleFlag = useCookie("mf_role");
+    const planFlag = useCookie("mf_plan");
+    // Fast-path: ADMIN can always access analytics
+    if (isLoggedIn && roleFlag.value === "ADMIN") return;
+    // Fast-path: SCALE plan user can access analytics
+    if (isLoggedIn && planFlag.value === "SCALE") return;
+    // Fallback: verify via /auth/me (handles stale cookies)
+    try {
+      const res = await $fetch<{ ok: boolean; user: { role: string; plan: string } }>(
+        `${config.public.apiBase}/v1/auth/me`,
+        { credentials: "include" }
+      );
+      if (res?.ok) {
+        if (res.user?.role === "ADMIN" || res.user?.plan === "SCALE") {
+          planFlag.value = res.user.plan;
+          return;
+        }
+        // Logged in but not SCALE — redirect to settings with upgrade notice
+        return navigateTo("/app/settings?upgrade=analytics");
+      }
+    } catch {
+      // fall through to general /app check below
+    }
+  }
+
   // Protect all /app routes — redirect to login if not authenticated
   if (to.path.startsWith("/app")) {
     if (isLoggedIn) return;
     // Fallback: if backend session cookie exists (mf_session on :4000),
     // verify via /auth/me then set mf_auth for this origin.
     try {
-      await $fetch(`${config.public.apiBase}/v1/auth/me`, {
-        credentials: "include"
-      });
+      const res = await $fetch<{ ok: boolean; user: { plan?: string } }>(
+        `${config.public.apiBase}/v1/auth/me`,
+        { credentials: "include" }
+      );
       authFlag.value = "1";
+      // Sync plan cookie if returned
+      if (res?.user?.plan) {
+        useCookie("mf_plan").value = res.user.plan;
+      }
       return;
     } catch {
       return navigateTo("/auth/login");

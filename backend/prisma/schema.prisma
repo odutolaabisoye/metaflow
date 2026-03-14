@@ -32,12 +32,24 @@ enum UserRole {
   ADMIN
 }
 
+enum UserPlan {
+  /// $50/mo — 1 store, all features
+  STARTER
+  /// $100/mo — 5 stores, all features
+  GROWTH
+  /// $250/mo — unlimited stores + Advanced Analytics
+  SCALE
+  /// Legacy users signed up before plans existed — unlimited stores
+  GRANDFATHERED
+}
+
 model User {
   id           String        @id @default(cuid())
   email        String        @unique
   name         String?
   passwordHash String
   role         UserRole      @default(USER)
+  plan         UserPlan      @default(STARTER)
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
   stores       Store[]
@@ -105,6 +117,11 @@ model ProductMeta {
   id         String          @id @default(cuid())
   externalId String
   sku        String?
+  /// All variant / variation IDs for this product.
+  /// Shopify: every variant ID. WooCommerce: every variation ID (in-stock + out-of-stock).
+  /// Meta catalogs report spend at the variant level — this lets syncMeta map
+  /// any variation ID back to its parent product for correct attribution.
+  altIds     String[]        @default([])
   title      String
   imageUrl   String?
   productUrl String?

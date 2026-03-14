@@ -18,8 +18,13 @@ const OPTIONS: DateRangeOption[] = [
   { label: "Custom range", value: "custom" }
 ];
 
+// Use local date parts — NOT toISOString() which returns UTC.
+// Without this, a user in Nigeria (UTC+1) at 11pm would get yesterday's UTC date.
 function toISODate(d: Date) {
-  return d.toISOString().slice(0, 10);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
 }
 
 function isValidDateString(value: string) {

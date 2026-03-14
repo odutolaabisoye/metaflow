@@ -98,10 +98,11 @@
           <option value="score">Score</option>
           <option value="roas">ROAS</option>
           <option value="ctr">CTR</option>
-          <option value="margin">Margin</option>
-          <option value="velocity">Velocity</option>
+          <option value="impressions">Impressions</option>
+          <option value="clicks">Clicks</option>
           <option value="spend">Spend</option>
           <option value="revenue">Revenue</option>
+          <option value="velocity">Velocity</option>
           <option value="title">Title</option>
         </select>
         <button
@@ -163,9 +164,21 @@
                 </button>
               </th>
               <th class="text-left px-4 py-3.5 whitespace-nowrap">
-                <button class="flex items-center gap-1.5 text-xs font-medium text-white/80 hover:text-white/80 transition-colors" @click="setSort('margin')">
-                  Margin
-                  <span v-if="sortBy === 'margin'" class="text-glow-500 text-[10px]">{{ sortIndicator('margin') }}</span>
+                <button class="flex items-center gap-1.5 text-xs font-medium text-white/80 hover:text-white/80 transition-colors" @click="setSort('impressions')">
+                  Impressions
+                  <span v-if="sortBy === 'impressions'" class="text-glow-500 text-[10px]">{{ sortIndicator('impressions') }}</span>
+                </button>
+              </th>
+              <th class="text-left px-4 py-3.5 whitespace-nowrap">
+                <button class="flex items-center gap-1.5 text-xs font-medium text-white/80 hover:text-white/80 transition-colors" @click="setSort('clicks')">
+                  Clicks
+                  <span v-if="sortBy === 'clicks'" class="text-glow-500 text-[10px]">{{ sortIndicator('clicks') }}</span>
+                </button>
+              </th>
+              <th class="text-left px-4 py-3.5 whitespace-nowrap">
+                <button class="flex items-center gap-1.5 text-xs font-medium text-white/80 hover:text-white/80 transition-colors" @click="setSort('spend')">
+                  Spend
+                  <span v-if="sortBy === 'spend'" class="text-glow-500 text-[10px]">{{ sortIndicator('spend') }}</span>
                 </button>
               </th>
               <th class="text-left px-4 py-3.5 whitespace-nowrap">
@@ -190,7 +203,14 @@
               <td class="px-5 py-4">
                 <div class="flex items-center gap-3">
                   <div class="h-9 w-9 flex-shrink-0 rounded-lg border border-white/10 bg-white/5 overflow-hidden">
-                    <img :src="item.imageUrl" :alt="item.title" class="h-full w-full object-cover" loading="lazy" />
+                    <img
+                      :src="thumbUrl(item.imageUrl)"
+                      :alt="item.title"
+                      class="h-full w-full object-cover"
+                      loading="lazy"
+                      width="36" height="36"
+                      @error="(e) => { const t = e.target as HTMLImageElement; if (t.src !== item.imageUrl) t.src = item.imageUrl || '' }"
+                    />
                   </div>
                   <div class="min-w-0">
                     <p class="font-medium truncate max-w-[180px]">{{ item.title }}</p>
@@ -227,10 +247,16 @@
               <td class="px-4 py-4 font-mono text-sm font-medium">{{ Number(item.roas).toFixed(2) }}×</td>
 
               <!-- CTR -->
-              <td class="px-4 py-4 text-sm text-white/80">{{ Number(item.ctr).toFixed(2) }}%</td>
+              <td class="px-4 py-4 text-sm text-white/80">{{ (Number(item.ctr) * 100).toFixed(2) }}%</td>
 
-              <!-- Margin -->
-              <td class="px-4 py-4 text-sm text-white/80">{{ Number(item.margin).toFixed(2) }}%</td>
+              <!-- Impressions -->
+              <td class="px-4 py-4 text-sm text-white/80 font-mono">{{ Number(item.impressions).toLocaleString() }}</td>
+
+              <!-- Clicks -->
+              <td class="px-4 py-4 text-sm text-white/80 font-mono">{{ Number(item.clicks).toLocaleString() }}</td>
+
+              <!-- Spend -->
+              <td class="px-4 py-4 text-sm text-white/80">{{ formatMoney(item.spend) }}</td>
 
               <!-- Revenue -->
               <td class="px-4 py-4 text-sm font-medium">{{ formatMoney(item.revenue) }}</td>
@@ -268,17 +294,17 @@
           </select>
         </div>
         <div class="flex items-center gap-3">
-          <span class="text-xs text-white/70">{{ products.length }} of {{ total }} products</span>
+          <span class="text-xs text-white/70">{{ pageStart }}–{{ pageEnd }} of {{ total.toLocaleString() }} products</span>
           <div class="flex items-center gap-1.5">
             <button
-              :disabled="pageStack.length === 0"
+              :disabled="page === 0"
               @click="prevPage"
               class="flex items-center justify-center w-8 h-8 rounded-lg border border-white/10 bg-white/5 text-white/80 hover:text-white hover:bg-white/10 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
             >
               <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/></svg>
             </button>
             <button
-              :disabled="!nextCursorId"
+              :disabled="page >= totalPages - 1"
               @click="nextPage"
               class="flex items-center justify-center w-8 h-8 rounded-lg border border-white/10 bg-white/5 text-white/80 hover:text-white hover:bg-white/10 disabled:opacity-30 disabled:cursor-not-allowed transition-all"
             >
@@ -295,6 +321,8 @@
       :product="selectedProduct"
       :currency="currency"
       :history-loading="historyLoading"
+      :range-start="start"
+      :range-end="end"
       @close="selectedProduct = null"
     />
 
@@ -313,14 +341,13 @@ const sortDir = ref("desc");
 const limit = ref(20);
 const syncing = ref(false);
 
-const pageStack = ref<string[]>([]);
-const cursorId = ref<string | null>(null);
+const page = ref(0);
 
 // Sidekick
 const selectedProduct = ref<null | Record<string, unknown>>(null);
 const historyLoading  = ref(false);
 
-const { query, rangeOption, activeStoreId } = useGlobalFilters();
+const { query, rangeOption, activeStoreId, start, end } = useGlobalFilters();
 const rangeLabel = computed(() => rangeOption.value.label);
 
 const categories = [
@@ -331,10 +358,9 @@ const categories = [
   { value: 'RISK', label: 'Risk', dot: 'bg-violet-400' },
 ];
 
-watch([sortBy, sortDir, limit, query], () => {
-  cursorId.value = null;
-  pageStack.value = [];
-});
+// Reset to page 0 whenever any filter/sort/range changes
+watch([sortBy, sortDir, limit, filter, query], () => { page.value = 0; });
+watch(search, () => { page.value = 0; });
 
 const { data, pending, refresh } = await useFetch(`${apiBase}/v1/products`, {
   server: false,
@@ -346,17 +372,54 @@ const { data, pending, refresh } = await useFetch(`${apiBase}/v1/products`, {
     sortBy: sortBy.value,
     sortDir: sortDir.value,
     limit: limit.value,
-    cursor: cursorId.value ?? undefined
+    page: page.value
   }))
 });
 
-const currency = computed(() => data.value?.currency ?? "USD");
-const products = computed(() => data.value?.items ?? []);
-const total = computed(() => data.value?.total ?? 0);
-const nextCursorId = computed(() => data.value?.nextCursor ?? null);
+const currency   = computed(() => data.value?.currency   ?? "USD");
+const products   = computed(() => data.value?.items      ?? []);
+const total      = computed(() => data.value?.total      ?? 0);
+const totalPages = computed(() => data.value?.totalPages ?? 1);
+
+// Page range shown in the pagination footer ("X–Y of N")
+const pageStart = computed(() => total.value === 0 ? 0 : page.value * limit.value + 1);
+const pageEnd   = computed(() => Math.min((page.value + 1) * limit.value, total.value));
+
+/**
+ * Generate a smaller image URL for thumbnails.
+ * Handles WordPress/WooCommerce and Shopify CDN — falls back to the original.
+ *
+ * WordPress generates standard sizes on upload (e.g. image-150x150.jpg).
+ * Shopify CDN supports appending _{width}x{height} before the extension.
+ */
+function thumbUrl(url: string | null | undefined, size = 150): string {
+  if (!url) return '';
+  try {
+    const u = new URL(url);
+    // Shopify CDN — insert _{size}x{size} before the extension
+    if (u.pathname.startsWith('/s/files/') || u.hostname.includes('cdn.shopify.com')) {
+      return url.replace(/(\.\w{2,5})(\?.*)?$/, `_${size}x${size}$1$2`);
+    }
+    // WordPress / WooCommerce — insert -{size}x{size} before the extension
+    if (u.pathname.includes('/wp-content/uploads/')) {
+      return url.replace(/(\.\w{2,5})(\?.*)?$/, `-${size}x${size}$1$2`);
+    }
+    return url;
+  } catch {
+    return url || '';
+  }
+}
+
+// Map currency codes to the locale that produces the native symbol (e.g. NGN → ₦)
+const CURRENCY_LOCALE: Record<string, string> = {
+  NGN: 'en-NG', GBP: 'en-GB', EUR: 'de-DE', JPY: 'ja-JP',
+  AUD: 'en-AU', CAD: 'en-CA', INR: 'en-IN', ZAR: 'en-ZA',
+  GHS: 'en-GH', KES: 'sw-KE', EGP: 'ar-EG', MAD: 'ar-MA',
+};
+const currencyLocale = computed(() => CURRENCY_LOCALE[currency.value] ?? 'en-US');
 
 const formatMoney = (value: number) => {
-  return new Intl.NumberFormat("en-US", {
+  return new Intl.NumberFormat(currencyLocale.value, {
     style: "currency",
     currency: currency.value,
     maximumFractionDigits: 0
@@ -405,17 +468,8 @@ const sortIndicator = (field: string) => {
   return sortDir.value === "asc" ? "▲" : "▼";
 };
 
-const nextPage = () => {
-  if (nextCursorId.value) {
-    pageStack.value.push(cursorId.value ?? "");
-    cursorId.value = nextCursorId.value;
-  }
-};
-
-const prevPage = () => {
-  const prev = pageStack.value.pop();
-  cursorId.value = prev && prev.length > 0 ? prev : null;
-};
+const nextPage = () => { if (page.value < totalPages.value - 1) page.value++; };
+const prevPage = () => { if (page.value > 0) page.value--; };
 
 // Open sidekick panel — show row data immediately, then load full history
 const openSidekick = async (item: Record<string, unknown>) => {
@@ -427,17 +481,32 @@ const openSidekick = async (item: Record<string, unknown>) => {
     const res = await $fetch<{
       ok: boolean;
       product: {
-        dailyMetrics: { date: string; revenue: number; roas: number; spend: number }[];
+        dailyMetrics: {
+          date: string; revenue: number; metaRevenue: number | null;
+          roas: number; blendedRoas: number | null; spend: number;
+          ctr: number; margin: number; velocity: number;
+          impressions: number | null; clicks: number | null;
+          conversions: number | null; conversionRate: number;
+        }[];
       };
     }>(`${apiBase}/v1/products/${item.id}`, { credentials: 'include' });
 
     if (res?.ok && selectedProduct.value?.id === item.id) {
       // dailyMetrics comes in desc order — reverse for the chart (oldest → newest)
       const history = [...res.product.dailyMetrics].reverse().map(m => ({
-        date:    m.date,
-        revenue: m.revenue,
-        roas:    m.roas,
-        spend:   m.spend,
+        date:           m.date,
+        revenue:        m.revenue,
+        metaRevenue:    m.metaRevenue ?? 0,
+        roas:           m.roas,
+        blendedRoas:    m.blendedRoas ?? m.roas,
+        spend:          m.spend,
+        ctr:            m.ctr,
+        margin:         m.margin,
+        velocity:       m.velocity,
+        impressions:    m.impressions ?? 0,
+        clicks:         m.clicks ?? 0,
+        conversions:    m.conversions ?? 0,
+        conversionRate: m.conversionRate,
       }));
       selectedProduct.value = { ...selectedProduct.value, history };
     }
@@ -525,7 +594,7 @@ const exportCsv = async () => {
   const rows = products.value as Record<string, unknown>[];
   if (!rows.length) return;
   if (!csrfToken.value) await loadCsrf();
-  const headers = ['title', 'sku', 'category', 'score', 'roas', 'blendedRoas', 'ctr', 'margin', 'spend', 'revenue', 'impressions', 'clicks', 'conversions'];
+  const headers = ['title', 'sku', 'category', 'score', 'roas', 'blendedRoas', 'ctr', 'impressions', 'clicks', 'spend', 'revenue', 'conversions'];
   const csv = [
     headers.join(','),
     ...rows.map(r => headers.map(h => JSON.stringify(r[h] ?? '')).join(','))

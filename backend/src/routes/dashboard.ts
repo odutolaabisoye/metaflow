@@ -4,14 +4,31 @@ function formatRoas(val: number): string {
   return val > 0 ? `${val.toFixed(1)}x` : "—";
 }
 
+const CURRENCY_LOCALE: Record<string, string> = {
+  NGN: "en-NG", GBP: "en-GB", EUR: "de-DE", JPY: "ja-JP",
+  AUD: "en-AU", CAD: "en-CA", INR: "en-IN", ZAR: "en-ZA",
+  GHS: "en-GH", KES: "sw-KE",
+};
+
 function formatCurrency(val: number, currency = "USD"): string {
-  if (val >= 1_000_000) return `$${(val / 1_000_000).toFixed(1)}M`;
-  if (val >= 1_000) return `$${(val / 1_000).toFixed(1)}k`;
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency,
-    maximumFractionDigits: 0
-  }).format(val);
+  const locale = CURRENCY_LOCALE[currency] ?? "en-US";
+  try {
+    return new Intl.NumberFormat(locale, {
+      style: "currency",
+      currency,
+      notation: "compact",
+      maximumFractionDigits: 1
+    }).format(val);
+  } catch {
+    return new Intl.NumberFormat("en-US", {
+      style: "currency", currency: "USD", notation: "compact", maximumFractionDigits: 1
+    }).format(val);
+  }
+}
+
+function fmtPct(val: number | null | undefined, decimals = 2): string {
+  if (val == null) return "--";
+  return `${(val * 100).toFixed(decimals)}%`;
 }
 
 function isValidDate(value?: string) {
@@ -21,20 +38,35 @@ function isValidDate(value?: string) {
 }
 
 function parseRange(range?: string, start?: string, end?: string) {
+  // Frontend always sends computed start/end — use them directly when valid
   if (start && end && isValidDate(start) && isValidDate(end)) {
     const s = new Date(start);
     const e = new Date(end);
     if (s <= e) {
+      s.setHours(0, 0, 0, 0);
       e.setHours(23, 59, 59, 999);
-      return { start: s, end: e, range: "custom" };
+      return { start: s, end: e, range: range ?? "custom" };
     }
   }
 
-  const days = range === "7d" ? 7 : range === "90d" ? 90 : 30;
-  const e = new Date();
-  const s = new Date();
-  s.setDate(e.getDate() - days + 1);
+  // Fallback: derive from range string (used when start/end are absent)
+  const now = new Date();
+  const e = new Date(now);
   e.setHours(23, 59, 59, 999);
+
+  if (range === "today") {
+    const s = new Date(now); s.setHours(0, 0, 0, 0);
+    return { start: s, end: e, range: "today" };
+  }
+  if (range === "yesterday") {
+    const s = new Date(now); s.setDate(s.getDate() - 1); s.setHours(0, 0, 0, 0);
+    const ye = new Date(s); ye.setHours(23, 59, 59, 999);
+    return { start: s, end: ye, range: "yesterday" };
+  }
+  const days = range === "7d" ? 7 : range === "90d" ? 90 : 30;
+  const s = new Date(now);
+  s.setDate(s.getDate() - days + 1);
+  s.setHours(0, 0, 0, 0);
   return { start: s, end: e, range: range ?? "30d" };
 }
 
@@ -90,17 +122,16 @@ export async function dashboardRoutes(app: FastifyInstance) {
 
       const [currentMetrics, prevMetrics, activeSKUs, riskCount, topProducts, riskProducts] =
         await app.prisma.$transaction([
-          // Current period aggregates
+          // Current period aggregates — use _sum for all rate-derived metrics
           app.prisma.dailyMetric.aggregate({
             where: { storeId: store.id, date: { gte: rangeStart, lte: rangeEnd } },
-            _sum: { metaRevenue: true, spend: true, impressions: true, clicks: true, conversions: true },
-            _avg: { roas: true, blendedRoas: true, ctr: true, margin: true }
+            _sum: { revenue: true, metaRevenue: true, spend: true, impressions: true, clicks: true, conversions: true }
           }),
 
-          // Previous period aggregates (for delta %)
+          // Previous period aggregates — sum-based for accurate delta
           app.prisma.dailyMetric.aggregate({
             where: { storeId: store.id, date: { gte: prevStart, lte: prevEnd } },
-            _avg: { roas: true, blendedRoas: true }
+            _sum: { revenue: true, spend: true }
           }),
 
           // Total active products
@@ -138,13 +169,45 @@ export async function dashboardRoutes(app: FastifyInstance) {
           })
         ]);
 
-      const avgRoas = currentMetrics._avg.roas ?? 0;
-      const avgBlendedRoas = currentMetrics._avg.blendedRoas ?? avgRoas;
-      const prevAvgRoas = prevMetrics._avg.roas ?? 0;
-      const prevBlendedRoas = prevMetrics._avg.blendedRoas ?? prevAvgRoas;
+      // ── Extra queries outside the transaction (groupBy not supported in array transactions) ──
+      const [dailyRevenue, productRevenueInRange, allProductCats] = await Promise.all([
+        // Daily store revenue totals for the trend chart
+        app.prisma.dailyMetric.groupBy({
+          by: ["date"],
+          where: { storeId: store.id, date: { gte: rangeStart, lte: rangeEnd } },
+          _sum: { revenue: true },
+          orderBy: { date: "asc" }
+        }),
+        // Per-product revenue in range — used to determine top category by revenue
+        app.prisma.dailyMetric.groupBy({
+          by: ["productId"],
+          where: { storeId: store.id, date: { gte: rangeStart, lte: rangeEnd } },
+          _sum: { revenue: true }
+        }),
+        // All product categories for the store (lightweight: id + category only)
+        app.prisma.productMeta.findMany({
+          where: { storeId: store.id },
+          select: { id: true, category: true }
+        })
+      ]);
 
-      const totalRevenue = currentMetrics._sum.metaRevenue ?? 0;
-      const totalSpend = currentMetrics._sum.spend ?? 0;
+      const totalRevenue     = currentMetrics._sum.revenue     ?? 0;
+      const totalSpend       = currentMetrics._sum.spend       ?? 0;
+      const totalImpressions = currentMetrics._sum.impressions ?? 0;
+      const totalClicks      = currentMetrics._sum.clicks      ?? 0;
+      const totalConversions = currentMetrics._sum.conversions ?? 0;
+
+      // Derive rates from totals — averaging daily rates is mathematically incorrect
+      const avgRoas        = totalSpend > 0 ? totalRevenue / totalSpend : 0;
+      const avgBlendedRoas = avgRoas; // same numerator/denominator (all-channel)
+      const avgCtrVal      = totalImpressions > 0 ? totalClicks / totalImpressions : null;
+      const avgConvRateVal = totalClicks > 0 ? totalConversions / totalClicks : null;
+
+      // Previous period — also sum-based
+      const prevTotalRevenue = prevMetrics._sum.revenue ?? 0;
+      const prevTotalSpend   = prevMetrics._sum.spend   ?? 0;
+      const prevAvgRoas      = prevTotalSpend > 0 ? prevTotalRevenue / prevTotalSpend : 0;
+      const prevBlendedRoas  = prevAvgRoas;
 
       // Compute delta % vs previous period
       const roasDelta = prevAvgRoas > 0
@@ -159,6 +222,49 @@ export async function dashboardRoutes(app: FastifyInstance) {
         const sign = pct >= 0 ? "+" : "";
         return `${sign}${pct.toFixed(1)}% vs last 30d`;
       };
+
+      // ── Trend chart data ────────────────────────────────────────────────────
+      const revenueValues = dailyRevenue.map(d => d._sum.revenue ?? 0);
+      const maxRev = Math.max(...revenueValues, 1);
+      const cur = store.currency ?? "USD";
+
+      // Use timeZone:"UTC" so the stored UTC-midnight date is displayed correctly
+      // regardless of server timezone — avoids off-by-one on negative UTC offsets
+      const fmtDate = (date: Date) =>
+        date.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
+
+      const trendSeries = dailyRevenue.map(d => {
+        const rev = d._sum.revenue ?? 0;
+        return {
+          value: Math.max(4, Math.round((rev / maxRev) * 100)), // min 4% so bars are visible
+          label: `${fmtDate(d.date)}: ${formatCurrency(rev, cur)}`
+        };
+      });
+
+      // Sample up to 5 evenly-spaced X-axis labels
+      const LABEL_COUNT = 5;
+      const trendLabels: string[] = dailyRevenue.length === 0 ? [] : (() => {
+        const n = Math.min(LABEL_COUNT, dailyRevenue.length);
+        return Array.from({ length: n }, (_, i) => {
+          const idx = Math.round((i / Math.max(n - 1, 1)) * (dailyRevenue.length - 1));
+          return fmtDate(dailyRevenue[idx].date);
+        });
+      })();
+
+      // ── Attribution row ─────────────────────────────────────────────────────
+      // Top category: by revenue in the selected range (not product count)
+      const catLookup = new Map(allProductCats.map(p => [p.id, p.category]));
+      const catRevMap = new Map<string, number>();
+      for (const r of productRevenueInRange) {
+        const cat = catLookup.get(r.productId);
+        if (cat) catRevMap.set(cat, (catRevMap.get(cat) ?? 0) + (r._sum.revenue ?? 0));
+      }
+      const topCategory =
+        [...catRevMap.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? "--";
+
+      // CTR and conv rate derived from totals — not averages of daily rates
+      const avgCtr      = avgCtrVal;
+      const avgConvRate = avgConvRateVal;
 
       return reply.send({
         ok: true,
@@ -190,6 +296,15 @@ export async function dashboardRoutes(app: FastifyInstance) {
               : "Sync your store to begin"
           }
         },
+        trend: {
+          series: trendSeries,
+          labels: trendLabels
+        },
+        attribution: {
+          topCategory,
+          avgCtr: fmtPct(avgCtr),
+          conversionRate: fmtPct(avgConvRate)
+        },
         topProducts: topProducts.map((p) => {
           const m = p.dailyMetrics[0];
           return {
@@ -201,8 +316,8 @@ export async function dashboardRoutes(app: FastifyInstance) {
             category: p.category,
             roas: m?.roas ?? 0,
             blendedRoas: m?.blendedRoas ?? null,
-            revenue: m?.metaRevenue ?? 0,
-            storeRevenue: m?.revenue ?? 0,
+            revenue: m?.revenue ?? 0,
+            metaRevenue: m?.metaRevenue ?? 0,
             spend: m?.spend ?? 0,
             margin: m?.margin ?? 0
           };
@@ -217,8 +332,8 @@ export async function dashboardRoutes(app: FastifyInstance) {
             score: p.score,
             category: p.category,
             roas: m?.roas ?? 0,
-            revenue: m?.metaRevenue ?? 0,
-            storeRevenue: m?.revenue ?? 0,
+            revenue: m?.revenue ?? 0,
+            metaRevenue: m?.metaRevenue ?? 0,
             margin: m?.margin ?? 0
           };
         })
