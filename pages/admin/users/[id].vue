@@ -39,8 +39,31 @@
             </div>
           </div>
 
-          <!-- Role toggle -->
-          <div class="flex items-center gap-2">
+          <!-- Role + Plan controls -->
+          <div class="flex flex-wrap items-center gap-2">
+            <!-- Plan selector -->
+            <div class="flex items-center gap-2">
+              <span class="text-xs text-white/50">Plan:</span>
+              <div class="relative">
+                <select
+                  :value="user.plan"
+                  @change="changePlan(($event.target as HTMLSelectElement).value)"
+                  :disabled="changingPlan"
+                  class="appearance-none rounded-xl border px-3 py-1.5 text-xs font-semibold cursor-pointer focus:outline-none disabled:opacity-50 pr-7"
+                  :class="PLAN_STYLES[user.plan] ?? 'bg-white/6 border-white/10 text-white/50'"
+                >
+                  <option v-for="p in PLAN_OPTIONS" :key="p" :value="p">{{ p.charAt(0) + p.slice(1).toLowerCase() }}</option>
+                </select>
+                <svg v-if="changingPlan" class="absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 animate-spin text-white/50" fill="none" viewBox="0 0 24 24">
+                  <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+                  <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+                </svg>
+                <svg v-else class="absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 text-current pointer-events-none opacity-60" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5"/>
+                </svg>
+              </div>
+            </div>
+            <!-- Role toggle -->
             <button
               @click="toggleRole"
               :disabled="changingRole"
@@ -224,15 +247,24 @@ interface StoreData {
 }
 
 interface UserDetail {
-  id: string; email: string; name?: string; role: string;
+  id: string; email: string; name?: string; role: string; plan: string;
   createdAt: string; updatedAt: string;
   stores: StoreData[];
   _count: { stores: number };
 }
 
+const PLAN_OPTIONS = ['STARTER', 'GROWTH', 'SCALE', 'GRANDFATHERED'] as const;
+const PLAN_STYLES: Record<string, string> = {
+  STARTER:       'bg-cyan-500/10 border-cyan-500/20 text-cyan-400',
+  GROWTH:        'bg-lime-500/10 border-lime-500/20 text-lime-400',
+  SCALE:         'bg-orange-500/10 border-orange-500/20 text-orange-400',
+  GRANDFATHERED: 'bg-white/6 border-white/10 text-white/50',
+};
+
 const loading = ref(true);
 const user = ref<UserDetail | null>(null);
 const changingRole = ref(false);
+const changingPlan = ref(false);
 const showDeleteUser = ref(false);
 const deletingUser = ref(false);
 const storeToDelete = ref<StoreData | null>(null);
@@ -272,6 +304,19 @@ async function toggleRole() {
     if (res?.ok) user.value.role = res.user.role;
   } catch {}
   changingRole.value = false;
+}
+
+async function changePlan(newPlan: string) {
+  if (!user.value || newPlan === user.value.plan) return;
+  changingPlan.value = true;
+  try {
+    const res = await $fetch<{ ok: boolean; user: { plan: string } }>(
+      `${config.public.apiBase}/v1/admin/users/${userId}`,
+      { method: 'PATCH', body: { plan: newPlan }, credentials: 'include' }
+    );
+    if (res?.ok) user.value.plan = res.user.plan;
+  } catch {}
+  changingPlan.value = false;
 }
 
 function confirmDeleteStore(store: StoreData) {

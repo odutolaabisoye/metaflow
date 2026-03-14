@@ -364,7 +364,7 @@
       <!-- Billing -->
       <div class="glass rounded-2xl p-6">
         <h2 class="font-semibold mb-0.5">Billing</h2>
-        <p class="text-xs text-white/65 mb-5">Your current plan and payment details</p>
+        <p class="text-xs text-white/65 mb-5">Your current plan and usage</p>
 
         <div v-if="loadingRules" class="space-y-3">
           <div v-for="i in 4" :key="i" class="h-6 rounded-xl bg-white/5 animate-pulse" :style="{ opacity: 1 - i * 0.15 }"></div>
@@ -372,46 +372,86 @@
 
         <div v-else>
           <!-- Plan highlight -->
-          <div class="rounded-xl border border-glow-500/20 bg-glow-500/[0.06] p-4 mb-4">
+          <div
+            class="rounded-xl border p-4 mb-4"
+            :class="currentPlanInfo.featured
+              ? 'border-glow-500/25 bg-glow-500/[0.07]'
+              : 'border-white/12 bg-white/[0.04]'"
+          >
             <div class="flex items-center justify-between mb-1">
-              <p class="text-sm font-semibold">{{ billing.plan }}</p>
+              <div class="flex items-center gap-2">
+                <p class="text-sm font-semibold">{{ currentPlanInfo.label }}</p>
+                <span
+                  class="text-[9px] font-bold px-1.5 py-0.5 rounded-full uppercase tracking-wider"
+                  :style="{ background: currentPlanInfo.badgeBg, color: currentPlanInfo.badgeColor }"
+                >
+                  {{ currentPlanName }}
+                </span>
+              </div>
               <span class="flex items-center gap-1.5 text-xs text-lime-400 font-medium">
                 <span class="h-1.5 w-1.5 rounded-full bg-lime-400 animate-pulse"></span>
                 Active
               </span>
             </div>
             <p class="text-2xl font-bold tracking-tight">
-              {{ billing.price }}
+              {{ currentPlanInfo.price }}
               <span class="text-sm font-normal text-white/60">/mo</span>
             </p>
           </div>
 
+          <!-- Store usage -->
           <div class="space-y-2.5 text-sm mb-5">
             <div class="flex items-center justify-between">
-              <span class="text-white/65">Next invoice</span>
-              <span class="font-medium">{{ billing.nextInvoice }}</span>
+              <span class="text-white/65">Stores used</span>
+              <span class="font-medium">{{ stores.length }} / {{ currentPlanInfo.storeLimit }}</span>
             </div>
             <div class="flex items-center justify-between">
-              <span class="text-white/65">SKUs included</span>
-              <span class="font-medium">2,500</span>
+              <span class="text-white/65">Advanced Analytics</span>
+              <span class="font-medium" :class="currentPlanInfo.analytics ? 'text-lime-400' : 'text-white/40'">
+                {{ currentPlanInfo.analytics ? '✓ Included' : '—' }}
+              </span>
             </div>
             <div class="flex items-center justify-between">
               <span class="text-white/65">Automation rules</span>
               <span class="font-medium">Unlimited</span>
             </div>
-            <div class="flex items-center justify-between">
-              <span class="text-white/65">Team seats</span>
-              <span class="font-medium">5</span>
-            </div>
           </div>
 
-          <div class="grid grid-cols-2 gap-2.5">
-            <button class="flex items-center justify-center gap-1.5 rounded-xl border border-white/15 bg-white/5 py-2.5 text-xs font-medium text-white/80 hover:bg-white/10 hover:text-white transition-all">
-              Manage billing
-            </button>
-            <NuxtLink to="/pricing" class="flex items-center justify-center gap-1.5 rounded-xl border border-glow-500/25 bg-glow-500/8 py-2.5 text-xs font-medium text-glow-400 hover:bg-glow-500/15 transition-all">
-              Upgrade plan →
+          <!-- Store usage bar -->
+          <div v-if="currentPlanInfo.storeMax > 0" class="mb-5">
+            <div class="h-1.5 w-full rounded-full bg-white/8 overflow-hidden">
+              <div
+                class="h-full rounded-full transition-all duration-500"
+                :class="storeUsagePercent >= 100 ? 'bg-ember-500' : 'bg-glow-500'"
+                :style="{ width: Math.min(storeUsagePercent, 100) + '%' }"
+              ></div>
+            </div>
+            <p v-if="storeUsagePercent >= 100" class="text-[10px] text-ember-400 mt-1">Store limit reached — upgrade to add more</p>
+          </div>
+
+          <!-- Actions -->
+          <div class="flex flex-col gap-2">
+            <!-- Upgrade button — visible for STARTER, GROWTH, and GRANDFATHERED -->
+            <NuxtLink
+              v-if="currentPlanName !== 'SCALE'"
+              to="/pricing"
+              class="flex items-center justify-center gap-1.5 rounded-xl border border-glow-500/30 bg-glow-500/8 py-2.5 text-sm font-semibold text-glow-400 hover:bg-glow-500/15 transition-all"
+            >
+              <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 18L9 11.25l4.306 4.307a11.95 11.95 0 015.814-5.519l2.74-1.22m0 0l-5.94-2.28m5.94 2.28l-2.28 5.941"/>
+              </svg>
+              {{ currentPlanName === 'GRANDFATHERED' ? 'View paid plans →' : 'Upgrade plan →' }}
             </NuxtLink>
+            <!-- Downgrade / Cancel — always visible -->
+            <button
+              @click="openManagePlan()"
+              class="flex items-center justify-center gap-1.5 rounded-xl border border-white/10 bg-white/[0.03] py-2 text-xs font-medium text-white/55 hover:text-ember-400 hover:border-ember-500/25 transition-all"
+            >
+              <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M3 7.5 7.5 3m0 0L12 7.5M7.5 3v13.5m13.5 0L16.5 21m0 0L12 16.5m4.5 4.5V7.5"/>
+              </svg>
+              {{ currentPlanName === 'GRANDFATHERED' ? 'Cancel legacy access' : 'Downgrade / Cancel' }}
+            </button>
           </div>
         </div>
       </div>
@@ -419,32 +459,37 @@
     </div>
 
     <!-- ── Danger zone ── -->
-    <div class="glass rounded-2xl p-6 border-ember-500/20">
-      <h2 class="font-semibold text-ember-400 mb-0.5">Danger zone</h2>
-      <p class="text-xs text-white/65 mb-5">Irreversible actions — proceed with caution</p>
+    <div class="rounded-2xl p-6 border border-ember-500/30 bg-ember-500/[0.04]">
+      <div class="flex items-center gap-2.5 mb-1">
+        <svg class="w-4 h-4 text-ember-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z"/>
+        </svg>
+        <h2 class="font-semibold text-ember-400">Danger zone</h2>
+      </div>
+      <p class="text-xs text-white/55 mb-5">Irreversible actions — proceed with caution</p>
       <div class="grid sm:grid-cols-2 gap-3">
-        <div class="rounded-xl border border-white/10 bg-white/[0.03] p-4 flex items-center justify-between">
+        <div class="rounded-xl border border-ember-500/15 bg-ember-500/[0.03] p-4 flex items-center justify-between">
           <div>
             <p class="text-sm font-medium">Reset all rules</p>
-            <p class="text-xs text-white/60 mt-0.5">Restore automation rules to defaults</p>
+            <p class="text-xs text-white/55 mt-0.5">Restore automation rules to defaults</p>
           </div>
           <button
-            @click="resetRules"
+            @click="openDangerConfirm('reset')"
             :disabled="savingRules"
-            class="text-xs text-white/65 hover:text-ember-400 border border-white/10 hover:border-ember-500/30 rounded-lg px-3 py-1.5 transition-all whitespace-nowrap ml-3 disabled:opacity-40 disabled:cursor-not-allowed"
+            class="text-xs text-ember-400 hover:text-ember-300 border border-ember-500/25 hover:border-ember-500/45 bg-ember-500/8 rounded-lg px-3 py-1.5 transition-all whitespace-nowrap ml-3 disabled:opacity-40 disabled:cursor-not-allowed"
           >
             Reset
           </button>
         </div>
-        <div class="rounded-xl border border-white/10 bg-white/[0.03] p-4 flex items-center justify-between">
+        <div class="rounded-xl border border-ember-500/15 bg-ember-500/[0.03] p-4 flex items-center justify-between">
           <div>
             <p class="text-sm font-medium">Disconnect all integrations</p>
-            <p class="text-xs text-white/60 mt-0.5">Remove all store and ad connections</p>
+            <p class="text-xs text-white/55 mt-0.5">Remove all store and ad connections</p>
           </div>
           <button
-            @click="connectedStore ? openDisconnect('store', connectedStore.id, 'all integrations') : undefined"
+            @click="connectedStore ? openDangerConfirm('disconnect') : undefined"
             :disabled="!connectedStore || loadingConnections"
-            class="text-xs text-white/65 hover:text-ember-400 border border-white/10 hover:border-ember-500/30 rounded-lg px-3 py-1.5 transition-all whitespace-nowrap ml-3 disabled:opacity-30 disabled:cursor-not-allowed"
+            class="text-xs text-ember-400 hover:text-ember-300 border border-ember-500/25 hover:border-ember-500/45 bg-ember-500/8 rounded-lg px-3 py-1.5 transition-all whitespace-nowrap ml-3 disabled:opacity-30 disabled:cursor-not-allowed"
           >
             Disconnect
           </button>
@@ -453,6 +498,186 @@
     </div>
 
   </div>
+
+  <!-- ── Manage plan modal (downgrade / cancel) ── -->
+  <Teleport to="body">
+    <Transition name="modal-fade">
+      <div v-if="cancelPlanModal" class="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div class="absolute inset-0 bg-black/60 backdrop-blur-sm" @click="cancelPlanModal = false"></div>
+        <div class="relative w-full max-w-md rounded-2xl border border-white/15 bg-ink-900 shadow-2xl overflow-hidden">
+          <div class="h-1 w-full bg-gradient-to-r from-ember-500 to-ember-400"></div>
+          <div class="p-6">
+
+            <!-- Header -->
+            <div class="flex items-start gap-4 mb-5">
+              <div class="h-10 w-10 flex-shrink-0 rounded-xl bg-ember-500/10 border border-ember-500/20 flex items-center justify-center">
+                <svg class="w-5 h-5 text-ember-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M3 7.5 7.5 3m0 0L12 7.5M7.5 3v13.5m13.5 0L16.5 21m0 0L12 16.5m4.5 4.5V7.5"/>
+                </svg>
+              </div>
+              <div>
+                <h3 class="text-base font-semibold">
+                  {{ currentPlanName === 'GRANDFATHERED' ? 'Cancel legacy access' : 'Downgrade or cancel plan' }}
+                </h3>
+                <p class="text-sm text-white/70 mt-1 leading-relaxed">
+                  <template v-if="currentPlanName === 'GRANDFATHERED'">
+                    Your <strong class="text-white/85">Legacy</strong> plan gives you unlimited access at no cost. You can request to cancel it below.
+                  </template>
+                  <template v-else>
+                    Choose what you'd like to do with your <strong class="text-white/85">{{ currentPlanInfo.label }}</strong> plan. Requests are processed within 24 hours.
+                  </template>
+                </p>
+              </div>
+            </div>
+
+            <!-- Downgrade options (plans below current) -->
+            <div v-if="downgradePlans.length > 0" class="mb-3">
+              <p class="text-[10px] font-semibold text-white/40 uppercase tracking-widest mb-2">Downgrade to</p>
+              <div class="space-y-2">
+                <label
+                  v-for="plan in downgradePlans"
+                  :key="plan.name"
+                  class="flex items-center gap-3 rounded-xl border p-3 cursor-pointer transition-all"
+                  :class="managePlanAction === plan.name
+                    ? 'border-glow-500/35 bg-glow-500/[0.07]'
+                    : 'border-white/10 bg-white/[0.03] hover:border-white/20 hover:bg-white/[0.05]'"
+                >
+                  <input type="radio" class="sr-only" :value="plan.name" v-model="managePlanAction" />
+                  <div class="flex-1 min-w-0">
+                    <div class="flex items-center gap-2">
+                      <p class="text-sm font-semibold">{{ plan.label }}</p>
+                      <span class="text-xs text-white/50">{{ plan.price }}/mo</span>
+                    </div>
+                    <p class="text-xs text-white/50 mt-0.5">
+                      {{ plan.storeLimit }} {{ plan.storeLimit === '1' ? 'store' : 'stores' }} &middot;
+                      {{ plan.analytics ? 'Analytics included' : 'No advanced analytics' }}
+                    </p>
+                  </div>
+                  <!-- Radio indicator -->
+                  <div
+                    class="flex-shrink-0 h-4 w-4 rounded-full border-2 flex items-center justify-center transition-all"
+                    :class="managePlanAction === plan.name ? 'border-glow-500 bg-glow-500' : 'border-white/25'"
+                  >
+                    <div v-if="managePlanAction === plan.name" class="h-1.5 w-1.5 rounded-full bg-white"></div>
+                  </div>
+                </label>
+              </div>
+            </div>
+
+            <!-- Divider -->
+            <div v-if="downgradePlans.length > 0" class="flex items-center gap-3 my-3">
+              <div class="flex-1 h-px bg-white/8"></div>
+              <span class="text-[10px] text-white/35 uppercase tracking-wider">or</span>
+              <div class="flex-1 h-px bg-white/8"></div>
+            </div>
+
+            <!-- Cancel option -->
+            <div class="mb-5">
+              <p v-if="downgradePlans.length === 0" class="text-[10px] font-semibold text-white/40 uppercase tracking-widest mb-2">Cancel plan</p>
+              <label
+                class="flex items-center gap-3 rounded-xl border p-3 cursor-pointer transition-all"
+                :class="managePlanAction === 'cancel'
+                  ? 'border-ember-500/35 bg-ember-500/[0.07]'
+                  : 'border-white/10 bg-white/[0.03] hover:border-white/20 hover:bg-white/[0.05]'"
+              >
+                <input type="radio" class="sr-only" value="cancel" v-model="managePlanAction" />
+                <div class="flex-1 min-w-0">
+                  <p class="text-sm font-semibold">Cancel plan entirely</p>
+                  <p class="text-xs text-white/50 mt-0.5">Access ends at the end of your billing period · Data stays intact</p>
+                </div>
+                <div
+                  class="flex-shrink-0 h-4 w-4 rounded-full border-2 flex items-center justify-center transition-all"
+                  :class="managePlanAction === 'cancel' ? 'border-ember-400 bg-ember-500' : 'border-white/25'"
+                >
+                  <div v-if="managePlanAction === 'cancel'" class="h-1.5 w-1.5 rounded-full bg-white"></div>
+                </div>
+              </label>
+            </div>
+
+            <!-- Footer note -->
+            <p class="text-xs text-white/40 mb-4">
+              Clicking "Submit request" will open your email client with a pre-filled message to
+              <span class="text-white/60">hello@metaflow.io</span>.
+            </p>
+
+            <!-- CTA buttons -->
+            <div class="flex gap-3">
+              <button
+                @click="cancelPlanModal = false"
+                class="flex-1 rounded-xl border border-white/15 bg-white/5 py-2.5 text-sm font-medium text-white/80 hover:bg-white/10 transition-all"
+              >
+                Keep my plan
+              </button>
+              <a
+                :href="managePlanMailto"
+                class="flex-1 flex items-center justify-center gap-2 rounded-xl py-2.5 text-sm font-semibold transition-all"
+                :class="managePlanAction === 'cancel'
+                  ? 'bg-ember-500 hover:bg-ember-400 text-white'
+                  : 'bg-glow-500/15 hover:bg-glow-500/25 border border-glow-500/30 text-glow-400'"
+                @click="cancelPlanModal = false"
+              >
+                <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 0 1-2.25 2.25h-15a2.25 2.25 0 0 1-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0 0 19.5 4.5h-15a2.25 2.25 0 0 0-2.25 2.25m19.5 0v.243a2.25 2.25 0 0 1-1.07 1.916l-7.5 4.615a2.25 2.25 0 0 1-2.36 0L3.32 8.91a2.25 2.25 0 0 1-1.07-1.916V6.75"/>
+                </svg>
+                {{ managePlanAction === 'cancel' ? 'Request cancellation' : 'Request downgrade' }}
+              </a>
+            </div>
+          </div>
+        </div>
+      </div>
+    </Transition>
+  </Teleport>
+
+  <!-- ── Danger zone confirmation modal ── -->
+  <Teleport to="body">
+    <Transition name="modal-fade">
+      <div v-if="dangerModal" class="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div class="absolute inset-0 bg-black/60 backdrop-blur-sm" @click="dangerModal = false"></div>
+        <div class="relative w-full max-w-md rounded-2xl border border-white/15 bg-ink-900 shadow-2xl overflow-hidden">
+          <div class="h-1 w-full bg-gradient-to-r from-ember-500 to-ember-400"></div>
+          <div class="p-6">
+            <div class="flex items-start gap-4 mb-5">
+              <div class="h-10 w-10 flex-shrink-0 rounded-xl bg-ember-500/10 border border-ember-500/20 flex items-center justify-center">
+                <svg class="w-5 h-5 text-ember-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z"/>
+                </svg>
+              </div>
+              <div class="min-w-0">
+                <h3 class="text-base font-semibold">{{ dangerAction === 'reset' ? 'Reset all automation rules?' : 'Disconnect all integrations?' }}</h3>
+                <p class="text-sm text-white/75 mt-1 leading-relaxed">
+                  <template v-if="dangerAction === 'reset'">
+                    All automation rules and score thresholds will be restored to their default values. This cannot be undone.
+                  </template>
+                  <template v-else>
+                    This will permanently remove your store and all associated products, metrics, and data. This action <strong class="text-white/85">cannot be undone</strong>.
+                  </template>
+                </p>
+              </div>
+            </div>
+            <div class="flex gap-3">
+              <button
+                @click="dangerModal = false"
+                class="flex-1 rounded-xl border border-white/15 bg-white/5 py-2.5 text-sm font-medium text-white/80 hover:bg-white/10 transition-all"
+              >
+                Cancel
+              </button>
+              <button
+                @click="confirmDangerAction"
+                :disabled="savingRules || disconnecting"
+                class="flex-1 flex items-center justify-center gap-2 rounded-xl bg-ember-500 py-2.5 text-sm font-semibold text-white transition-all hover:bg-ember-400 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <svg v-if="savingRules || disconnecting" class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                  <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+                  <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+                </svg>
+                {{ dangerAction === 'reset' ? 'Reset rules' : 'Disconnect all' }}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </Transition>
+  </Teleport>
 
   <!-- ── Disconnect confirmation modal ── -->
   <Teleport to="body">
@@ -894,8 +1119,80 @@ async function resetRules() {
   }
 }
 
-// ── Billing ───────────────────────────────────────────────────────────────────
-const billing = { plan: 'Growth', price: '$149', nextInvoice: '—' };
+// ── Billing / Plan ────────────────────────────────────────────────────────────
+const planCookie = useCookie<string>('mf_plan', { path: '/', sameSite: 'lax' });
+const currentPlanName = computed(() => planCookie.value?.toUpperCase() ?? 'STARTER');
+
+interface PlanInfo {
+  label: string;
+  price: string;
+  storeLimit: string;
+  storeMax: number;
+  analytics: boolean;
+  featured: boolean;
+  badgeBg: string;
+  badgeColor: string;
+}
+const PLAN_INFO: Record<string, PlanInfo> = {
+  STARTER:       { label: 'Starter',  price: '$50',   storeLimit: '1',         storeMax: 1, analytics: false, featured: false, badgeBg: 'rgba(34,211,238,0.12)',  badgeColor: '#22d3ee' },
+  GROWTH:        { label: 'Growth',   price: '$100',  storeLimit: '5',         storeMax: 5, analytics: false, featured: true,  badgeBg: 'rgba(132,204,22,0.15)',  badgeColor: '#84cc16' },
+  SCALE:         { label: 'Scale',    price: '$250',  storeLimit: 'Unlimited', storeMax: 0, analytics: true,  featured: false, badgeBg: 'rgba(249,115,22,0.12)',  badgeColor: '#f97316' },
+  GRANDFATHERED: { label: 'Legacy',   price: 'Free',  storeLimit: 'Unlimited', storeMax: 0, analytics: false, featured: false, badgeBg: 'rgba(255,255,255,0.08)', badgeColor: 'rgba(255,255,255,0.5)' },
+};
+const currentPlanInfo = computed<PlanInfo>(() => PLAN_INFO[currentPlanName.value] ?? PLAN_INFO.STARTER);
+const storeUsagePercent = computed(() => {
+  const max = currentPlanInfo.value.storeMax;
+  if (max === 0) return 0;
+  return (stores.value.length / max) * 100;
+});
+
+// ── Manage plan (downgrade / cancel) ──────────────────────────────────────────
+const cancelPlanModal = ref(false);
+const managePlanAction = ref<string>('cancel');
+
+const PLAN_ORDER = ['STARTER', 'GROWTH', 'SCALE'] as const;
+
+/** Plans the user can downgrade to (all tiers below the current one) */
+const downgradePlans = computed(() => {
+  const currentIdx = PLAN_ORDER.indexOf(currentPlanName.value as typeof PLAN_ORDER[number]);
+  if (currentIdx <= 0) return [];
+  return PLAN_ORDER.slice(0, currentIdx).map(p => ({ name: p, ...PLAN_INFO[p] }));
+});
+
+/** Pre-composed mailto URL based on the selected action */
+const managePlanMailto = computed(() => {
+  const from = encodeURIComponent(currentPlanInfo.value.label);
+  if (managePlanAction.value === 'cancel') {
+    return `mailto:hello@metaflow.io?subject=Cancel%20Plan&body=Hi%2C%20I%27d%20like%20to%20cancel%20my%20MetaFlow%20${from}%20plan.`;
+  }
+  const target = PLAN_INFO[managePlanAction.value];
+  const to = encodeURIComponent(target?.label ?? managePlanAction.value);
+  return `mailto:hello@metaflow.io?subject=Plan%20Downgrade%20Request&body=Hi%2C%20I%27d%20like%20to%20downgrade%20my%20MetaFlow%20plan%20from%20${from}%20to%20${to}.`;
+});
+
+function openManagePlan() {
+  // Default selection: first downgrade option if available, otherwise cancel
+  managePlanAction.value = downgradePlans.value[0]?.name ?? 'cancel';
+  cancelPlanModal.value = true;
+}
+
+// Danger zone modal
+const dangerModal = ref(false);
+const dangerAction = ref<'reset' | 'disconnect'>('reset');
+
+function openDangerConfirm(action: 'reset' | 'disconnect') {
+  dangerAction.value = action;
+  dangerModal.value = true;
+}
+
+async function confirmDangerAction() {
+  dangerModal.value = false;
+  if (dangerAction.value === 'reset') {
+    await resetRules();
+  } else if (dangerAction.value === 'disconnect' && connectedStore.value) {
+    openDisconnect('store', connectedStore.value.id, 'all integrations');
+  }
+}
 </script>
 
 <style scoped>

@@ -54,9 +54,10 @@
       <!-- Data rows -->
       <div v-else class="divide-y divide-white/5">
         <!-- Table header -->
-        <div class="grid grid-cols-[1fr_80px_60px_130px_90px] gap-4 px-5 py-3 text-[10px] font-bold uppercase tracking-wider text-white/50">
+        <div class="grid grid-cols-[1fr_80px_80px_60px_130px_90px] gap-4 px-5 py-3 text-[10px] font-bold uppercase tracking-wider text-white/50">
           <span>User</span>
           <span>Role</span>
+          <span>Plan</span>
           <span>Stores</span>
           <span>Joined</span>
           <span class="text-right">Actions</span>
@@ -65,7 +66,7 @@
         <div
           v-for="user in users"
           :key="user.id"
-          class="grid grid-cols-[1fr_80px_60px_130px_90px] gap-4 px-5 py-3.5 items-center hover:bg-white/[0.025] transition-colors group"
+          class="grid grid-cols-[1fr_80px_80px_60px_130px_90px] gap-4 px-5 py-3.5 items-center hover:bg-white/[0.025] transition-colors group"
         >
           <!-- User info -->
           <div class="flex items-center gap-3 min-w-0">
@@ -87,6 +88,16 @@
                 : 'bg-white/6 border border-white/10 text-white/60'"
             >
               {{ user.role === 'ADMIN' ? 'Admin' : 'User' }}
+            </span>
+          </div>
+
+          <!-- Plan badge -->
+          <div>
+            <span
+              class="inline-flex items-center text-[9px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider border"
+              :class="PLAN_STYLES[user.plan]?.cls ?? 'bg-white/6 border-white/10 text-white/50'"
+            >
+              {{ PLAN_STYLES[user.plan]?.label ?? user.plan }}
             </span>
           </div>
 
@@ -194,9 +205,16 @@ definePageMeta({ layout: 'admin' });
 const config = useRuntimeConfig();
 
 interface User {
-  id: string; email: string; name?: string; role: string;
+  id: string; email: string; name?: string; role: string; plan: string;
   createdAt: string; _count: { stores: number }
 }
+
+const PLAN_STYLES: Record<string, { label: string; cls: string }> = {
+  STARTER:       { label: 'Starter',  cls: 'bg-cyan-500/10 border-cyan-500/20 text-cyan-400' },
+  GROWTH:        { label: 'Growth',   cls: 'bg-lime-500/10 border-lime-500/20 text-lime-400' },
+  SCALE:         { label: 'Scale',    cls: 'bg-orange-500/10 border-orange-500/20 text-orange-400' },
+  GRANDFATHERED: { label: 'Legacy',   cls: 'bg-white/6 border-white/10 text-white/50' },
+};
 
 const loading = ref(true);
 const users = ref<User[]>([]);
