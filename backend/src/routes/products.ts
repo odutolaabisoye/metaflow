@@ -130,7 +130,6 @@ export async function productRoutes(app: FastifyInstance) {
 
       const whereClause = {
         storeId: resolvedStoreId,
-        ...(includeVariants !== "true" ? { isVariant: false } : {}),
         ...(categoryFilter && { category: categoryFilter }),
         ...(search?.trim() && {
           OR: [
@@ -160,29 +159,12 @@ export async function productRoutes(app: FastifyInstance) {
         if (allIds.length === 0) {
           productIds = [];
         } else {
-          // If we're showing parents only, include their variants in aggregation
-          let variantMap = new Map<string, string[]>();
-          let aggIds = allIds;
-          if (includeVariants !== "true") {
-            const variants = await app.prisma.productMeta.findMany({
-              where: { parentId: { in: allIds } },
-              select: { id: true, parentId: true }
-            });
-            for (const v of variants) {
-              if (!v.parentId) continue;
-              const list = variantMap.get(v.parentId) ?? [];
-              list.push(v.id);
-              variantMap.set(v.parentId, list);
-            }
-            aggIds = [...allIds, ...variants.map(v => v.id)];
-          }
-
           // 2. Aggregate ALL metrics for all matching products in the date range
           const aggAll = await app.prisma.dailyMetric.groupBy({
             by: ["productId"],
             where: {
               storeId: resolvedStoreId,
-              productId: { in: aggIds },
+              productId: { in: allIds },
               date: { gte: since, lte: until }
             },
             _sum: { revenue: true, metaRevenue: true, spend: true, impressions: true, clicks: true, conversions: true },
@@ -212,58 +194,10 @@ export async function productRoutes(app: FastifyInstance) {
             }];
           }));
 
-          // Roll up variants into parents when needed
-          const rollupMap = new Map<string, Record<string, number>>();
-          if (includeVariants !== "true") {
-            for (const parentId of allIds) {
-              const base = metricMap.get(parentId) ?? {
-                revenue: 0, metaRevenue: 0, spend: 0, impressions: 0, clicks: 0, conversions: 0,
-                roas: 0, ctr: 0, conversionRate: 0, margin: 0, velocity: 0
-              };
-              const variants = variantMap.get(parentId) ?? [];
-              let revenue = base.revenue;
-              let metaRevenue = base.metaRevenue;
-              let spend = base.spend;
-              let impressions = base.impressions;
-              let clicks = base.clicks;
-              let conversions = base.conversions;
-              let marginSum = base.margin;
-              let marginCount = base.margin > 0 ? 1 : 0;
-              let velocitySum = base.velocity;
-              let velocityCount = base.velocity > 0 ? 1 : 0;
-              for (const vid of variants) {
-                const mv = metricMap.get(vid);
-                if (!mv) continue;
-                revenue += mv.revenue;
-                metaRevenue += mv.metaRevenue;
-                spend += mv.spend;
-                impressions += mv.impressions;
-                clicks += mv.clicks;
-                conversions += mv.conversions;
-                if (mv.margin > 0) { marginSum += mv.margin; marginCount += 1; }
-                if (mv.velocity > 0) { velocitySum += mv.velocity; velocityCount += 1; }
-              }
-              rollupMap.set(parentId, {
-                revenue,
-                metaRevenue,
-                spend,
-                impressions,
-                clicks,
-                conversions,
-                roas: spend > 0 ? metaRevenue / spend : 0,
-                ctr: impressions > 0 ? clicks / impressions : 0,
-                conversionRate: clicks > 0 ? conversions / clicks : 0,
-                margin: marginCount > 0 ? marginSum / marginCount : 0,
-                velocity: velocityCount > 0 ? velocitySum / velocityCount : 0
-              });
-            }
-          }
-
           // 3. Sort all IDs in-memory by the requested metric
           const sorted = [...allIds].sort((a, b) => {
-            const source = includeVariants !== "true" ? rollupMap : metricMap;
-            const va = (source.get(a) as Record<string, number> | undefined)?.[sortBy] ?? 0;
-            const vb = (source.get(b) as Record<string, number> | undefined)?.[sortBy] ?? 0;
+            const va = (metricMap.get(a) as Record<string, number> | undefined)?.[sortBy] ?? 0;
+            const vb = (metricMap.get(b) as Record<string, number> | undefined)?.[sortBy] ?? 0;
             return direction === "desc" ? vb - va : va - vb;
           });
 
@@ -323,17 +257,6 @@ export async function productRoutes(app: FastifyInstance) {
       }
 
       // --- Fetch full product data + metrics for the current page ---
-      const variants = includeVariants !== "true"
-        ? await app.prisma.productMeta.findMany({
-            where: { parentId: { in: productIds } },
-            select: { id: true, parentId: true }
-          })
-        : [];
-
-      const aggIds = includeVariants !== "true"
-        ? [...productIds, ...variants.map(v => v.id)]
-        : productIds;
-
       const [pageProducts, metricsAgg, latestSnapshots] = await Promise.all([
         app.prisma.productMeta.findMany({
           where: { id: { in: productIds } }
@@ -343,7 +266,7 @@ export async function productRoutes(app: FastifyInstance) {
           by: ["productId"],
           where: {
             storeId: resolvedStoreId,
-            productId: { in: aggIds },
+            productId: { in: productIds },
             date: { gte: since, lte: until }
           },
           _sum: {
@@ -362,7 +285,7 @@ export async function productRoutes(app: FastifyInstance) {
         }),
         // Latest metric snapshot for non-aggregatable fields (inventoryLevel, blendedRoas)
         app.prisma.dailyMetric.findMany({
-          where: { storeId: resolvedStoreId, productId: { in: aggIds } },
+          where: { storeId: resolvedStoreId, productId: { in: productIds } },
           orderBy: { date: "desc" },
           distinct: ["productId"],
           select: { productId: true, inventoryLevel: true, blendedRoas: true }
@@ -372,13 +295,6 @@ export async function productRoutes(app: FastifyInstance) {
       const productMap = new Map(pageProducts.map(p => [p.id, p]));
       const aggMap     = new Map(metricsAgg.map(m => [m.productId, m]));
       const snapMap    = new Map(latestSnapshots.map(m => [m.productId, m]));
-      const variantMap = new Map<string, string[]>();
-      for (const v of variants) {
-        if (!v.parentId) continue;
-        const list = variantMap.get(v.parentId) ?? [];
-        list.push(v.id);
-        variantMap.set(v.parentId, list);
-      }
 
       // Iterate productIds (not pageProducts) to preserve sort order
       const formatted = productIds.flatMap((id) => {
@@ -386,33 +302,17 @@ export async function productRoutes(app: FastifyInstance) {
         if (!p) return [];
         const agg  = aggMap.get(id);
         const snap = snapMap.get(id);
-        const variantIds = includeVariants !== "true" ? (variantMap.get(id) ?? []) : [];
 
-        let imp     = agg?._sum.impressions  ?? 0;
-        let clk     = agg?._sum.clicks       ?? 0;
-        let cvt     = agg?._sum.conversions  ?? 0;
-        let rev     = agg?._sum.revenue      ?? 0;   // total store revenue
-        let metaRev = agg?._sum.metaRevenue  ?? 0;   // Meta-attributed purchase value
-        let spd     = agg?._sum.spend        ?? 0;
-        let marginSum = agg?._avg.margin ?? 0;
-        let marginCount = agg?._avg.margin ? 1 : 0;
-        let velocitySum = agg?._avg.velocity ?? 0;
-        let velocityCount = agg?._avg.velocity ? 1 : 0;
-
-        if (variantIds.length > 0) {
-          for (const vid of variantIds) {
-            const vAgg = aggMap.get(vid);
-            if (!vAgg) continue;
-            imp     += vAgg._sum.impressions  ?? 0;
-            clk     += vAgg._sum.clicks       ?? 0;
-            cvt     += vAgg._sum.conversions  ?? 0;
-            rev     += vAgg._sum.revenue      ?? 0;
-            metaRev += vAgg._sum.metaRevenue  ?? 0;
-            spd     += vAgg._sum.spend        ?? 0;
-            if (vAgg._avg.margin)   { marginSum += vAgg._avg.margin;   marginCount += 1; }
-            if (vAgg._avg.velocity) { velocitySum += vAgg._avg.velocity; velocityCount += 1; }
-          }
-        }
+        const imp     = agg?._sum.impressions  ?? 0;
+        const clk     = agg?._sum.clicks       ?? 0;
+        const cvt     = agg?._sum.conversions  ?? 0;
+        const rev     = agg?._sum.revenue      ?? 0;
+        const metaRev = agg?._sum.metaRevenue  ?? 0;
+        const spd     = agg?._sum.spend        ?? 0;
+        const marginSum = agg?._avg.margin ?? 0;
+        const marginCount = agg?._avg.margin ? 1 : 0;
+        const velocitySum = agg?._avg.velocity ?? 0;
+        const velocityCount = agg?._avg.velocity ? 1 : 0;
 
         return [{
           id:             p.id,

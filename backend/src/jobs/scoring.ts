@@ -86,25 +86,7 @@ export async function runScoringJob(
   const { storeId } = data;
 
   const products = await prisma.productMeta.findMany({
-    where: { storeId, isVariant: false },
-    include: {
-      dailyMetrics: {
-        orderBy: { date: "desc" },
-        take: 1
-      },
-      variants: {
-        include: {
-          dailyMetrics: {
-            orderBy: { date: "desc" },
-            take: 1
-          }
-        }
-      }
-    }
-  });
-
-  const variants = await prisma.productMeta.findMany({
-    where: { storeId, isVariant: true },
+    where: { storeId },
     include: {
       dailyMetrics: {
         orderBy: { date: "desc" },
@@ -113,7 +95,7 @@ export async function runScoringJob(
     }
   });
 
-  if (products.length === 0 && variants.length === 0) {
+  if (products.length === 0) {
     return { scored: 0, changed: 0, scaled: 0, killed: 0, tested: 0, risked: 0 };
   }
 
