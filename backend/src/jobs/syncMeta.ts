@@ -100,6 +100,61 @@ function toLocalDateStr(d: Date): string {
 }
 
 /**
+ * Extract purchase conversion count from Meta actions array.
+ *
+ * Meta returns many overlapping action types for the same purchase event
+ * (pixel, onsite/Facebook Shops, omni, app). Summing them causes massive
+ * over-counting. Use a priority list and take the FIRST non-zero value.
+ *
+ * Priority:
+ *  1. offsite_conversion.fb_pixel_purchase  — standard pixel (traditional e-commerce)
+ *  2. onsite_web_purchase                   — Facebook/Instagram Shops checkout
+ *  3. omni_purchase                         — Meta's unified cross-channel count
+ *  4. purchase                              — generic fallback
+ */
+function pickPurchaseCount(actions: Array<{ action_type: string; value: string }>): number {
+  const priority = [
+    "offsite_conversion.fb_pixel_purchase",
+    "onsite_web_purchase",
+    "omni_purchase",
+    "purchase",
+  ];
+  for (const type of priority) {
+    const found = actions.find((a) => a.action_type === type);
+    if (found) {
+      const v = parseFloat(found.value);
+      if (v > 0) return v;
+    }
+  }
+  return 0;
+}
+
+/**
+ * Extract purchase revenue from Meta action_values array.
+ *
+ * Same double-counting problem as purchase counts — `includes("purchase")`
+ * catches onsite_web_purchase + onsite_web_app_purchase + web_in_store_purchase
+ * + web_app_in_store_purchase + purchase, all representing the same transaction.
+ * Take the FIRST non-zero value from the priority list instead.
+ */
+function pickPurchaseValue(actionValues: Array<{ action_type: string; value: string }>): number {
+  const priority = [
+    "offsite_conversion.fb_pixel_purchase",
+    "onsite_web_purchase",
+    "omni_purchase",
+    "purchase",
+  ];
+  for (const type of priority) {
+    const found = actionValues.find((a) => a.action_type === type);
+    if (found) {
+      const v = parseFloat(found.value);
+      if (v > 0) return v;
+    }
+  }
+  return 0;
+}
+
+/**
  * Normalise a retailer/external ID for loose matching.
  * Strips non-digit chars from Shopify GIDs: gid://shopify/Product/123 → "123"
  * Leaves plain SKUs untouched: "25122" → "25122"
@@ -191,6 +246,16 @@ export async function runMetaSync(
   sinceDate.setDate(sinceDate.getDate() - sinceDays);
   const dateRange = JSON.stringify({
     since: toLocalDateStr(sinceDate),
+    until: toLocalDateStr(new Date())
+  });
+
+  // DPA product breakdown generates far more rows (per product × per day × per ad).
+  // Meta times out on 90-day windows — cap at 30 days for the breakdown call.
+  const DPA_DAYS = 30;
+  const dpaSinceDate = new Date();
+  dpaSinceDate.setDate(dpaSinceDate.getDate() - DPA_DAYS);
+  const dpaDateRange = JSON.stringify({
+    since: toLocalDateStr(dpaSinceDate),
     until: toLocalDateStr(new Date())
   });
 
@@ -393,23 +458,42 @@ export async function runMetaSync(
       // This is what Meta Ads Manager shows in "breakdown by Product ID" view.
       // Uses full pagination — accounts with many products/days can exceed 500 records.
       let productInsights: MetaInsight[] = [];
+      let productBreakdownSucceeded = false;
       if (catalogIds.size > 0) {
-        try {
-          productInsights = await graphFetchAllPages<MetaInsight>(
-            `/${account.id}/insights`,
-            accessToken,
-            {
-              level: "ad",
-              time_range: dateRange,
-              time_increment: "1", // one row per day
-              breakdowns: "product_id", // one row per product
-              fields: INSIGHT_FIELDS,
-              limit: "500"
-            }
-          );
-        } catch {
-          // Product breakdown unsupported on this account — fall through to regular insights
+        // Meta times out on large DPA breakdown requests. Fetch in 7-day chunks
+        // to stay within API limits (matches what works in manual Postman calls).
+        const chunks: Array<{ since: string; until: string }> = [];
+        const chunkEnd = new Date();
+        for (let i = 0; i < DPA_DAYS; i += 7) {
+          const until = new Date(chunkEnd);
+          until.setDate(until.getDate() - i);
+          const since = new Date(chunkEnd);
+          since.setDate(since.getDate() - Math.min(i + 6, DPA_DAYS - 1));
+          chunks.push({ since: toLocalDateStr(since), until: toLocalDateStr(until) });
         }
+
+        for (const chunk of chunks) {
+          try {
+            const chunkInsights = await graphFetchAllPages<MetaInsight>(
+              `/${account.id}/insights`,
+              accessToken,
+              {
+                level: "ad",
+                time_range: JSON.stringify(chunk),
+                time_increment: "1",
+                breakdowns: "product_id",
+                fields: INSIGHT_FIELDS,
+                limit: "500"
+              }
+            );
+            productInsights.push(...chunkInsights);
+            console.log(`[syncMeta] DPA chunk ${chunk.since}→${chunk.until}: ${chunkInsights.length} rows`);
+          } catch (err) {
+            console.warn(`[syncMeta] DPA chunk ${chunk.since}→${chunk.until} failed:`, (err as Error).message);
+          }
+        }
+        productBreakdownSucceeded = productInsights.length > 0;
+        console.log(`[syncMeta] DPA product breakdown total: ${productInsights.length} rows`);
       }
 
       // --- Step 4b: Regular insights (no product breakdown, non-catalog adsets only) ---
@@ -426,11 +510,15 @@ export async function runMetaSync(
           limit: "500"
         }
       );
+      console.log(`[syncMeta] Regular insights: ${allInsights.length} rows`);
 
-      // Keep only non-catalog adsets here — catalog adsets are covered by productInsights
-      const regularInsights = allInsights.filter(
-        (i) => !i.adset_id || !catalogAdsetIds.has(i.adset_id)
-      );
+      // Exclude catalog adsets from regular insights ONLY if the DPA breakdown
+      // actually returned data. If DPA breakdown failed or returned empty, keeping
+      // catalog adsets in regular insights is better than losing all spend entirely.
+      const regularInsights = productBreakdownSucceeded
+        ? allInsights.filter((i) => !i.adset_id || !catalogAdsetIds.has(i.adset_id))
+        : allInsights;
+      console.log(`[syncMeta] Regular insights after filter: ${regularInsights.length} rows (DPA succeeded: ${productBreakdownSucceeded})`);
 
       // --- Step 5: Accumulate insights per (product, date), then batch-upsert ---
       //
@@ -468,17 +556,22 @@ export async function runMetaSync(
 
       for (const [batch, source] of insightBatches) {
         for (const insight of batch) {
-          const purchases = (insight.actions ?? [])
-            .filter((a) => a.action_type === "purchase")
-            .reduce((sum, a) => sum + parseFloat(a.value), 0);
+          // Use priority-based helpers to avoid double-counting onsite/pixel/omni
+          // purchase events that Meta reports as separate action types for the same transaction.
+          const purchases = pickPurchaseCount(insight.actions ?? []);
+          const purchaseValue = pickPurchaseValue(insight.action_values ?? []);
 
-          const purchaseValue = (insight.action_values ?? [])
-            .filter((a) => a.action_type.includes("purchase"))
-            .reduce((sum, a) => sum + parseFloat(a.value), 0);
-
-          const purchaseRoas = insight.purchase_roas?.[0]
-            ? parseFloat(insight.purchase_roas[0].value)
-            : 0;
+          // purchase_roas from Meta is often for "omni_purchase" which can be 0 even when
+          // onsite purchases exist. Compute ROAS ourselves from purchaseValue/spend instead.
+          const purchaseRoas = purchaseValue > 0 && parseFloat(insight.spend) > 0
+            ? purchaseValue / parseFloat(insight.spend)
+            : (() => {
+                // Fall back to whichever purchase_roas entry is non-zero
+                const roasEntry = (insight.purchase_roas ?? []).find(
+                  (r) => parseFloat(r.value) > 0
+                );
+                return roasEntry ? parseFloat(roasEntry.value) : 0;
+              })();
 
           // Apply currency conversion: Meta billing currency → store operating currency
           const rawSpend = parseFloat(insight.spend);
@@ -494,24 +587,45 @@ export async function runMetaSync(
 
           if (spend === 0) continue;
 
-          // Parse YYYY-MM-DD into local midnight — consistent with dashboard/products routes.
+          // Parse YYYY-MM-DD as UTC midnight to avoid timezone off-by-one errors.
+          // Using new Date(y, m, d) creates LOCAL midnight; on a UTC+1 server that's
+          // stored in Postgres as 23:00 UTC the previous day, shifting all dates by 1 day.
           const [iy, im, iday] = insight.date_start.split("-").map(Number);
-          const insightDate = new Date(iy, im - 1, iday, 0, 0, 0, 0);
+          const insightDate = new Date(Date.UTC(iy, im - 1, iday));
 
           let productMetaId: string | null = null;
+          let matchMethod = "none";
 
           // Method 1: product_id from breakdown (Meta catalog item ID)
           if (insight.product_id) {
             productMetaId = lookupByCatalogItem(insight.product_id);
+            if (productMetaId) {
+              matchMethod = "catalog_item";
+            }
 
-            // If Meta product_id looks like "SKU, Title", try SKU and title directly.
+            // If Meta product_id looks like "SKU, Title" (e.g. "34523, Men's Polo"),
+            // extract the SKU prefix and try matching by SKU / externalId.
             if (!productMetaId && insight.product_id.includes(",")) {
               const skuFromTitle = extractSkuFromMetaTitle(insight.product_id);
-              if (skuFromTitle) productMetaId = lookupProduct(skuFromTitle);
+              if (skuFromTitle) {
+                productMetaId = lookupProduct(skuFromTitle);
+                if (productMetaId) matchMethod = "sku_from_product_id";
+              }
               if (!productMetaId) {
                 const titlePart = insight.product_id.split(",").slice(1).join(",").trim();
-                if (titlePart) productMetaId = lookupProduct(titlePart);
+                if (titlePart) {
+                  productMetaId = lookupProduct(titlePart);
+                  if (productMetaId) matchMethod = "title_from_product_id";
+                }
               }
+            }
+
+            if (!productMetaId) {
+              console.warn(
+                `[syncMeta] No match for product_id="${insight.product_id}" ` +
+                `(extracted SKU: "${extractSkuFromMetaTitle(insight.product_id)}") ` +
+                `date=${insight.date_start} spend=${insight.spend}`
+              );
             }
           }
 

@@ -23,7 +23,7 @@
             </div>
             <div v-if="sidebarOpen" class="min-w-0">
               <p class="text-sm font-semibold leading-none truncate">MetaFlow</p>
-              <p class="text-xs text-white/60 mt-0.5">Catalog Intelligence</p>
+              <p class="text-xs text-white/75 mt-0.5">Catalog Intelligence</p>
             </div>
           </NuxtLink>
         </div>
@@ -46,7 +46,7 @@
             <template v-if="sidebarOpen">
               <div class="flex-1 min-w-0">
                 <p class="text-xs font-semibold truncate">Connect a store</p>
-                <p class="text-[10px] leading-none mt-0.5 text-white/50 truncate">Set up your first business</p>
+                <p class="text-[10px] leading-none mt-0.5 text-white/65 truncate">Set up your first business</p>
               </div>
               <svg class="w-3 h-3 flex-shrink-0 text-white/45" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5"/>
@@ -84,9 +84,12 @@
                   <p class="text-sm font-semibold text-white/90 leading-none mb-0.5 truncate">
                     {{ activeStore?.name ?? 'Select store' }}
                   </p>
-                  <p class="text-[11px] text-white/60 leading-none capitalize truncate">
-                    {{ activeStore?.platform?.toLowerCase() ?? '' }}
-                  </p>
+                  <div class="flex items-center gap-1.5">
+                    <span class="h-1.5 w-1.5 rounded-full flex-shrink-0" :class="syncStatusClass(activeStore?.lastSyncStatus)"></span>
+                    <p class="text-[11px] text-white/75 leading-none truncate">
+                      {{ activeStore?.lastSyncStatus === 'RUNNING' ? 'Syncing…' : `Synced ${timeAgo(activeStore?.lastSyncAt)}` }}
+                    </p>
+                  </div>
                 </div>
                 <svg
                   class="w-3.5 h-3.5 text-white/50 flex-shrink-0 transition-transform duration-200"
@@ -136,7 +139,7 @@
                       >
                         {{ store.name }}
                       </p>
-                      <p class="text-[10px] text-white/55 capitalize leading-none truncate">
+                      <p class="text-[10px] text-white/70 capitalize leading-none truncate">
                         {{ store.platform.toLowerCase() }}{{ store._count?.products != null ? ` · ${store._count.products} products` : '' }}
                       </p>
                     </div>
@@ -171,7 +174,7 @@
 
         <!-- Nav -->
         <nav class="flex-1 overflow-y-auto py-4 px-2 space-y-0.5">
-          <p v-if="sidebarOpen" class="px-3 py-2 text-[10px] font-semibold uppercase tracking-widest text-white/50">Main</p>
+          <p v-if="sidebarOpen" class="px-3 py-2 text-[10px] font-semibold uppercase tracking-widest text-white/60">Main</p>
 
           <NuxtLink
             v-for="item in nav"
@@ -194,7 +197,7 @@
           </NuxtLink>
 
           <div class="my-3 border-t border-white/8 mx-2"></div>
-          <p v-if="sidebarOpen" class="px-3 py-2 text-[10px] font-semibold uppercase tracking-widest text-white/50">Workspace</p>
+          <p v-if="sidebarOpen" class="px-3 py-2 text-[10px] font-semibold uppercase tracking-widest text-white/60">Workspace</p>
 
           <NuxtLink
             v-for="item in navSecondary"
@@ -217,16 +220,16 @@
         <div class="flex-shrink-0 border-t border-white/10 p-3 space-y-2">
           <div v-if="sidebarOpen" class="rounded-xl bg-white/[0.04] border border-white/8 p-3">
             <div class="flex items-center justify-between mb-1.5">
-              <p class="text-xs text-white/65">Automation</p>
+              <p class="text-xs text-white/80">Automation</p>
               <span class="flex items-center gap-1 text-xs text-lime-400">
                 <span class="h-1.5 w-1.5 rounded-full bg-lime-400 animate-pulse"></span>
                 Live
               </span>
             </div>
             <p class="text-sm font-medium">4 rules running</p>
-            <p class="text-xs text-white/55 mt-0.5">Last action 12m ago</p>
+            <p class="text-xs text-white/70 mt-0.5">Last action 12m ago</p>
           </div>
-          <button class="w-full flex items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/[0.03] py-2 text-xs text-white/60 hover:text-white/80 hover:bg-white/5 transition-all" @click="sidebarOpen = !sidebarOpen">
+          <button class="w-full flex items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/[0.03] py-2 text-xs text-white/75 hover:text-white hover:bg-white/5 transition-all" @click="sidebarOpen = !sidebarOpen">
             <svg class="w-3.5 h-3.5 transition-transform" :class="sidebarOpen ? '' : 'rotate-180'" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M18.75 19.5l-7.5-7.5 7.5-7.5m-6 15L5.25 12l7.5-7.5"/></svg>
             <span v-if="sidebarOpen" class="text-[11px]">Collapse</span>
           </button>
@@ -242,15 +245,24 @@
               <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5"/></svg>
             </button>
             <div class="hidden sm:flex items-center gap-2 text-sm">
-              <span class="text-white/55">MetaFlow</span>
+              <span class="text-white/70">MetaFlow</span>
               <svg class="w-3.5 h-3.5 text-white/45" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5"/></svg>
               <span class="font-medium text-white/80">{{ pageTitle }}</span>
             </div>
           </div>
           <div class="flex items-center gap-2.5">
-            <div class="hidden md:flex items-center gap-1.5 rounded-full bg-white/5 border border-white/10 px-3 py-1.5 text-xs">
-              <span class="h-1.5 w-1.5 rounded-full bg-lime-400 animate-pulse"></span>
-              <span class="text-white/70">Meta sync healthy</span>
+            <div
+              v-if="activeStore"
+              class="hidden md:flex items-center gap-1.5 rounded-full bg-white/5 border border-white/10 px-3 py-1.5 text-xs"
+              :title="activeStore.lastSyncError ?? undefined"
+            >
+              <span class="h-1.5 w-1.5 rounded-full" :class="syncStatusClass(activeStore.lastSyncStatus)"></span>
+              <span class="text-white/70">
+                <template v-if="activeStore.lastSyncStatus === 'RUNNING'">Syncing…</template>
+                <template v-else-if="activeStore.lastSyncStatus === 'ERROR'">Sync error</template>
+                <template v-else-if="activeStore.lastSyncAt">Updated {{ timeAgo(activeStore.lastSyncAt) }}</template>
+                <template v-else>Not synced yet</template>
+              </span>
             </div>
             <div class="flex items-center gap-2">
               <select v-model="selectedRange" class="rounded-xl border border-white/10 bg-white/[0.05] px-3 py-1.5 text-xs text-white/80 outline-none focus:border-glow-500/40 transition-colors cursor-pointer">
@@ -294,7 +306,7 @@
                       </div>
                       <div class="min-w-0">
                         <p class="text-sm font-semibold truncate">{{ user?.name || 'Account' }}</p>
-                        <p class="text-xs text-white/65 truncate">{{ user?.email || '' }}</p>
+                        <p class="text-xs text-white/80 truncate">{{ user?.email || '' }}</p>
                       </div>
                     </div>
                   </div>
@@ -333,10 +345,12 @@
     </div>
 
     <!-- Mobile drawer -->
-    <Transition name="fade">
-      <div v-if="navOpen" class="fixed inset-0 z-50 flex lg:hidden">
-        <div class="absolute inset-0 bg-black/60 backdrop-blur-sm" @click="navOpen = false"></div>
-        <div class="relative w-72 max-w-[85vw] bg-ink-900 flex flex-col h-full shadow-xl overflow-y-auto">
+    <Teleport to="body">
+      <Transition name="fade">
+        <div v-if="navOpen" @click="navOpen = false" class="lg:hidden fixed inset-0 z-40 bg-black/60 backdrop-blur-sm"></div>
+      </Transition>
+      <Transition name="slide-left">
+        <div v-if="navOpen" class="lg:hidden fixed inset-y-0 left-0 z-50 w-72 bg-ink-900 border-r border-white/[0.07] flex flex-col overflow-y-auto shadow-xl">
           <div class="flex items-center justify-between border-b border-white/10 h-16 px-5">
             <div class="flex items-center gap-2.5">
               <div class="h-8 w-8 rounded-xl bg-gradient-to-br from-glow-500 to-lime-500 flex items-center justify-center flex-shrink-0">
@@ -357,8 +371,8 @@
             </NuxtLink>
           </nav>
         </div>
-      </div>
-    </Transition>
+      </Transition>
+    </Teleport>
   </div>
 </template>
 
@@ -368,6 +382,9 @@ import { useGlobalFilters } from '~/composables/useGlobalFilters';
 const route = useRoute();
 const config = useRuntimeConfig();
 const navOpen = ref(false);
+
+// Close mobile nav on route change
+watch(route, () => { navOpen.value = false; });
 const sidebarOpen = ref(true);
 const profileOpen = ref(false);
 const loggingOut = ref(false);
@@ -385,8 +402,12 @@ interface StoreInfo {
   id: string;
   name: string;
   platform: string;
-  connections: { id: string; provider: string }[];
+  connections: { id: string; provider: string; updatedAt?: string }[];
   _count?: { products: number };
+  lastSyncAt?: string | null;
+  lastSyncStatus?: string;
+  lastSyncError?: string | null;
+  lastSyncProvider?: string | null;
 }
 
 const allStores = useState<StoreInfo[]>('mf_stores', () => []);
@@ -408,6 +429,24 @@ const PLATFORM_STYLES: Record<string, { bg: string; color: string }> = {
 };
 function storeStyle(platform?: string | null) {
   return PLATFORM_STYLES[platform ?? ''] ?? { bg: 'rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.45)' };
+}
+
+/** Human-readable "Xh ago" / "Xm ago" relative time */
+function timeAgo(iso?: string | null): string {
+  if (!iso) return 'Never';
+  const ms = Date.now() - new Date(iso).getTime();
+  if (ms < 60_000) return 'Just now';
+  if (ms < 3_600_000) return `${Math.floor(ms / 60_000)}m ago`;
+  if (ms < 86_400_000) return `${Math.floor(ms / 3_600_000)}h ago`;
+  return `${Math.floor(ms / 86_400_000)}d ago`;
+}
+
+/** Sync status dot colour */
+function syncStatusClass(status?: string): string {
+  if (status === 'RUNNING') return 'bg-amber-400 animate-pulse';
+  if (status === 'SUCCESS') return 'bg-lime-400';
+  if (status === 'ERROR')   return 'bg-ember-500';
+  return 'bg-white/20'; // IDLE / unknown
 }
 function switchStore(store: StoreInfo) {
   activeStoreId.value = store.id;
@@ -542,6 +581,10 @@ const nav = computed(() => [
     icon: ANALYTICS_ICON,
   }] : []),
   {
+    label: 'Automation', to: '/app/automation', color: '#22d3ee', badge: null,
+    icon: '<path stroke-linecap="round" stroke-linejoin="round" d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z"/>',
+  },
+  {
     label: 'Audit Log', to: '/app/audit', color: '#f97316', badge: null,
     icon: '<path stroke-linecap="round" stroke-linejoin="round" d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 002.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 00-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 00.75-.75 2.25 2.25 0 00-.1-.664m-5.8 0A2.251 2.251 0 0113.5 2.25H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25z"/>',
   },
@@ -564,6 +607,7 @@ const navSecondary = computed(() => [
 
 const pageTitle = computed(() => {
   if (route.path === '/app/products') return 'Product Scoring';
+  if (route.path === '/app/automation') return 'Automation Activity';
   if (route.path === '/app/audit') return 'Automation Audit';
   if (route.path === '/app/settings') return 'Settings';
   if (route.path === '/app/onboarding') return 'Onboarding';
@@ -574,6 +618,7 @@ const pageTitle = computed(() => {
 
 const pageSection = computed(() => {
   if (route.path === '/app/products') return 'Catalog Intelligence';
+  if (route.path === '/app/automation') return 'Automation';
   if (route.path === '/app/audit') return 'Transparency';
   if (route.path === '/app/settings') return 'Workspace';
   if (route.path === '/app/onboarding') return 'Setup';
@@ -582,6 +627,7 @@ const pageSection = computed(() => {
 
 const pageSubtitle = computed(() => {
   if (route.path === '/app/products') return 'Prioritize winners, isolate risks, and accelerate testing.';
+  if (route.path === '/app/automation') return 'Rule firings, score changes, and automated actions for your catalog.';
   if (route.path === '/app/audit') return 'Every automated action with full context and rollback intent.';
   if (route.path === '/app/settings') return 'Tune rules, budgets, and notification preferences.';
   if (route.path === '/app/onboarding') return 'Connect your store, Meta Ads, and automation rules.';
@@ -596,4 +642,13 @@ const pageSubtitle = computed(() => {
 .dropdown-enter-active { transition: opacity 0.15s ease, transform 0.15s ease; }
 .dropdown-leave-active { transition: opacity 0.1s ease, transform 0.1s ease; }
 .dropdown-enter-from, .dropdown-leave-to { opacity: 0; transform: translateY(-6px) scale(0.97); }
+
+.slide-left-enter-active,
+.slide-left-leave-active {
+  transition: transform 0.25s ease;
+}
+.slide-left-enter-from,
+.slide-left-leave-to {
+  transform: translateX(-100%);
+}
 </style>

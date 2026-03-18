@@ -369,6 +369,127 @@ export async function analyticsRoutes(app: FastifyInstance) {
   });
 
   /**
+   * GET /v1/analytics/roi
+   *
+   * ROI Impact Summary — available to all authenticated users.
+   * Returns spend saved (KILL products), revenue protected (SCALE products)
+   * and product counts per category for the active store.
+   */
+  app.get("/analytics/roi", async (request, reply) => {
+    try {
+      const payload = await request.jwtVerify<{ sub: string }>();
+      const { storeId, range = "30d", start, end } = request.query as Record<string, string>;
+
+      let resolvedStoreId = storeId;
+      if (!resolvedStoreId) {
+        const store = await app.prisma.store.findFirst({
+          where: { ownerId: payload.sub },
+          orderBy: { createdAt: "asc" },
+          select: { id: true }
+        });
+        if (!store) return reply.send({ ok: true, roi: null });
+        resolvedStoreId = store.id;
+      } else {
+        const store = await app.prisma.store.findFirst({
+          where: { id: resolvedStoreId, ownerId: payload.sub },
+          select: { id: true }
+        });
+        if (!store) return reply.code(403).send({ ok: false, message: "Forbidden" });
+      }
+
+      const { start: since, end: until } = parseRange(range, start, end);
+
+      // Aggregate spend/revenue by category for products with metrics in the period
+      const metrics = await app.prisma.dailyMetric.groupBy({
+        by: ["productId"],
+        where: { storeId: resolvedStoreId, date: { gte: since, lte: until } },
+        _sum: { spend: true, revenue: true, metaRevenue: true }
+      });
+
+      const productIds = metrics.map(m => m.productId);
+      const categories = productIds.length > 0
+        ? await app.prisma.productMeta.findMany({
+            where: { id: { in: productIds } },
+            select: { id: true, category: true }
+          })
+        : [];
+
+      const catMap = new Map(categories.map(c => [c.id, c.category]));
+
+      let killSpend       = 0;
+      let scaleRevenue    = 0;
+      let scaleCount      = 0;
+      let killCount       = 0;
+      let testCount       = 0;
+      let riskCount       = 0;
+      let totalSpend      = 0;
+      let totalRevenue    = 0;
+
+      for (const m of metrics) {
+        const cat = catMap.get(m.productId);
+        const spd = m._sum.spend       ?? 0;
+        const rev = (m._sum.metaRevenue ?? 0) > 0 ? (m._sum.metaRevenue ?? 0) : (m._sum.revenue ?? 0);
+        totalSpend   += spd;
+        totalRevenue += rev;
+        if (cat === "KILL")  { killSpend    += spd; killCount++; }
+        if (cat === "SCALE") { scaleRevenue += rev; scaleCount++; }
+        if (cat === "TEST")  testCount++;
+        if (cat === "RISK")  riskCount++;
+      }
+
+      return reply.send({
+        ok: true,
+        roi: {
+          killSpend:    Math.round(killSpend),
+          scaleRevenue: Math.round(scaleRevenue),
+          killCount,
+          scaleCount,
+          testCount,
+          riskCount,
+          totalSpend:   Math.round(totalSpend),
+          totalRevenue: Math.round(totalRevenue),
+          storeId:      resolvedStoreId,
+          range,
+          since: since.toISOString().slice(0, 10),
+          until: until.toISOString().slice(0, 10),
+        }
+      });
+    } catch {
+      return reply.code(401).send({ ok: false, message: "Unauthorized" });
+    }
+  });
+
+  /**
+   * GET /v1/analytics/products/score-history/:productId
+   *
+   * Returns last 30 days of score history for a product (used for sparklines).
+   * Available to all authenticated users for their own products.
+   */
+  app.get("/analytics/products/score-history/:productId", async (request, reply) => {
+    try {
+      const payload = await request.jwtVerify<{ sub: string }>();
+      const { productId } = request.params as { productId: string };
+
+      // Verify product belongs to user's store
+      const product = await app.prisma.productMeta.findFirst({
+        where: { id: productId, store: { ownerId: payload.sub } }
+      });
+      if (!product) return reply.code(404).send({ ok: false, message: "Product not found" });
+
+      const history = await app.prisma.productScoreHistory.findMany({
+        where: { productId },
+        orderBy: { date: "asc" },
+        take: 30,
+        select: { date: true, score: true, category: true }
+      });
+
+      return reply.send({ ok: true, history });
+    } catch {
+      return reply.code(401).send({ ok: false, message: "Unauthorized" });
+    }
+  });
+
+  /**
    * GET /v1/analytics/meta
    *
    * Meta Analytics — SCALE plan (or ADMIN) only.

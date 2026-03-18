@@ -108,6 +108,52 @@ export async function settingsRoutes(app: FastifyInstance) {
   });
 
   // ═══════════════════════════════════════════════════════════════════════════
+  // PATCH /settings/plan
+  // Self-serve plan change. Downgrades apply immediately; cancellations are
+  // acknowledged (admin processes billing manually). Upgrades are rejected
+  // so the frontend can direct the user to contact support.
+  // ═══════════════════════════════════════════════════════════════════════════
+  app.patch("/settings/plan", async (request, reply) => {
+    try {
+      const payload = await request.jwtVerify<{ sub: string }>();
+      const { plan: newPlan } = (request.body ?? {}) as { plan?: string };
+
+      if (!newPlan) {
+        return reply.code(400).send({ ok: false, message: "plan is required" });
+      }
+
+      const user = await app.prisma.user.findUnique({ where: { id: payload.sub } });
+      if (!user) return reply.code(404).send({ ok: false, message: "User not found" });
+
+      // Cancellation — acknowledge without touching the plan (admin handles billing)
+      if (newPlan.toUpperCase() === "CANCEL") {
+        return reply.send({ ok: true, action: "cancel_requested", plan: user.plan });
+      }
+
+      const PLAN_ORDER = ["STARTER", "GROWTH", "SCALE"];
+      const currentIdx = PLAN_ORDER.indexOf(user.plan);
+      const newIdx     = PLAN_ORDER.indexOf(newPlan.toUpperCase());
+
+      if (newIdx === -1) {
+        return reply.code(400).send({ ok: false, message: "Invalid plan" });
+      }
+
+      if (newIdx >= currentIdx) {
+        return reply.code(402).send({ ok: false, message: "Upgrades require payment — contact hello@metaflow.io" });
+      }
+
+      const updated = await app.prisma.user.update({
+        where: { id: payload.sub },
+        data:  { plan: newPlan.toUpperCase() as any },
+      });
+
+      return reply.send({ ok: true, action: "downgraded", plan: updated.plan });
+    } catch {
+      return reply.code(401).send({ ok: false, message: "Unauthorized" });
+    }
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════════
   // DELETE /settings (reset to defaults)
   // Deletes the settings row — next GET will recreate with defaults.
   // ═══════════════════════════════════════════════════════════════════════════

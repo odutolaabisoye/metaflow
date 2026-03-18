@@ -197,11 +197,13 @@ export async function adminRoutes(app: FastifyInstance) {
         name: true,
         role: true,
         plan: true,
+        frozenAt: true,
+        trialEndsAt: true,
         createdAt: true,
         updatedAt: true,
         stores: {
           include: {
-            connections: { select: { id: true, provider: true, createdAt: true } },
+            connections: { select: { id: true, provider: true, createdAt: true, updatedAt: true } },
             _count: { select: { products: true, dailyMetrics: true } },
           },
           orderBy: { createdAt: "desc" },
@@ -310,6 +312,88 @@ export async function adminRoutes(app: FastifyInstance) {
     app.log.info({ userId, deletedBy: admin.sub }, "Admin deleted user");
 
     return reply.send({ ok: true });
+  });
+
+  /**
+   * PATCH /admin/users/:userId/freeze
+   * Freeze or unfreeze a user account (sets/clears frozenAt timestamp)
+   */
+  app.patch("/admin/users/:userId/freeze", async (request, reply) => {
+    const admin = await verifyAdmin(app, request, reply);
+    if (!admin) return;
+
+    const { userId } = request.params as { userId: string };
+    if (userId === admin.sub) {
+      return reply.code(400).send({ ok: false, message: "Cannot freeze your own account" });
+    }
+
+    const user = await app.prisma.user.findUnique({ where: { id: userId }, select: { id: true, frozenAt: true } });
+    if (!user) return reply.code(404).send({ ok: false, message: "User not found" });
+
+    const frozenAt = user.frozenAt ? null : new Date(); // toggle
+    const updated = await app.prisma.user.update({
+      where: { id: userId },
+      data: { frozenAt },
+      select: { id: true, email: true, frozenAt: true }
+    });
+
+    const action = frozenAt ? "frozen" : "unfrozen";
+    app.log.info({ userId, action, doneBy: admin.sub }, `Admin ${action} user`);
+
+    return reply.send({ ok: true, frozen: !!frozenAt, frozenAt: updated.frozenAt });
+  });
+
+  /**
+   * PATCH /admin/users/:userId/trial
+   * Set a trial end date for a user (null to remove trial)
+   */
+  app.patch("/admin/users/:userId/trial", async (request, reply) => {
+    const admin = await verifyAdmin(app, request, reply);
+    if (!admin) return;
+
+    const { userId } = request.params as { userId: string };
+    const { trialEndsAt } = request.body as { trialEndsAt?: string | null };
+
+    const user = await app.prisma.user.findUnique({ where: { id: userId }, select: { id: true } });
+    if (!user) return reply.code(404).send({ ok: false, message: "User not found" });
+
+    let trialDate: Date | null = null;
+    if (trialEndsAt) {
+      trialDate = new Date(trialEndsAt);
+      if (isNaN(trialDate.getTime())) {
+        return reply.code(400).send({ ok: false, message: "Invalid trialEndsAt date" });
+      }
+    }
+
+    const updated = await app.prisma.user.update({
+      where: { id: userId },
+      data: { trialEndsAt: trialDate },
+      select: { id: true, email: true, trialEndsAt: true }
+    });
+
+    app.log.info({ userId, trialEndsAt: trialDate, setBy: admin.sub }, "Admin updated trial");
+
+    return reply.send({ ok: true, trialEndsAt: updated.trialEndsAt });
+  });
+
+  /**
+   * DELETE /admin/users/:userId/settings
+   * Reset a user's automation settings to defaults (deletes UserSettings row — recreated on next access)
+   */
+  app.delete("/admin/users/:userId/settings", async (request, reply) => {
+    const admin = await verifyAdmin(app, request, reply);
+    if (!admin) return;
+
+    const { userId } = request.params as { userId: string };
+
+    const user = await app.prisma.user.findUnique({ where: { id: userId }, select: { id: true } });
+    if (!user) return reply.code(404).send({ ok: false, message: "User not found" });
+
+    await app.prisma.userSettings.deleteMany({ where: { userId } });
+
+    app.log.info({ userId, resetBy: admin.sub }, "Admin reset user settings");
+
+    return reply.send({ ok: true, message: "Settings reset to defaults" });
   });
 
   /**

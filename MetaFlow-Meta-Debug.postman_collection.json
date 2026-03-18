@@ -1,0 +1,689 @@
+{
+  "info": {
+    "name": "MetaFlow — Meta API Debug",
+    "_postman_id": "mf-meta-debug-v1",
+    "description": "Debug Meta Graph API calls and MetaFlow backend endpoints to diagnose data accuracy issues.\n\n**Quick start:**\n1. Set the `STORE_ID` collection variable to your MetaFlow store ID (get it from folder 6 → \"List all stores\").\n2. Run **1. Setup → Get Meta Token** — it auto-populates `META_TOKEN`, `AD_ACCOUNT_ID`, and `CATALOG_ID`.\n3. Log in to MetaFlow in the same browser as Postman (or paste your `mf_session` cookie into `ADMIN_SESSION_COOKIE`).\n4. Run any request.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+
+  "variable": [
+    { "key": "META_TOKEN",            "value": "",                          "description": "Meta long-lived access token — auto-set by '1. Setup › Get Meta Token'" },
+    { "key": "AD_ACCOUNT_ID",         "value": "act_",                      "description": "Meta ad account ID with act_ prefix, e.g. act_123456789" },
+    { "key": "CATALOG_ID",            "value": "",                          "description": "Meta product catalog ID, e.g. 987654321" },
+    { "key": "BUSINESS_ID",           "value": "",                          "description": "Meta business ID (only needed for business-level catalog lookup)" },
+    { "key": "STORE_ID",              "value": "",                          "description": "MetaFlow store ID — get it from '6. Backend Debug › List all stores'" },
+    { "key": "API_BASE",              "value": "http://localhost:4000/v1",   "description": "MetaFlow backend base URL" },
+    { "key": "GRAPH_BASE",            "value": "https://graph.facebook.com/v19.0", "description": "Meta Graph API base URL" },
+    { "key": "DATE_SINCE",            "value": "",                          "description": "Last-30d start date — auto-set by collection pre-request script" },
+    { "key": "DATE_UNTIL",            "value": "",                          "description": "Today — auto-set by collection pre-request script" },
+    { "key": "TIME_RANGE",            "value": "",                          "description": "JSON time_range for Meta Insights API — auto-set" },
+    { "key": "TIME_RANGE_7D",         "value": "",                          "description": "JSON time_range for last 7 days — auto-set" },
+    { "key": "ADMIN_SESSION_COOKIE",  "value": "",                          "description": "Value of the mf_session httpOnly cookie (get from browser DevTools → Application → Cookies after logging in)" }
+  ],
+
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Auto-compute rolling date windows every time a request runs",
+          "const now   = new Date();",
+          "const until = now.toISOString().slice(0, 10);",
+          "const s30   = new Date(now - 30 * 86400000).toISOString().slice(0, 10);",
+          "const s7    = new Date(now -  7 * 86400000).toISOString().slice(0, 10);",
+          "pm.collectionVariables.set('DATE_SINCE',    s30);",
+          "pm.collectionVariables.set('DATE_UNTIL',    until);",
+          "pm.collectionVariables.set('TIME_RANGE',    JSON.stringify({ since: s30,  until }));",
+          "pm.collectionVariables.set('TIME_RANGE_7D', JSON.stringify({ since: s7,   until }));"
+        ]
+      }
+    }
+  ],
+
+  "item": [
+
+    {
+      "name": "1. Setup",
+      "item": [
+        {
+          "name": "Get Meta Token (auto-sets variables)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    const body = pm.response.json();",
+                  "    if (body.accessToken)     pm.collectionVariables.set('META_TOKEN',    body.accessToken);",
+                  "    if (body.metaAdAccountId) pm.collectionVariables.set('AD_ACCOUNT_ID', body.metaAdAccountId);",
+                  "    if (body.metaCatalogId)   pm.collectionVariables.set('CATALOG_ID',    body.metaCatalogId);",
+                  "    console.log('Token expires:', body.expiresAt, '| Days left:', body.daysUntilExpiry);",
+                  "    console.log('META_TOKEN, AD_ACCOUNT_ID, CATALOG_ID updated in collection variables.');",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Cookie", "value": "mf_session={{ADMIN_SESSION_COOKIE}}", "description": "Admin session cookie" }
+            ],
+            "url": {
+              "raw": "{{API_BASE}}/admin/meta-token?storeId={{STORE_ID}}",
+              "host": ["{{API_BASE}}"],
+              "path": ["admin", "meta-token"],
+              "query": [{ "key": "storeId", "value": "{{STORE_ID}}" }]
+            },
+            "description": "Retrieves the stored Meta access token from the MetaFlow DB and auto-sets the META_TOKEN, AD_ACCOUNT_ID and CATALOG_ID collection variables.\n\n⚠️ Admin only. Requires STORE_ID variable and a valid admin session cookie."
+          },
+          "response": []
+        }
+      ]
+    },
+
+    {
+      "name": "2. Meta Graph API — Account",
+      "description": "Core account-level calls. Uses META_TOKEN. Run 'Get Meta Token' first.",
+      "item": [
+        {
+          "name": "Validate Token (/me)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{GRAPH_BASE}}/me?access_token={{META_TOKEN}}&fields=id,name",
+              "host": ["{{GRAPH_BASE}}"],
+              "path": ["me"],
+              "query": [
+                { "key": "access_token", "value": "{{META_TOKEN}}" },
+                { "key": "fields", "value": "id,name" }
+              ]
+            },
+            "description": "Checks that the access token is valid. Returns the Meta user id and name. If you get an OAuthException, the token is expired or revoked."
+          },
+          "response": []
+        },
+        {
+          "name": "List Ad Accounts (/me/adaccounts)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    const body = pm.response.json();",
+                  "    const accounts = body.data || [];",
+                  "    console.log('Ad accounts found:', accounts.length);",
+                  "    accounts.forEach(a => console.log(` • ${a.id}  ${a.name}  currency=${a.currency}`));",
+                  "    const current = pm.collectionVariables.get('AD_ACCOUNT_ID');",
+                  "    if (accounts.length && (!current || current === 'act_')) {",
+                  "        pm.collectionVariables.set('AD_ACCOUNT_ID', accounts[0].id);",
+                  "        console.log('AD_ACCOUNT_ID auto-set to:', accounts[0].id);",
+                  "    }",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{GRAPH_BASE}}/me/adaccounts?access_token={{META_TOKEN}}&fields=account_id,name,currency,timezone_name,account_status&limit=50",
+              "host": ["{{GRAPH_BASE}}"],
+              "path": ["me", "adaccounts"],
+              "query": [
+                { "key": "access_token", "value": "{{META_TOKEN}}" },
+                { "key": "fields",       "value": "account_id,name,currency,timezone_name,account_status" },
+                { "key": "limit",        "value": "50" }
+              ]
+            },
+            "description": "Lists all ad accounts the token has access to. Copy an `id` (e.g. `act_123456789`) into the AD_ACCOUNT_ID collection variable."
+          },
+          "response": []
+        },
+        {
+          "name": "List Businesses (/me/businesses)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    const body = pm.response.json();",
+                  "    const biz = body.data || [];",
+                  "    console.log('Businesses found:', biz.length);",
+                  "    biz.forEach(b => console.log(` • ${b.id}  ${b.name}`));",
+                  "    if (biz.length) pm.collectionVariables.set('BUSINESS_ID', biz[0].id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{GRAPH_BASE}}/me/businesses?access_token={{META_TOKEN}}&fields=id,name&limit=20",
+              "host": ["{{GRAPH_BASE}}"],
+              "path": ["me", "businesses"],
+              "query": [
+                { "key": "access_token", "value": "{{META_TOKEN}}" },
+                { "key": "fields",       "value": "id,name" },
+                { "key": "limit",        "value": "20" }
+              ]
+            },
+            "description": "Lists businesses linked to the token. Use the `id` to look up business-owned product catalogs."
+          },
+          "response": []
+        },
+        {
+          "name": "Debug Token Info (/debug_token)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{GRAPH_BASE}}/debug_token?input_token={{META_TOKEN}}&access_token={{META_TOKEN}}&fields=app_id,type,application,expires_at,is_valid,issued_at,scopes,user_id",
+              "host": ["{{GRAPH_BASE}}"],
+              "path": ["debug_token"],
+              "query": [
+                { "key": "input_token",  "value": "{{META_TOKEN}}" },
+                { "key": "access_token", "value": "{{META_TOKEN}}" },
+                { "key": "fields",       "value": "app_id,type,application,expires_at,is_valid,issued_at,scopes,user_id" }
+              ]
+            },
+            "description": "Returns detailed token metadata — expiry timestamp, whether it's still valid, and which scopes are granted. Useful for diagnosing 'permission denied' errors."
+          },
+          "response": []
+        }
+      ]
+    },
+
+    {
+      "name": "3. Meta Graph API — Ad Account",
+      "description": "Ad-account-level calls. Requires AD_ACCOUNT_ID (e.g. act_123456789).",
+      "item": [
+        {
+          "name": "List Ad Sets (/{AD_ACCOUNT_ID}/adsets)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{GRAPH_BASE}}/{{AD_ACCOUNT_ID}}/adsets?access_token={{META_TOKEN}}&fields=id,name,status,promoted_object,campaign_id&limit=100",
+              "host": ["{{GRAPH_BASE}}"],
+              "path": ["{{AD_ACCOUNT_ID}}", "adsets"],
+              "query": [
+                { "key": "access_token", "value": "{{META_TOKEN}}" },
+                { "key": "fields",       "value": "id,name,status,promoted_object,campaign_id" },
+                { "key": "limit",        "value": "100" }
+              ]
+            },
+            "description": "Lists all ad sets in the account. Check `promoted_object.product_catalog_id` to see which catalog (if any) is linked. MetaFlow uses this to discover the catalog ID when no catalog was explicitly configured."
+          },
+          "response": []
+        },
+        {
+          "name": "Insights — Standard, last 7 days (ad level)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{GRAPH_BASE}}/{{AD_ACCOUNT_ID}}/insights?access_token={{META_TOKEN}}&level=ad&time_range={{TIME_RANGE_7D}}&time_increment=1&fields=impressions,clicks,spend,ctr,purchase_roas,actions,action_values,adset_id,ad_id,ad_name,adset_name&limit=50",
+              "host": ["{{GRAPH_BASE}}"],
+              "path": ["{{AD_ACCOUNT_ID}}", "insights"],
+              "query": [
+                { "key": "access_token",   "value": "{{META_TOKEN}}" },
+                { "key": "level",          "value": "ad" },
+                { "key": "time_range",     "value": "{{TIME_RANGE_7D}}" },
+                { "key": "time_increment", "value": "1" },
+                { "key": "fields",         "value": "impressions,clicks,spend,ctr,purchase_roas,actions,action_values,adset_id,ad_id,ad_name,adset_name" },
+                { "key": "limit",          "value": "50" }
+              ]
+            },
+            "description": "Returns daily ad-level insights for the last 7 days — no product breakdown. This is what MetaFlow fetches for non-DPA campaigns. Check `purchase_roas` and `action_values` (purchase) for revenue data.\n\nKey fields to check:\n- `spend` — ad spend in the account's billing currency\n- `purchase_roas[0].value` — ROAS\n- `actions` where `action_type=purchase` — conversion count\n- `action_values` where `action_type=purchase` — attributed revenue"
+          },
+          "response": []
+        },
+        {
+          "name": "Insights — Standard, last 30 days (ad level)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{GRAPH_BASE}}/{{AD_ACCOUNT_ID}}/insights?access_token={{META_TOKEN}}&level=ad&time_range={{TIME_RANGE}}&time_increment=1&fields=impressions,clicks,spend,ctr,purchase_roas,actions,action_values,adset_id,ad_id,ad_name,adset_name&limit=100",
+              "host": ["{{GRAPH_BASE}}"],
+              "path": ["{{AD_ACCOUNT_ID}}", "insights"],
+              "query": [
+                { "key": "access_token",   "value": "{{META_TOKEN}}" },
+                { "key": "level",          "value": "ad" },
+                { "key": "time_range",     "value": "{{TIME_RANGE}}" },
+                { "key": "time_increment", "value": "1" },
+                { "key": "fields",         "value": "impressions,clicks,spend,ctr,purchase_roas,actions,action_values,adset_id,ad_id,ad_name,adset_name" },
+                { "key": "limit",          "value": "100" }
+              ]
+            },
+            "description": "Same as the 7-day call but covering the full 30-day window MetaFlow uses for scoring."
+          },
+          "response": []
+        },
+        {
+          "name": "Insights — Product Breakdown, last 7 days (DPA)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{GRAPH_BASE}}/{{AD_ACCOUNT_ID}}/insights?access_token={{META_TOKEN}}&level=ad&time_range={{TIME_RANGE_7D}}&time_increment=1&breakdowns=product_id&fields=impressions,clicks,spend,ctr,purchase_roas,actions,action_values,adset_id,ad_id&limit=100",
+              "host": ["{{GRAPH_BASE}}"],
+              "path": ["{{AD_ACCOUNT_ID}}", "insights"],
+              "query": [
+                { "key": "access_token",   "value": "{{META_TOKEN}}" },
+                { "key": "level",          "value": "ad" },
+                { "key": "time_range",     "value": "{{TIME_RANGE_7D}}" },
+                { "key": "time_increment", "value": "1" },
+                { "key": "breakdowns",     "value": "product_id" },
+                { "key": "fields",         "value": "impressions,clicks,spend,ctr,purchase_roas,actions,action_values,adset_id,ad_id" },
+                { "key": "limit",          "value": "100" }
+              ]
+            },
+            "description": "Product-level DPA (Dynamic Product Ads / Advantage+ Catalog) insights with `product_id` breakdown. This is the primary data source MetaFlow uses to attribute spend/revenue per product.\n\n⚠️ If this returns empty data, your campaigns are NOT using catalog ads and MetaFlow will fall back to proportional distribution, which can cause inaccurate per-product numbers.\n\nCheck:\n- Is `product_id` present in the response rows?\n- Does the `product_id` match your catalog's `retailer_id`?"
+          },
+          "response": []
+        },
+        {
+          "name": "Insights — Product Breakdown, last 30 days (DPA)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{GRAPH_BASE}}/{{AD_ACCOUNT_ID}}/insights?access_token={{META_TOKEN}}&level=ad&time_range={{TIME_RANGE}}&time_increment=1&breakdowns=product_id&fields=impressions,clicks,spend,ctr,purchase_roas,actions,action_values,adset_id,ad_id&limit=500",
+              "host": ["{{GRAPH_BASE}}"],
+              "path": ["{{AD_ACCOUNT_ID}}", "insights"],
+              "query": [
+                { "key": "access_token",   "value": "{{META_TOKEN}}" },
+                { "key": "level",          "value": "ad" },
+                { "key": "time_range",     "value": "{{TIME_RANGE}}" },
+                { "key": "time_increment", "value": "1" },
+                { "key": "breakdowns",     "value": "product_id" },
+                { "key": "fields",         "value": "impressions,clicks,spend,ctr,purchase_roas,actions,action_values,adset_id,ad_id" },
+                { "key": "limit",          "value": "500" }
+              ]
+            },
+            "description": "Same as the 7-day DPA call but for the full 30-day window."
+          },
+          "response": []
+        },
+        {
+          "name": "List Catalogs linked to Account",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    const body = pm.response.json();",
+                  "    const cats = body.data || [];",
+                  "    console.log('Catalogs found:', cats.length);",
+                  "    cats.forEach(c => console.log(` • ${c.id}  ${c.name}`));",
+                  "    if (cats.length) pm.collectionVariables.set('CATALOG_ID', cats[0].id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{GRAPH_BASE}}/{{AD_ACCOUNT_ID}}/product_catalogs?access_token={{META_TOKEN}}&fields=id,name&limit=50",
+              "host": ["{{GRAPH_BASE}}"],
+              "path": ["{{AD_ACCOUNT_ID}}", "product_catalogs"],
+              "query": [
+                { "key": "access_token", "value": "{{META_TOKEN}}" },
+                { "key": "fields",       "value": "id,name" },
+                { "key": "limit",        "value": "50" }
+              ]
+            },
+            "description": "Lists product catalogs linked to the ad account. If this returns empty, try 'Business-owned Catalogs' instead. Sets CATALOG_ID automatically."
+          },
+          "response": []
+        }
+      ]
+    },
+
+    {
+      "name": "4. Meta Graph API — Catalog",
+      "description": "Catalog and product-level calls. Requires CATALOG_ID.",
+      "item": [
+        {
+          "name": "List Catalog Products (first 50)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{GRAPH_BASE}}/{{CATALOG_ID}}/products?access_token={{META_TOKEN}}&fields=id,retailer_id,name,price,availability,url&limit=50",
+              "host": ["{{GRAPH_BASE}}"],
+              "path": ["{{CATALOG_ID}}", "products"],
+              "query": [
+                { "key": "access_token", "value": "{{META_TOKEN}}" },
+                { "key": "fields",       "value": "id,retailer_id,name,price,availability,url" },
+                { "key": "limit",        "value": "50" }
+              ]
+            },
+            "description": "Returns the first 50 products in the catalog. The `retailer_id` field is what MetaFlow uses to match catalog products back to your store's SKUs.\n\nCheck:\n- Does `retailer_id` match the SKU values in your store?\n- Are products in the catalog at all? An empty catalog means no product-level attribution is possible."
+          },
+          "response": []
+        },
+        {
+          "name": "Business-owned Catalogs (fallback)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{GRAPH_BASE}}/{{BUSINESS_ID}}/owned_product_catalogs?access_token={{META_TOKEN}}&fields=id,name&limit=50",
+              "host": ["{{GRAPH_BASE}}"],
+              "path": ["{{BUSINESS_ID}}", "owned_product_catalogs"],
+              "query": [
+                { "key": "access_token", "value": "{{META_TOKEN}}" },
+                { "key": "fields",       "value": "id,name" },
+                { "key": "limit",        "value": "50" }
+              ]
+            },
+            "description": "Fallback catalog discovery via the business object. Use this if 'List Catalogs linked to Account' returned nothing. Requires BUSINESS_ID."
+          },
+          "response": []
+        }
+      ]
+    },
+
+    {
+      "name": "5. MetaFlow Backend — Meta Config",
+      "description": "App endpoints for reading and updating the Meta connection config.",
+      "item": [
+        {
+          "name": "Get Meta Connection Config",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Cookie", "value": "mf_session={{ADMIN_SESSION_COOKIE}}" }
+            ],
+            "url": {
+              "raw": "{{API_BASE}}/connections/meta/config?storeId={{STORE_ID}}",
+              "host": ["{{API_BASE}}"],
+              "path": ["connections", "meta", "config"],
+              "query": [{ "key": "storeId", "value": "{{STORE_ID}}" }]
+            },
+            "description": "Returns the currently saved ad account + catalog config for the store, along with the list of available ad accounts and catalogs for the dropdown pickers."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Catalogs for Ad Account",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Cookie", "value": "mf_session={{ADMIN_SESSION_COOKIE}}" }
+            ],
+            "url": {
+              "raw": "{{API_BASE}}/connections/meta/catalogs?storeId={{STORE_ID}}&adAccountId={{AD_ACCOUNT_ID}}",
+              "host": ["{{API_BASE}}"],
+              "path": ["connections", "meta", "catalogs"],
+              "query": [
+                { "key": "storeId",      "value": "{{STORE_ID}}" },
+                { "key": "adAccountId",  "value": "{{AD_ACCOUNT_ID}}" }
+              ]
+            },
+            "description": "Returns available catalogs for a given ad account. Called by the settings UI when the user changes the ad account picker."
+          },
+          "response": []
+        },
+        {
+          "name": "Save Meta Config (set ad account + catalog)",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Cookie",       "value": "mf_session={{ADMIN_SESSION_COOKIE}}" },
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"storeId\": \"{{STORE_ID}}\",\n  \"adAccountId\": \"{{AD_ACCOUNT_ID}}\",\n  \"catalogId\": \"{{CATALOG_ID}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "url": {
+              "raw": "{{API_BASE}}/connections/meta/config",
+              "host": ["{{API_BASE}}"],
+              "path": ["connections", "meta", "config"]
+            },
+            "description": "Saves the selected ad account and catalog to the MetaFlow DB. Run 'Trigger Manual Sync' after this to apply the new config."
+          },
+          "response": []
+        },
+        {
+          "name": "Trigger Manual Sync",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Cookie", "value": "mf_session={{ADMIN_SESSION_COOKIE}}" }
+            ],
+            "url": {
+              "raw": "{{API_BASE}}/stores/{{STORE_ID}}/sync",
+              "host": ["{{API_BASE}}"],
+              "path": ["stores", "{{STORE_ID}}", "sync"]
+            },
+            "description": "Enqueues a full sync for the store (Shopify + Meta). Run this after saving a new ad account or catalog ID to force the sync to use the updated config immediately."
+          },
+          "response": []
+        }
+      ]
+    },
+
+    {
+      "name": "6. MetaFlow Backend — Debug (Admin)",
+      "description": "Admin-only debug endpoints. Require ADMIN_SESSION_COOKIE.",
+      "item": [
+        {
+          "name": "List all stores (get store IDs)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    const body = pm.response.json();",
+                  "    const stores = body.stores || [];",
+                  "    console.log('Stores:');",
+                  "    stores.forEach(s => {",
+                  "        const hasMeta = s.connections && s.connections.length > 0;",
+                  "        console.log(` • [${s.platform}] ${s.name}  id=${s.id}  meta=${hasMeta ? 'YES' : 'no'}  products=${s._count?.products ?? '?'}`);",
+                  "    });",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Cookie", "value": "mf_session={{ADMIN_SESSION_COOKIE}}" }
+            ],
+            "url": {
+              "raw": "{{API_BASE}}/admin/meta-debug/stores",
+              "host": ["{{API_BASE}}"],
+              "path": ["admin", "meta-debug", "stores"]
+            },
+            "description": "Returns all stores with their IDs and whether they have a Meta connection. Use this to find the STORE_ID to set in the collection variables."
+          },
+          "response": []
+        },
+        {
+          "name": "Full Meta Debug Snapshot",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Cookie", "value": "mf_session={{ADMIN_SESSION_COOKIE}}" }
+            ],
+            "url": {
+              "raw": "{{API_BASE}}/admin/meta-debug?storeId={{STORE_ID}}&adAccountId={{AD_ACCOUNT_ID}}",
+              "host": ["{{API_BASE}}"],
+              "path": ["admin", "meta-debug"],
+              "query": [
+                { "key": "storeId",      "value": "{{STORE_ID}}" },
+                { "key": "adAccountId",  "value": "{{AD_ACCOUNT_ID}}", "description": "Optional — defaults to first account" }
+              ]
+            },
+            "description": "One-shot diagnostic: validates the token, fetches ad accounts, ad sets, catalog products (first 30) with match results against DB products, sample insights (with and without product breakdown), and the DB product index.\n\nThis is the most important endpoint for diagnosing matching issues — check the `catalogs[].products[].matchMethod` field to see how (or if) each catalog product is being matched to a MetaFlow product."
+          },
+          "response": []
+        },
+        {
+          "name": "Products with Metrics (all, sorted by spend)",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Cookie", "value": "mf_session={{ADMIN_SESSION_COOKIE}}" }
+            ],
+            "url": {
+              "raw": "{{API_BASE}}/admin/products-debug?storeId={{STORE_ID}}&range=30d&sortBy=spend&sortDir=desc&limit=50&page=0",
+              "host": ["{{API_BASE}}"],
+              "path": ["admin", "products-debug"],
+              "query": [
+                { "key": "storeId",  "value": "{{STORE_ID}}" },
+                { "key": "range",    "value": "30d" },
+                { "key": "sortBy",   "value": "spend" },
+                { "key": "sortDir",  "value": "desc" },
+                { "key": "limit",    "value": "50" },
+                { "key": "page",     "value": "0" }
+              ]
+            },
+            "description": "Returns aggregated metrics for all products. Includes raw sums (spend, revenue, metaRevenue, impressions, clicks, conversions) and computed values (roas, ctr, conversionRate).\n\nCheck:\n- `stats.productsWithNoMetrics` — products with zero ad data are scored only on inventory/margin\n- `computed.roas` vs `stored.roas` — if these differ, spend/revenue isn't being attributed correctly"
+          },
+          "response": []
+        },
+        {
+          "name": "Products with Metrics (sorted by metaRevenue)",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Cookie", "value": "mf_session={{ADMIN_SESSION_COOKIE}}" }
+            ],
+            "url": {
+              "raw": "{{API_BASE}}/admin/products-debug?storeId={{STORE_ID}}&range=30d&sortBy=metaRevenue&sortDir=desc&limit=50&page=0",
+              "host": ["{{API_BASE}}"],
+              "path": ["admin", "products-debug"],
+              "query": [
+                { "key": "storeId",  "value": "{{STORE_ID}}" },
+                { "key": "range",    "value": "30d" },
+                { "key": "sortBy",   "value": "metaRevenue" },
+                { "key": "sortDir",  "value": "desc" },
+                { "key": "limit",    "value": "50" },
+                { "key": "page",     "value": "0" }
+              ]
+            },
+            "description": "Same as above but sorted by Meta-attributed revenue. Compare the top items here against the DPA insights to see if the right products are getting revenue attributed."
+          },
+          "response": []
+        },
+        {
+          "name": "Product by SKU — daily breakdown",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Cookie", "value": "mf_session={{ADMIN_SESSION_COOKIE}}" }
+            ],
+            "url": {
+              "raw": "{{API_BASE}}/admin/products-debug/sku?storeId={{STORE_ID}}&sku=REPLACE_WITH_SKU&range=30d",
+              "host": ["{{API_BASE}}"],
+              "path": ["admin", "products-debug", "sku"],
+              "query": [
+                { "key": "storeId", "value": "{{STORE_ID}}" },
+                { "key": "sku",     "value": "REPLACE_WITH_SKU", "description": "SKU, product title, or externalId (partial match)" },
+                { "key": "range",   "value": "30d" }
+              ]
+            },
+            "description": "Deep-dives into a single product's daily metric rows. Shows both `stored` values (written by syncMeta — often campaign-level and shared across all products) and `computed` values (derived from the per-product sums). Use this to pinpoint the exact day a product's data went wrong."
+          },
+          "response": []
+        }
+      ]
+    },
+
+    {
+      "name": "7. MetaFlow Backend — Analytics",
+      "description": "Standard analytics endpoints — the same data the app UI shows.",
+      "item": [
+        {
+          "name": "ROI Summary",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Cookie", "value": "mf_session={{ADMIN_SESSION_COOKIE}}" }
+            ],
+            "url": {
+              "raw": "{{API_BASE}}/analytics/roi?storeId={{STORE_ID}}&range=30d",
+              "host": ["{{API_BASE}}"],
+              "path": ["analytics", "roi"],
+              "query": [
+                { "key": "storeId", "value": "{{STORE_ID}}" },
+                { "key": "range",   "value": "30d" }
+              ]
+            },
+            "description": "Returns the KILL/SCALE/TEST/RISK product counts and aggregate spend/revenue used by the dashboard ROI widget."
+          },
+          "response": []
+        },
+        {
+          "name": "Dashboard Summary",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Cookie", "value": "mf_session={{ADMIN_SESSION_COOKIE}}" }
+            ],
+            "url": {
+              "raw": "{{API_BASE}}/dashboard?storeId={{STORE_ID}}&range=30d",
+              "host": ["{{API_BASE}}"],
+              "path": ["dashboard"],
+              "query": [
+                { "key": "storeId", "value": "{{STORE_ID}}" },
+                { "key": "range",   "value": "30d" }
+              ]
+            },
+            "description": "Returns the main dashboard KPIs (ROAS, spend, revenue, top products, score distribution)."
+          },
+          "response": []
+        },
+        {
+          "name": "Products List",
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Cookie", "value": "mf_session={{ADMIN_SESSION_COOKIE}}" }
+            ],
+            "url": {
+              "raw": "{{API_BASE}}/analytics/products?storeId={{STORE_ID}}&range=30d&sortBy=spend&sortDir=desc&limit=50&page=1",
+              "host": ["{{API_BASE}}"],
+              "path": ["analytics", "products"],
+              "query": [
+                { "key": "storeId",  "value": "{{STORE_ID}}" },
+                { "key": "range",    "value": "30d" },
+                { "key": "sortBy",   "value": "spend" },
+                { "key": "sortDir",  "value": "desc" },
+                { "key": "limit",    "value": "50" },
+                { "key": "page",     "value": "1" }
+              ]
+            },
+            "description": "Returns the processed products list (same as the /app/products UI). Compare the ROAS and revenue values here against the raw data from '3. Ad Account Insights' and '4. Catalog Products' to identify where numbers diverge."
+          },
+          "response": []
+        }
+      ]
+    }
+
+  ]
+}

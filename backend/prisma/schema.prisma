@@ -44,17 +44,21 @@ enum UserPlan {
 }
 
 model User {
-  id           String        @id @default(cuid())
-  email        String        @unique
-  name         String?
-  passwordHash String
-  role         UserRole      @default(USER)
-  plan         UserPlan      @default(STARTER)
-  createdAt    DateTime      @default(now())
-  updatedAt    DateTime      @updatedAt
-  stores       Store[]
-  resetTokens  PasswordResetToken[]
-  settings     UserSettings?
+  id              String        @id @default(cuid())
+  email           String        @unique
+  name            String?
+  passwordHash    String
+  role            UserRole      @default(USER)
+  plan            UserPlan      @default(STARTER)
+  frozenAt        DateTime?
+  trialEndsAt     DateTime?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  stores          Store[]
+  resetTokens     PasswordResetToken[]
+  settings        UserSettings?
+  sentInvites     TeamInvite[]  @relation("SentInvites")
+  teamMemberships TeamMember[]  @relation("TeamMemberships")
 }
 
 model UserSettings {
@@ -79,20 +83,26 @@ model UserSettings {
 }
 
 model Store {
-  id             String        @id @default(cuid())
-  name           String
-  platform       StorePlatform
-  storeUrl       String
-  currency       String
-  lastSyncAt     DateTime?
-  createdAt      DateTime      @default(now())
-  updatedAt      DateTime      @updatedAt
-  ownerId        String
+  id               String        @id @default(cuid())
+  name             String
+  platform         StorePlatform
+  storeUrl         String
+  currency         String
+  lastSyncAt       DateTime?
+  lastSyncStatus   String        @default("IDLE")  // IDLE | RUNNING | SUCCESS | ERROR
+  lastSyncError    String?
+  lastSyncProvider String?
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+  ownerId          String
   owner          User          @relation(fields: [ownerId], references: [id])
   connections    Connection[]
   products       ProductMeta[]
   dailyMetrics   DailyMetric[]
   auditLogs      AuditLog[]
+  teamInvites    TeamInvite[]
+  teamMembers    TeamMember[]
+  scoreHistory   ProductScoreHistory[]
 }
 
 model Connection {
@@ -131,6 +141,7 @@ model ProductMeta {
   storeId    String
   store      Store           @relation(fields: [storeId], references: [id])
   dailyMetrics DailyMetric[]
+  scoreHistory ProductScoreHistory[]
 
   @@unique([storeId, externalId])
   @@index([storeId, score])
@@ -183,4 +194,47 @@ model PasswordResetToken {
   user      User     @relation(fields: [userId], references: [id])
 
   @@index([userId, expiresAt])
+}
+
+model ProductScoreHistory {
+  id         String          @id @default(cuid())
+  productId  String
+  product    ProductMeta     @relation(fields: [productId], references: [id], onDelete: Cascade)
+  storeId    String
+  store      Store           @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  score      Float
+  category   ProductCategory
+  date       DateTime        @default(now())
+
+  @@unique([productId, date])
+  @@index([productId, date])
+}
+
+model TeamInvite {
+  id         String    @id @default(cuid())
+  email      String
+  storeId    String
+  store      Store     @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  invitedBy  String
+  inviter    User      @relation("SentInvites", fields: [invitedBy], references: [id])
+  token      String    @unique
+  expiresAt  DateTime
+  acceptedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([storeId])
+  @@index([email])
+}
+
+model TeamMember {
+  id       String   @id @default(cuid())
+  userId   String
+  user     User     @relation("TeamMemberships", fields: [userId], references: [id], onDelete: Cascade)
+  storeId  String
+  store    Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  role     String   @default("VIEWER") // VIEWER | EDITOR
+  joinedAt DateTime @default(now())
+
+  @@unique([userId, storeId])
+  @@index([storeId])
 }

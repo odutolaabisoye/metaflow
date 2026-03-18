@@ -163,6 +163,105 @@
         </div>
       </div>
 
+      <!-- Moderation controls -->
+      <div class="rounded-2xl border border-white/8 bg-white/[0.03] p-5">
+        <h2 class="text-sm font-semibold text-white/80 mb-4">Moderation</h2>
+        <div class="grid sm:grid-cols-3 gap-4">
+
+          <!-- Freeze account -->
+          <div class="rounded-xl border border-white/10 bg-white/[0.03] p-4">
+            <div class="flex items-center gap-2.5 mb-2">
+              <div class="h-7 w-7 rounded-lg flex items-center justify-center" :class="user.frozenAt ? 'bg-amber-500/12' : 'bg-white/6'">
+                <svg class="w-3.5 h-3.5" :class="user.frozenAt ? 'text-amber-400' : 'text-white/55'" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M12 3v18M3 12h18M5.636 5.636l12.728 12.728M18.364 5.636L5.636 18.364"/>
+                </svg>
+              </div>
+              <p class="text-xs font-semibold" :class="user.frozenAt ? 'text-amber-400' : 'text-white/75'">
+                {{ user.frozenAt ? 'Account frozen' : 'Freeze account' }}
+              </p>
+            </div>
+            <p class="text-[11px] text-white/55 mb-3 leading-snug">
+              {{ user.frozenAt ? `Frozen ${formatDate(user.frozenAt)}` : 'Block user access without deleting data.' }}
+            </p>
+            <button
+              @click="toggleFreeze"
+              :disabled="togglingFreeze"
+              class="w-full py-1.5 rounded-lg border text-xs font-medium transition-all disabled:opacity-50"
+              :class="user.frozenAt
+                ? 'border-lime-500/25 bg-lime-500/8 text-lime-400 hover:bg-lime-500/15'
+                : 'border-amber-500/25 bg-amber-500/8 text-amber-400 hover:bg-amber-500/15'"
+            >
+              <svg v-if="togglingFreeze" class="w-3 h-3 animate-spin inline mr-1" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+              {{ user.frozenAt ? 'Unfreeze' : 'Freeze' }}
+            </button>
+          </div>
+
+          <!-- Trial extension -->
+          <div class="rounded-xl border border-white/10 bg-white/[0.03] p-4">
+            <div class="flex items-center gap-2.5 mb-2">
+              <div class="h-7 w-7 rounded-lg bg-glow-500/10 flex items-center justify-center">
+                <svg class="w-3.5 h-3.5 text-glow-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5"/>
+                </svg>
+              </div>
+              <p class="text-xs font-semibold text-white/75">Trial end date</p>
+            </div>
+            <p class="text-[11px] text-white/55 mb-2 leading-snug">
+              {{ user.trialEndsAt ? `Ends ${formatDate(user.trialEndsAt)}` : 'No trial active.' }}
+            </p>
+            <input
+              v-model="trialDate"
+              type="date"
+              class="w-full mb-2 rounded-lg border border-white/10 bg-white/5 px-2 py-1 text-xs text-white/80 outline-none focus:border-glow-500/40 transition-all"
+            />
+            <div class="flex gap-1.5">
+              <button
+                @click="saveTrial"
+                :disabled="savingTrial || !trialDate"
+                class="flex-1 py-1.5 rounded-lg border border-glow-500/25 bg-glow-500/8 text-xs font-medium text-glow-400 hover:bg-glow-500/15 transition-all disabled:opacity-50"
+              >
+                <svg v-if="savingTrial" class="w-3 h-3 animate-spin inline mr-1" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+                Save
+              </button>
+              <button
+                v-if="user.trialEndsAt"
+                @click="clearTrial"
+                :disabled="savingTrial"
+                class="py-1.5 px-2 rounded-lg border border-white/10 bg-white/5 text-xs text-white/55 hover:text-white/80 transition-all disabled:opacity-50"
+              >Clear</button>
+            </div>
+          </div>
+
+          <!-- Reset settings -->
+          <div class="rounded-xl border border-white/10 bg-white/[0.03] p-4">
+            <div class="flex items-center gap-2.5 mb-2">
+              <div class="h-7 w-7 rounded-lg bg-violet-500/10 flex items-center justify-center">
+                <svg class="w-3.5 h-3.5 text-violet-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99"/>
+                </svg>
+              </div>
+              <p class="text-xs font-semibold text-white/75">Reset rules</p>
+            </div>
+            <p class="text-[11px] text-white/55 mb-3 leading-snug">Restore all automation settings to factory defaults.</p>
+            <button
+              @click="confirmResetSettings = true"
+              :disabled="resettingSettings"
+              class="w-full py-1.5 rounded-lg border border-violet-500/25 bg-violet-500/8 text-xs font-medium text-violet-400 hover:bg-violet-500/15 transition-all disabled:opacity-50"
+            >
+              <svg v-if="resettingSettings" class="w-3 h-3 animate-spin inline mr-1" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+              Reset settings
+            </button>
+          </div>
+
+        </div>
+        <!-- Inline feedback -->
+        <Transition name="fade-up">
+          <p v-if="moderationMsg" class="mt-3 text-xs font-medium" :class="moderationMsg.ok ? 'text-lime-400' : 'text-ember-400'">
+            {{ moderationMsg.text }}
+          </p>
+        </Transition>
+      </div>
+
       <!-- Danger zone: Delete user -->
       <div class="rounded-2xl border border-red-500/15 bg-red-500/[0.03] p-5">
         <h2 class="text-sm font-semibold text-red-400 mb-1">Danger Zone</h2>
@@ -197,6 +296,29 @@
               <button @click="storeToDelete = null" class="flex-1 py-2.5 rounded-xl border border-white/10 bg-white/[0.04] text-sm text-white/80 hover:text-white transition-all">Cancel</button>
               <button @click="doDeleteStore" :disabled="deletingStore" class="flex-1 py-2.5 rounded-xl bg-red-600 hover:bg-red-500 text-sm font-semibold text-white disabled:opacity-60 transition-colors">
                 Delete Store
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </Teleport>
+
+    <!-- Reset settings confirmation modal -->
+    <Teleport to="body">
+      <div v-if="confirmResetSettings" class="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div class="absolute inset-0 bg-black/60 backdrop-blur-sm" @click="confirmResetSettings = false"></div>
+        <div class="relative w-full max-w-sm rounded-2xl bg-ink-900 border border-white/12 shadow-2xl overflow-hidden">
+          <div class="h-1 bg-gradient-to-r from-violet-600 to-violet-500"></div>
+          <div class="p-6">
+            <h3 class="text-sm font-semibold text-white mb-2">Reset Automation Settings</h3>
+            <p class="text-xs text-white/70 mb-5">
+              This will reset all automation rules and thresholds for <span class="font-medium text-white/80">{{ user?.email }}</span> to factory defaults. Cannot be undone.
+            </p>
+            <div class="flex gap-3">
+              <button @click="confirmResetSettings = false" class="flex-1 py-2.5 rounded-xl border border-white/10 bg-white/[0.04] text-sm text-white/80 hover:text-white transition-all">Cancel</button>
+              <button @click="doResetSettings" :disabled="resettingSettings" class="flex-1 py-2.5 rounded-xl bg-violet-600 hover:bg-violet-500 text-sm font-semibold text-white disabled:opacity-60 transition-colors flex items-center justify-center gap-2">
+                <svg v-if="resettingSettings" class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+                Reset
               </button>
             </div>
           </div>
@@ -248,6 +370,7 @@ interface StoreData {
 
 interface UserDetail {
   id: string; email: string; name?: string; role: string; plan: string;
+  frozenAt?: string | null; trialEndsAt?: string | null;
   createdAt: string; updatedAt: string;
   stores: StoreData[];
   _count: { stores: number };
@@ -270,6 +393,88 @@ const deletingUser = ref(false);
 const storeToDelete = ref<StoreData | null>(null);
 const deletingStore = ref(false);
 
+// Moderation state
+const togglingFreeze = ref(false);
+const savingTrial    = ref(false);
+const resettingSettings = ref(false);
+const confirmResetSettings = ref(false);
+const trialDate      = ref('');
+const moderationMsg  = ref<{ ok: boolean; text: string } | null>(null);
+
+function showModerationMsg(ok: boolean, text: string) {
+  moderationMsg.value = { ok, text };
+  setTimeout(() => { moderationMsg.value = null; }, 3500);
+}
+
+async function toggleFreeze() {
+  if (!user.value) return;
+  togglingFreeze.value = true;
+  try {
+    const res = await $fetch<{ ok: boolean; frozen: boolean; frozenAt: string | null }>(
+      `${config.public.apiBase}/v1/admin/users/${userId}/freeze`,
+      { method: 'PATCH', credentials: 'include' }
+    );
+    if (res?.ok) {
+      user.value.frozenAt = res.frozenAt;
+      showModerationMsg(true, res.frozen ? 'Account frozen.' : 'Account unfrozen.');
+    }
+  } catch {
+    showModerationMsg(false, 'Failed to update freeze status.');
+  }
+  togglingFreeze.value = false;
+}
+
+async function saveTrial() {
+  if (!user.value || !trialDate.value) return;
+  savingTrial.value = true;
+  try {
+    const res = await $fetch<{ ok: boolean; trialEndsAt: string | null }>(
+      `${config.public.apiBase}/v1/admin/users/${userId}/trial`,
+      { method: 'PATCH', body: { trialEndsAt: trialDate.value }, credentials: 'include' }
+    );
+    if (res?.ok) {
+      user.value.trialEndsAt = res.trialEndsAt;
+      showModerationMsg(true, 'Trial end date saved.');
+    }
+  } catch {
+    showModerationMsg(false, 'Failed to save trial date.');
+  }
+  savingTrial.value = false;
+}
+
+async function clearTrial() {
+  if (!user.value) return;
+  savingTrial.value = true;
+  try {
+    const res = await $fetch<{ ok: boolean; trialEndsAt: null }>(
+      `${config.public.apiBase}/v1/admin/users/${userId}/trial`,
+      { method: 'PATCH', body: { trialEndsAt: null }, credentials: 'include' }
+    );
+    if (res?.ok) {
+      user.value.trialEndsAt = null;
+      trialDate.value = '';
+      showModerationMsg(true, 'Trial removed.');
+    }
+  } catch {
+    showModerationMsg(false, 'Failed to clear trial.');
+  }
+  savingTrial.value = false;
+}
+
+async function doResetSettings() {
+  resettingSettings.value = true;
+  try {
+    await $fetch(`${config.public.apiBase}/v1/admin/users/${userId}/settings`, {
+      method: 'DELETE', credentials: 'include'
+    });
+    confirmResetSettings.value = false;
+    showModerationMsg(true, 'Settings reset to defaults.');
+  } catch {
+    showModerationMsg(false, 'Failed to reset settings.');
+  }
+  resettingSettings.value = false;
+}
+
 const totalProducts = computed(() =>
   user.value?.stores.reduce((s, st) => s + st._count.products, 0) ?? 0
 );
@@ -284,7 +489,13 @@ async function fetchUser() {
       `${config.public.apiBase}/v1/admin/users/${userId}`,
       { credentials: 'include' }
     );
-    if (res?.ok) user.value = res.user;
+    if (res?.ok) {
+      user.value = res.user;
+      // Pre-fill trial date input if user has an active trial
+      if (res.user.trialEndsAt) {
+        trialDate.value = res.user.trialEndsAt.slice(0, 10);
+      }
+    }
   } catch (err: any) {
     if (err?.statusCode === 403 || err?.statusCode === 401) navigateTo('/app');
   } finally {

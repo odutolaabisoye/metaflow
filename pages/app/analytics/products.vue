@@ -165,9 +165,17 @@
 
         <!-- Products table -->
         <div class="glass rounded-2xl overflow-hidden">
-          <div class="px-5 py-3 border-b border-white/8 flex items-center justify-between">
+          <div class="px-5 py-3 border-b border-white/8 flex items-center justify-between gap-3">
             <p class="text-xs font-semibold text-white/60 uppercase tracking-wider">Products ({{ data.products?.length ?? 0 }} shown)</p>
-            <p class="text-xs text-white/40">{{ data.range?.start }} → {{ data.range?.end }}</p>
+            <div class="flex items-center gap-3">
+              <p class="text-xs text-white/40">{{ data.range?.start }} → {{ data.range?.end }}</p>
+              <button @click="exportCsv" class="flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.04] px-3 py-1.5 text-xs font-medium text-white/70 hover:bg-white/[0.07] hover:text-white transition-all">
+                <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3"/>
+                </svg>
+                Export CSV
+              </button>
+            </div>
           </div>
           <div class="overflow-x-auto">
             <table class="w-full text-sm min-w-[800px]">
@@ -367,6 +375,34 @@ async function doSkuLookup() {
   } finally {
     skuLoading.value = false;
   }
+}
+
+function exportCsv() {
+  if (!data.value?.products?.length) return;
+
+  const headers = ['Title', 'SKU', 'Score', 'Category', 'Revenue', 'Meta Revenue', 'Spend', 'ROAS', 'Impressions', 'Clicks', 'Days'];
+  const rows = data.value.products.map((p: any) => [
+    `"${(p.title ?? '').replace(/"/g, '""')}"`,
+    `"${(p.sku || p.externalId || '').replace(/"/g, '""')}"`,
+    p.score ?? 0,
+    p.category ?? '',
+    (p.totalRevenue ?? 0).toFixed(2),
+    (p.totalMetaRevenue ?? 0).toFixed(2),
+    (p.totalSpend ?? 0).toFixed(2),
+    (p.roas ?? 0).toFixed(2),
+    p.totalImpressions ?? 0,
+    p.totalClicks ?? 0,
+    p.metricRowCount ?? 0,
+  ]);
+
+  const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `metaflow-products-${new Date().toISOString().split('T')[0]}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 // Auto-load when store changes

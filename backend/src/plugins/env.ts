@@ -21,7 +21,11 @@ const schema = {
     META_APP_SECRET: { type: "string", default: "" },
     APP_URL: { type: "string", default: "http://localhost:4000" },
     SHOPIFY_API_KEY: { type: "string", default: "" },
-    SHOPIFY_API_SECRET: { type: "string", default: "" }
+    SHOPIFY_API_SECRET: { type: "string", default: "" },
+    STRIPE_SECRET_KEY: { type: "string", default: "" },
+    STRIPE_WEBHOOK_SECRET: { type: "string", default: "" },
+    STRIPE_PRICE_GROWTH: { type: "string", default: "" },
+    STRIPE_PRICE_SCALE: { type: "string", default: "" }
   }
 };
 

@@ -1,5 +1,9 @@
 import type { PrismaClient, ProductCategory } from "@prisma/client";
 
+interface MailService {
+  sendScoreAlert(email: string, name: string, productTitle: string, oldCategory: string, newCategory: string, score: number): Promise<void>;
+}
+
 /**
  * MetaFlow Scoring Engine
  *
@@ -81,9 +85,15 @@ interface ScoringResult {
  */
 export async function runScoringJob(
   prisma: PrismaClient,
-  data: { storeId: string }
+  data: { storeId: string },
+  mailService?: MailService
 ): Promise<ScoringResult> {
   const { storeId } = data;
+
+  const store = await prisma.store.findUnique({
+    where: { id: storeId },
+    select: { ownerId: true }
+  });
 
   const products = await prisma.productMeta.findMany({
     where: { storeId },
@@ -138,6 +148,24 @@ export async function runScoringJob(
           data: { score: newScore, category: newCategory }
         });
 
+        // Save score history snapshot
+        await prisma.productScoreHistory.upsert({
+          where: {
+            productId_date: {
+              productId: product.id,
+              date: new Date(new Date().toISOString().split('T')[0]) // date only, no time
+            }
+          },
+          update: { score: newScore, category: newCategory },
+          create: {
+            productId: product.id,
+            storeId,
+            score: newScore,
+            category: newCategory,
+            date: new Date(new Date().toISOString().split('T')[0])
+          }
+        });
+
         changed++;
 
         // Write an audit log entry for category transitions
@@ -166,6 +194,30 @@ export async function runScoringJob(
               storeId
             }
           });
+
+          // Send score alert email if notifications are enabled
+          try {
+            const settings = await prisma.userSettings.findUnique({
+              where: { userId: store?.ownerId ?? "" },
+              select: { notifEmailReports: true }
+            });
+            if (settings?.notifEmailReports && (newCategory === "KILL" || newCategory === "SCALE")) {
+              const owner = await prisma.user.findUnique({
+                where: { id: store?.ownerId ?? "" },
+                select: { email: true, name: true }
+              });
+              if (owner && mailService) {
+                mailService.sendScoreAlert(
+                  owner.email,
+                  owner.name ?? "",
+                  product.title,
+                  oldCategory,
+                  newCategory,
+                  newScore
+                ).catch(() => {});
+              }
+            }
+          } catch {}
 
           if (newCategory === "SCALE") scaled++;
           else if (newCategory === "KILL") killed++;

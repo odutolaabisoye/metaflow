@@ -230,7 +230,7 @@
               </td>
 
               <!-- Score with bar -->
-              <td class="px-4 py-4">
+              <td class="px-4 py-4" @mouseenter="fetchSparkline(item.id)">
                 <div class="flex items-center gap-2.5">
                   <span class="font-mono text-sm font-semibold w-7 text-right" :class="scoreColor(item.score)">{{ item.score }}</span>
                   <div class="w-14 h-1.5 rounded-full bg-white/10 overflow-hidden">
@@ -240,6 +240,22 @@
                       :class="scoreBarColor(item.score)"
                     ></div>
                   </div>
+                  <svg v-if="sparklines[item.id]?.length > 1" :viewBox="`0 0 40 16`" class="w-10 h-4 flex-shrink-0" style="overflow:visible">
+                    <polyline
+                      :points="getSparkPoints(sparklines[item.id])"
+                      fill="none"
+                      :stroke="getSparkColor(sparklines[item.id])"
+                      stroke-width="1.5"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    />
+                  </svg>
+                  <!-- Why? explainability trigger -->
+                  <button
+                    @click.stop="showExplain(item)"
+                    class="ml-0.5 h-4 w-4 rounded-full border border-white/20 bg-white/[0.06] text-[9px] font-bold text-white/50 hover:bg-white/10 hover:text-white/80 hover:border-white/35 transition-all flex-shrink-0 flex items-center justify-center opacity-0 group-hover:opacity-100"
+                    title="Why this score?"
+                  >?</button>
                 </div>
               </td>
 
@@ -315,6 +331,60 @@
       </div>
 
     </div>
+
+    <!-- Score Explainability Modal -->
+    <Teleport to="body">
+      <Transition name="fade">
+        <div v-if="explainProduct" class="fixed inset-0 z-50 flex items-center justify-center p-4" @click.self="explainProduct = null">
+          <div class="absolute inset-0 bg-black/55 backdrop-blur-sm" @click="explainProduct = null"></div>
+          <div class="relative w-full max-w-sm rounded-2xl bg-ink-900 border border-white/12 shadow-2xl overflow-hidden" @click.stop>
+            <!-- Top accent -->
+            <div class="h-1 w-full" :class="badgeClass(explainProduct.category).includes('lime') ? 'bg-gradient-to-r from-lime-500 to-lime-400' : badgeClass(explainProduct.category).includes('ember') ? 'bg-gradient-to-r from-ember-600 to-ember-500' : badgeClass(explainProduct.category).includes('violet') ? 'bg-gradient-to-r from-violet-600 to-violet-500' : 'bg-gradient-to-r from-glow-500 to-glow-400'"></div>
+            <div class="p-5">
+              <!-- Header -->
+              <div class="flex items-start justify-between gap-3 mb-4">
+                <div>
+                  <p class="text-[10px] uppercase tracking-widest text-white/55 mb-1">Score Breakdown</p>
+                  <h3 class="text-sm font-semibold text-white leading-snug truncate max-w-[220px]">{{ explainProduct.title }}</h3>
+                </div>
+                <div class="flex items-center gap-2 flex-shrink-0">
+                  <span class="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-semibold" :class="badgeClass(explainProduct.category)">
+                    <span class="h-1.5 w-1.5 rounded-full" :class="badgeDot(explainProduct.category)"></span>
+                    {{ explainProduct.category }}
+                  </span>
+                  <span class="text-2xl font-bold" :class="scoreColor(explainProduct.score)">{{ explainProduct.score }}</span>
+                </div>
+              </div>
+              <!-- Score components -->
+              <div class="space-y-3">
+                <div v-for="factor in explainFactors(explainProduct)" :key="factor.label" class="space-y-1.5">
+                  <div class="flex items-center justify-between text-xs">
+                    <span class="text-white/75">{{ factor.label }}</span>
+                    <span class="font-mono font-semibold" :class="factor.contribution >= factor.max * 0.75 ? 'text-lime-400' : factor.contribution >= factor.max * 0.4 ? 'text-glow-400' : 'text-ember-400'">
+                      {{ factor.contribution.toFixed(1) }} / {{ factor.max }}
+                    </span>
+                  </div>
+                  <div class="h-2 rounded-full bg-white/8 overflow-hidden">
+                    <div
+                      class="h-full rounded-full transition-all duration-700"
+                      :style="{ width: ((factor.contribution / factor.max) * 100) + '%' }"
+                      :class="factor.contribution >= factor.max * 0.75 ? 'bg-lime-400' : factor.contribution >= factor.max * 0.4 ? 'bg-glow-400' : 'bg-ember-400'"
+                    ></div>
+                  </div>
+                  <p class="text-[10px] text-white/50">{{ factor.detail }}</p>
+                </div>
+              </div>
+              <!-- Total -->
+              <div class="mt-4 pt-4 border-t border-white/8 flex items-center justify-between">
+                <p class="text-xs text-white/65">Total score</p>
+                <p class="text-xl font-bold" :class="scoreColor(explainProduct.score)">{{ explainProduct.score }}<span class="text-sm font-normal text-white/40">/100</span></p>
+              </div>
+              <button @click="explainProduct = null" class="mt-3 w-full py-2 rounded-xl border border-white/10 bg-white/[0.04] text-xs text-white/65 hover:text-white hover:bg-white/8 transition-all">Close</button>
+            </div>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
 
     <!-- Product Sidekick -->
     <ProductSidekick
@@ -588,6 +658,99 @@ const triggerSync = async () => {
     syncing.value = false;
   }
 };
+
+// ── Score explainability ──────────────────────────────────────────────────────
+const explainProduct = ref<null | Record<string, any>>(null);
+
+function showExplain(item: Record<string, any>) {
+  explainProduct.value = item;
+}
+
+/**
+ * Decompose a product's score into its 4 contributing factors.
+ * Mirrors the formula in backend/src/jobs/scoring.ts:
+ *   ROAS(35%) + CTR(20%) + Margin(25%) + Inventory(20%)
+ */
+function explainFactors(product: Record<string, any>) {
+  const roas      = Number(product.roas      ?? 0);
+  const ctr       = Number(product.ctr       ?? 0);
+  const margin    = Number(product.margin    ?? 0);
+  const inventory = product.inventoryLevel != null ? Number(product.inventoryLevel) : null;
+
+  const roasScore      = Math.min(roas / 5,    1) * 35;
+  const ctrScore       = Math.min(ctr / 0.03,  1) * 20;
+  const marginScore    = Math.min(margin / 0.5, 1) * 25;
+  const inventoryScore = inventory === null ? 10 : inventory >= 10 ? 20 : (inventory / 10) * 20;
+
+  return [
+    {
+      label:        'ROAS (Return on Ad Spend)',
+      contribution: Math.round(roasScore * 10) / 10,
+      max:          35,
+      detail:       `${roas.toFixed(2)}× (benchmark: 5×)`,
+    },
+    {
+      label:        'CTR (Click-Through Rate)',
+      contribution: Math.round(ctrScore * 10) / 10,
+      max:          20,
+      detail:       `${(ctr * 100).toFixed(2)}% (benchmark: 3%)`,
+    },
+    {
+      label:        'Profit Margin',
+      contribution: Math.round(marginScore * 10) / 10,
+      max:          25,
+      detail:       `${(margin * 100).toFixed(1)}% (benchmark: 50%)`,
+    },
+    {
+      label:        'Inventory Level',
+      contribution: Math.round(inventoryScore * 10) / 10,
+      max:          20,
+      detail:       inventory === null ? 'Unknown (neutral)' : `${inventory} units (≥10 = full marks)`,
+    },
+  ];
+}
+
+// ── Score sparklines ──────────────────────────────────────────────────────────
+const sparklines = ref<Record<string, { score: number; date: string }[]>>({});
+
+function getSparkPoints(history: { score: number }[]) {
+  if (!history.length) return '';
+  const scores = history.map(h => h.score);
+  const min = Math.min(...scores);
+  const max = Math.max(...scores);
+  const range = max - min || 1;
+  const w = 40, h = 16;
+  return history.map((h, i) => {
+    const x = (i / (history.length - 1)) * w;
+    const y = h - ((h.score - min) / range) * h;
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  }).join(' ');
+}
+
+function getSparkColor(history: { score: number }[]) {
+  if (history.length < 2) return '#6b7280';
+  const first = history[0].score;
+  const last = history[history.length - 1].score;
+  return last > first + 2 ? '#84cc16' : last < first - 2 ? '#ef4444' : '#6b7280';
+}
+
+async function fetchSparkline(productId: string) {
+  if (sparklines.value[productId]) return;
+  try {
+    const res = await $fetch<any>(
+      `${apiBase}/v1/analytics/products/score-history/${productId}`,
+      { credentials: 'include' }
+    );
+    if (res?.ok) sparklines.value[productId] = res.history ?? [];
+  } catch {}
+}
+
+// Fetch sparklines for first 20 visible products when data loads
+watch(() => products.value, (prods) => {
+  if (prods?.length) {
+    prods.slice(0, 20).forEach((p: any) => fetchSparkline(p.id));
+  }
+});
 
 // ── CSV export ────────────────────────────────────────────────────────────────
 const exportCsv = async () => {

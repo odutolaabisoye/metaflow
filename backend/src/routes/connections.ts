@@ -714,7 +714,7 @@ const SHOPIFY_WEBHOOKS = [
   { topic: "orders/create", path: "/webhooks/shopify/orders/create" }
 ];
 
-async function registerShopifyWebhooks(
+export async function registerShopifyWebhooks(
   shop: string,
   accessToken: string,
   appUrl: string

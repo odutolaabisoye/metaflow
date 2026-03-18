@@ -11,6 +11,7 @@
 import { Worker } from "bullmq";
 import Redis from "ioredis";
 import { PrismaClient } from "@prisma/client";
+import nodemailer from "nodemailer";
 import { runScoringJob } from "./jobs/scoring.js";
 import { runShopifySync } from "./jobs/syncShopify.js";
 import { runWooCommerceSync } from "./jobs/syncWooCommerce.js";
@@ -25,6 +26,25 @@ const connection = new Redis(redisUrl, {
 
 const prisma = new PrismaClient();
 
+// ─── Mail service (lightweight, for scoring alerts) ───────────────────────────
+const smtpTransport = process.env.SMTP_HOST
+  ? nodemailer.createTransport({
+      host: process.env.SMTP_HOST,
+      port: Number(process.env.SMTP_PORT ?? 587),
+      auth: process.env.SMTP_USER ? { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS } : undefined
+    })
+  : null;
+
+const workerMailService = {
+  async sendScoreAlert(email: string, name: string, productTitle: string, oldCategory: string, newCategory: string, score: number) {
+    if (!smtpTransport) return;
+    const from = process.env.SMTP_FROM ?? "no-reply@metaflow.app";
+    const subject = `Score alert: ${productTitle} moved to ${newCategory}`;
+    const html = `<p>Hey ${name || "there"}, <strong>${productTitle}</strong> changed from ${oldCategory} to ${newCategory} (score: ${score}/100).</p>`;
+    await smtpTransport.sendMail({ from, to: email, subject, html });
+  }
+};
+
 // ─── Sync Queue Worker ────────────────────────────────────────────────────────
 // Handles: shopify-sync, woocommerce-sync, meta-sync
 
@@ -33,6 +53,12 @@ const syncWorker = new Worker(
   async (job) => {
     const { provider, storeId } = job.data as { provider: string; storeId: string };
     console.log(`[sync] Job ${job.id} — ${provider} sync for store ${storeId}`);
+
+    // Mark store as actively syncing
+    await prisma.store.update({
+      where: { id: storeId },
+      data: { lastSyncStatus: "RUNNING", lastSyncError: null, lastSyncProvider: provider }
+    }).catch(() => {});
 
     try {
       switch (provider) {
@@ -49,6 +75,10 @@ const syncWorker = new Worker(
               storeId
             }
           });
+          await prisma.store.update({
+            where: { id: storeId },
+            data: { lastSyncStatus: "SUCCESS", lastSyncAt: new Date() }
+          }).catch(() => {});
           return result;
         }
 
@@ -65,6 +95,10 @@ const syncWorker = new Worker(
               storeId
             }
           });
+          await prisma.store.update({
+            where: { id: storeId },
+            data: { lastSyncStatus: "SUCCESS", lastSyncAt: new Date() }
+          }).catch(() => {});
           return result;
         }
 
@@ -87,6 +121,10 @@ const syncWorker = new Worker(
               storeId
             }
           });
+          await prisma.store.update({
+            where: { id: storeId },
+            data: { lastSyncStatus: "SUCCESS", lastSyncAt: new Date() }
+          }).catch(() => {});
           return result;
         }
 
@@ -95,6 +133,14 @@ const syncWorker = new Worker(
       }
     } catch (err) {
       console.error(`[sync] Job ${job.id} failed:`, err);
+      // Record error but don't let this secondary update swallow the original error
+      await prisma.store.update({
+        where: { id: storeId },
+        data: {
+          lastSyncStatus: "ERROR",
+          lastSyncError: (err instanceof Error ? err.message : String(err)).slice(0, 500)
+        }
+      }).catch(() => {});
       throw err; // Re-throw so BullMQ handles retries
     }
   },
@@ -114,7 +160,7 @@ const scoringWorker = new Worker(
     console.log(`[scoring] Job ${job.id} — scoring products for store ${storeId}`);
 
     try {
-      const result = await runScoringJob(prisma, { storeId });
+      const result = await runScoringJob(prisma, { storeId }, workerMailService);
       console.log(
         `[scoring] Complete — ${result.scored} scored, ${result.changed} changed ` +
         `(${result.scaled} scaled, ${result.killed} killed, ${result.risked} at risk)`

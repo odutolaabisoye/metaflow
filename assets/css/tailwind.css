@@ -96,7 +96,7 @@
 }
 
 .section-title {
-  @apply text-sm uppercase tracking-[0.2em] text-white/60;
+  @apply text-sm uppercase tracking-[0.2em] text-white/70;
 }
 
 .section-badge {
@@ -116,7 +116,7 @@
 }
 
 .form-label {
-  @apply block text-sm font-medium text-white/65 mb-1.5;
+  @apply block text-sm font-medium text-white/80 mb-1.5;
 }
 
 .form-select {

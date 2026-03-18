@@ -147,6 +147,94 @@ function buildPasswordReset(resetUrl: string) {
   `);
 }
 
+function buildTeamInvite(inviterName: string, storeName: string, acceptUrl: string) {
+  return emailShell("You've been invited to MetaFlow", `
+    <h1 style="margin:0 0 8px;font-size:22px;font-weight:700;color:#ffffff;letter-spacing:-0.4px;">You're invited to collaborate 👋</h1>
+    <p style="margin:0 0 20px;font-size:14px;line-height:1.7;color:rgba(255,255,255,0.6);">
+      <strong style="color:#ffffff;">${inviterName}</strong> has invited you to access the
+      <strong style="color:#ffffff;">${storeName}</strong> workspace on MetaFlow.
+      Accept below to view product intelligence, scoring data, and analytics.
+    </p>
+    ${ctaButton(acceptUrl, "Accept invitation")}
+    ${divider}
+    <p style="margin:0;font-size:12px;color:rgba(255,255,255,0.3);">
+      This invite expires in 7 days. If you didn't expect this email, you can safely ignore it.
+    </p>
+  `);
+}
+
+function buildWeeklyDigest(name: string, storeName: string, stats: {
+  scaled: number; killed: number; tested: number; risked: number;
+  totalProducts: number; topProduct?: string;
+}, appUrl: string) {
+  return emailShell(`Weekly digest — ${storeName}`, `
+    <h1 style="margin:0 0 8px;font-size:22px;font-weight:700;color:#ffffff;letter-spacing:-0.4px;">Weekly performance digest 📊</h1>
+    <p style="margin:0 0 20px;font-size:14px;line-height:1.7;color:rgba(255,255,255,0.6);">
+      Hey ${name || "there"}, here's what happened in <strong style="color:#ffffff;">${storeName}</strong> this week.
+    </p>
+    <table width="100%" cellpadding="0" cellspacing="0" role="presentation">
+      <tr>
+        <td style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:12px;padding:16px 20px;">
+          <p style="margin:0 0 14px;font-size:12px;font-weight:600;color:rgba(255,255,255,0.5);text-transform:uppercase;letter-spacing:0.8px;">Score Changes This Week</p>
+          <table width="100%" cellpadding="0" cellspacing="0">
+            <tr>
+              <td style="padding:4px 0;font-size:13px;color:rgba(132,204,22,0.9);">📈 ${stats.scaled} product${stats.scaled !== 1 ? 's' : ''} moved to SCALE</td>
+            </tr>
+            <tr>
+              <td style="padding:4px 0;font-size:13px;color:rgba(255,255,255,0.7);">🔬 ${stats.tested} product${stats.tested !== 1 ? 's' : ''} moved to TEST</td>
+            </tr>
+            <tr>
+              <td style="padding:4px 0;font-size:13px;color:rgba(251,146,60,0.9);">⚠️ ${stats.risked} product${stats.risked !== 1 ? 's' : ''} flagged as RISK</td>
+            </tr>
+            <tr>
+              <td style="padding:4px 0;font-size:13px;color:rgba(239,68,68,0.9);">🔴 ${stats.killed} product${stats.killed !== 1 ? 's' : ''} moved to KILL</td>
+            </tr>
+          </table>
+          ${stats.topProduct ? `<p style="margin:14px 0 0;font-size:12px;color:rgba(255,255,255,0.4);">Top performer: ${stats.topProduct}</p>` : ''}
+        </td>
+      </tr>
+    </table>
+    ${ctaButton(`${appUrl}/app/products`, "View all products")}
+    ${divider}
+    <p style="margin:0;font-size:12px;color:rgba(255,255,255,0.25);">
+      You're receiving this because weekly digests are enabled. Manage in settings.
+    </p>
+  `);
+}
+
+function buildScoreAlert(name: string, productTitle: string, oldCategory: string, newCategory: string, score: number, appUrl: string) {
+  const isKill = newCategory === "KILL";
+  const isScale = newCategory === "SCALE";
+  const emoji = isKill ? "🔴" : isScale ? "📈" : "⚠️";
+  const accentColor = isKill ? "rgba(239,68,68,0.9)" : isScale ? "rgba(132,204,22,0.9)" : "rgba(251,146,60,0.9)";
+
+  return emailShell(`Score alert: ${productTitle}`, `
+    <h1 style="margin:0 0 8px;font-size:22px;font-weight:700;color:#ffffff;letter-spacing:-0.4px;">${emoji} Product score alert</h1>
+    <p style="margin:0 0 20px;font-size:14px;line-height:1.7;color:rgba(255,255,255,0.6);">
+      Hey ${name || "there"}, a product score change requires your attention.
+    </p>
+    <table width="100%" cellpadding="0" cellspacing="0" role="presentation">
+      <tr>
+        <td style="background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);border-radius:12px;padding:20px;">
+          <p style="margin:0 0 8px;font-size:15px;font-weight:600;color:#ffffff;">${productTitle}</p>
+          <p style="margin:0 0 16px;font-size:13px;color:rgba(255,255,255,0.5);">Score: ${score}/100</p>
+          <p style="margin:0;font-size:14px;color:rgba(255,255,255,0.6);">
+            Category changed: <span style="color:rgba(255,255,255,0.5);">${oldCategory}</span>
+            → <span style="color:${accentColor};font-weight:600;">${newCategory}</span>
+          </p>
+          ${isKill ? '<p style="margin:12px 0 0;font-size:13px;color:rgba(239,68,68,0.7);">Consider pausing ad spend on this product.</p>' : ''}
+          ${isScale ? '<p style="margin:12px 0 0;font-size:13px;color:rgba(132,204,22,0.7);">Consider increasing budget for this product.</p>' : ''}
+        </td>
+      </tr>
+    </table>
+    ${ctaButton(`${appUrl}/app/products`, "Review in MetaFlow")}
+    ${divider}
+    <p style="margin:0;font-size:12px;color:rgba(255,255,255,0.25);">
+      Manage alert preferences in your notification settings.
+    </p>
+  `);
+}
+
 // ─── Plugin ───────────────────────────────────────────────────────────────────
 export default fp(async (app) => {
   const { SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM, CORS_ORIGIN } = app.config;
@@ -186,7 +274,17 @@ export default fp(async (app) => {
     async sendPasswordReset(email: string, token: string) {
       const resetUrl = `${appUrl}/auth/reset?token=${token}`;
       await send(email, "Reset your MetaFlow password", buildPasswordReset(resetUrl));
-    }
+    },
+    async sendTeamInvite(email: string, inviterName: string, storeName: string, token: string) {
+      const acceptUrl = `${appUrl}/app/onboarding?invite=${token}`;
+      await send(email, `${inviterName} invited you to ${storeName} on MetaFlow`, buildTeamInvite(inviterName, storeName, acceptUrl));
+    },
+    async sendWeeklyDigest(email: string, name: string, storeName: string, stats: { scaled: number; killed: number; tested: number; risked: number; totalProducts: number; topProduct?: string }) {
+      await send(email, `Your MetaFlow weekly digest — ${storeName}`, buildWeeklyDigest(name, storeName, stats, appUrl));
+    },
+    async sendScoreAlert(email: string, name: string, productTitle: string, oldCategory: string, newCategory: string, score: number) {
+      await send(email, `Score alert: ${productTitle} moved to ${newCategory}`, buildScoreAlert(name, productTitle, oldCategory, newCategory, score, appUrl));
+    },
   });
 });
 
@@ -197,6 +295,9 @@ declare module "fastify" {
       sendImportStarted(email: string, name: string, storeName: string): Promise<void>;
       sendExportReady(email: string, name: string, productCount: number): Promise<void>;
       sendPasswordReset(email: string, token: string): Promise<void>;
+      sendTeamInvite(email: string, inviterName: string, storeName: string, token: string): Promise<void>;
+      sendWeeklyDigest(email: string, name: string, storeName: string, stats: { scaled: number; killed: number; tested: number; risked: number; totalProducts: number; topProduct?: string }): Promise<void>;
+      sendScoreAlert(email: string, name: string, productTitle: string, oldCategory: string, newCategory: string, score: number): Promise<void>;
     };
   }
 }

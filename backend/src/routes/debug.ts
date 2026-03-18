@@ -336,6 +336,56 @@ export async function debugRoutes(app: FastifyInstance) {
   });
 
   /**
+   * GET /admin/meta-token?storeId=xxx
+   * ⚠️  ADMIN ONLY — returns the raw Meta access token for direct Graph API testing
+   * (e.g. pasting into Postman). Never expose this to non-admin users.
+   */
+  app.get("/admin/meta-token", async (request, reply) => {
+    const admin = await verifyAdmin(app, request, reply);
+    if (!admin) return;
+
+    const { storeId } = request.query as { storeId?: string };
+    if (!storeId) {
+      return reply.code(400).send({ ok: false, message: "storeId query param is required" });
+    }
+
+    const conn = await app.prisma.connection.findFirst({
+      where: { storeId, provider: "META" },
+      select: {
+        accessToken: true,
+        expiresAt: true,
+        metaAdAccountId: true,
+        metaCatalogId: true,
+        scopes: true,
+        updatedAt: true,
+      },
+    });
+
+    if (!conn) {
+      return reply.code(404).send({ ok: false, message: "No Meta connection found for this store" });
+    }
+
+    const now = Date.now();
+    const isExpired = conn.expiresAt ? conn.expiresAt.getTime() < now : false;
+    const daysUntilExpiry = conn.expiresAt
+      ? Math.ceil((conn.expiresAt.getTime() - now) / 86_400_000)
+      : null;
+
+    return reply.send({
+      ok: true,
+      // Full token — admin Postman use only
+      accessToken: conn.accessToken,
+      metaAdAccountId: conn.metaAdAccountId ?? null,
+      metaCatalogId: conn.metaCatalogId ?? null,
+      scopes: conn.scopes ?? null,
+      expiresAt: conn.expiresAt ?? null,
+      isExpired,
+      daysUntilExpiry,
+      updatedAt: conn.updatedAt,
+    });
+  });
+
+  /**
    * GET /admin/meta-debug/stores
    * Returns ALL stores so any store can be selected for debugging,
    * with a flag indicating whether it has a Meta connection.

@@ -143,6 +143,9 @@
                 <span class="h-1.5 w-1.5 rounded-full" :class="integration.connected ? 'bg-lime-400 animate-pulse' : 'bg-white/15'"></span>
                 {{ integration.connected ? 'Connected' : 'Not connected' }}
               </span>
+              <p v-if="integration.connected && integration.lastSynced" class="text-[10px] text-white/50 mt-1">
+                Synced {{ timeAgo(integration.lastSynced) }}
+              </p>
             </div>
             <button
               @click="integration.connected
@@ -431,31 +434,85 @@
 
           <!-- Actions -->
           <div class="flex flex-col gap-2">
-            <!-- Upgrade button — visible for STARTER, GROWTH, and GRANDFATHERED -->
-            <NuxtLink
-              v-if="currentPlanName !== 'SCALE'"
-              to="/pricing"
-              class="flex items-center justify-center gap-1.5 rounded-xl border border-glow-500/30 bg-glow-500/8 py-2.5 text-sm font-semibold text-glow-400 hover:bg-glow-500/15 transition-all"
+            <button
+              @click="openPlanModal()"
+              class="flex items-center justify-center gap-1.5 rounded-xl border border-white/12 bg-white/[0.04] py-2.5 text-sm font-medium text-white/70 hover:text-white hover:border-white/22 hover:bg-white/[0.07] transition-all"
             >
               <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 18L9 11.25l4.306 4.307a11.95 11.95 0 015.814-5.519l2.74-1.22m0 0l-5.94-2.28m5.94 2.28l-2.28 5.941"/>
-              </svg>
-              {{ currentPlanName === 'GRANDFATHERED' ? 'View paid plans →' : 'Upgrade plan →' }}
-            </NuxtLink>
-            <!-- Downgrade / Cancel — always visible -->
-            <button
-              @click="openManagePlan()"
-              class="flex items-center justify-center gap-1.5 rounded-xl border border-white/10 bg-white/[0.03] py-2 text-xs font-medium text-white/55 hover:text-ember-400 hover:border-ember-500/25 transition-all"
-            >
-              <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M3 7.5 7.5 3m0 0L12 7.5M7.5 3v13.5m13.5 0L16.5 21m0 0L12 16.5m4.5 4.5V7.5"/>
               </svg>
-              {{ currentPlanName === 'GRANDFATHERED' ? 'Cancel legacy access' : 'Downgrade / Cancel' }}
+              Change plan
             </button>
           </div>
         </div>
       </div>
 
+    </div>
+
+    <!-- ── Change Password ── -->
+    <div class="glass rounded-2xl p-6">
+      <h3 class="text-sm font-semibold text-white mb-4">Change Password</h3>
+      <div class="space-y-3 max-w-sm">
+        <div>
+          <label class="form-label">Current password</label>
+          <input v-model="pwCurrent" type="password" class="form-input" placeholder="••••••••" />
+        </div>
+        <div>
+          <label class="form-label">New password</label>
+          <input v-model="pwNew" type="password" class="form-input" placeholder="Min 8 characters" />
+        </div>
+        <div>
+          <label class="form-label">Confirm new password</label>
+          <input v-model="pwConfirm" type="password" class="form-input" placeholder="••••••••" />
+        </div>
+        <div class="flex items-center gap-3 pt-1">
+          <button @click="changePassword" :disabled="pwSaving || !pwCurrent || !pwNew || pwNew !== pwConfirm" class="rounded-xl bg-glow-500/80 hover:bg-glow-500 disabled:opacity-40 text-white text-sm font-semibold px-5 py-2.5 transition-colors">
+            {{ pwSaving ? 'Saving…' : 'Update password' }}
+          </button>
+          <p v-if="pwSuccess" class="text-sm text-lime-400">Password updated!</p>
+          <p v-if="pwError" class="text-sm text-red-400">{{ pwError }}</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Team Members ── -->
+    <div v-if="activeStoreId" class="glass rounded-2xl p-6 space-y-4">
+      <div class="flex items-center justify-between">
+        <h3 class="text-sm font-semibold text-white">Team Members</h3>
+        <p class="text-xs text-white/50">Store: {{ activeStoreId }}</p>
+      </div>
+
+      <!-- Invite form -->
+      <div class="flex gap-2">
+        <input v-model="inviteEmail" type="email" placeholder="colleague@example.com" class="form-input flex-1" @keyup.enter="sendInvite" />
+        <button @click="sendInvite" :disabled="inviteSending || !inviteEmail.trim()" class="flex-shrink-0 rounded-xl bg-glow-500/80 hover:bg-glow-500 disabled:opacity-40 text-white text-sm font-semibold px-4 py-2.5 transition-colors">
+          {{ inviteSending ? '…' : 'Invite' }}
+        </button>
+      </div>
+      <p v-if="inviteSuccess" class="text-xs text-lime-400">{{ inviteSuccess }}</p>
+      <p v-if="inviteError" class="text-xs text-red-400">{{ inviteError }}</p>
+
+      <!-- Members list -->
+      <div v-if="teamMembers.length || pendingInvites.length" class="space-y-2">
+        <p class="text-xs font-semibold text-white/50 uppercase tracking-wider">Active Members</p>
+        <div v-for="m in teamMembers" :key="m.id" class="flex items-center justify-between rounded-xl border border-white/8 bg-white/[0.03] px-4 py-3">
+          <div>
+            <p class="text-sm text-white/85">{{ m.user.name || m.user.email }}</p>
+            <p class="text-xs text-white/50">{{ m.user.email }} · {{ m.role }}</p>
+          </div>
+          <button @click="removeMember(m.userId)" class="text-xs text-red-400/70 hover:text-red-400 transition-colors">Remove</button>
+        </div>
+
+        <p v-if="pendingInvites.length" class="text-xs font-semibold text-white/50 uppercase tracking-wider mt-3">Pending Invites</p>
+        <div v-for="inv in pendingInvites" :key="inv.id" class="flex items-center justify-between rounded-xl border border-white/8 bg-white/[0.03] px-4 py-3">
+          <div>
+            <p class="text-sm text-white/75">{{ inv.email }}</p>
+            <p class="text-xs text-white/40">Expires {{ new Date(inv.expiresAt).toLocaleDateString() }}</p>
+          </div>
+          <button @click="revokeInvite(inv.id)" class="text-xs text-white/40 hover:text-white/70 transition-colors">Revoke</button>
+        </div>
+      </div>
+      <div v-else-if="!teamLoading" class="text-xs text-white/40">No team members yet. Invite someone above.</div>
     </div>
 
     <!-- ── Danger zone ── -->
@@ -499,130 +556,221 @@
 
   </div>
 
-  <!-- ── Manage plan modal (downgrade / cancel) ── -->
+  <!-- ── Plan picker modal ── -->
   <Teleport to="body">
     <Transition name="modal-fade">
-      <div v-if="cancelPlanModal" class="fixed inset-0 z-50 flex items-center justify-center p-4">
-        <div class="absolute inset-0 bg-black/60 backdrop-blur-sm" @click="cancelPlanModal = false"></div>
+      <div v-if="planModal" class="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div class="absolute inset-0 bg-black/60 backdrop-blur-sm" @click="planStep !== 'processing' && (planModal = false)"></div>
         <div class="relative w-full max-w-md rounded-2xl border border-white/15 bg-ink-900 shadow-2xl overflow-hidden">
-          <div class="h-1 w-full bg-gradient-to-r from-ember-500 to-ember-400"></div>
-          <div class="p-6">
 
-            <!-- Header -->
-            <div class="flex items-start gap-4 mb-5">
-              <div class="h-10 w-10 flex-shrink-0 rounded-xl bg-ember-500/10 border border-ember-500/20 flex items-center justify-center">
-                <svg class="w-5 h-5 text-ember-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M3 7.5 7.5 3m0 0L12 7.5M7.5 3v13.5m13.5 0L16.5 21m0 0L12 16.5m4.5 4.5V7.5"/>
-                </svg>
+          <!-- ── Step: pick ── -->
+          <template v-if="planStep === 'pick'">
+            <div class="h-1 w-full bg-gradient-to-r from-glow-500 to-glow-400"></div>
+            <div class="p-6">
+              <div class="flex items-start justify-between mb-5">
+                <div>
+                  <h3 class="text-base font-semibold">Change plan</h3>
+                  <p class="text-sm text-white/55 mt-0.5">
+                    Currently on <span class="text-white/80 font-medium">{{ currentPlanInfo.label }}</span> · {{ currentPlanInfo.price }}/mo
+                  </p>
+                </div>
+                <button @click="planModal = false" class="text-white/35 hover:text-white/65 transition-colors p-1 -mr-1 -mt-1">
+                  <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
+                  </svg>
+                </button>
               </div>
-              <div>
-                <h3 class="text-base font-semibold">
-                  {{ currentPlanName === 'GRANDFATHERED' ? 'Cancel legacy access' : 'Downgrade or cancel plan' }}
-                </h3>
-                <p class="text-sm text-white/70 mt-1 leading-relaxed">
-                  <template v-if="currentPlanName === 'GRANDFATHERED'">
-                    Your <strong class="text-white/85">Legacy</strong> plan gives you unlimited access at no cost. You can request to cancel it below.
-                  </template>
-                  <template v-else>
-                    Choose what you'd like to do with your <strong class="text-white/85">{{ currentPlanInfo.label }}</strong> plan. Requests are processed within 24 hours.
-                  </template>
-                </p>
-              </div>
-            </div>
 
-            <!-- Downgrade options (plans below current) -->
-            <div v-if="downgradePlans.length > 0" class="mb-3">
-              <p class="text-[10px] font-semibold text-white/40 uppercase tracking-widest mb-2">Downgrade to</p>
-              <div class="space-y-2">
-                <label
-                  v-for="plan in downgradePlans"
+              <!-- All plan cards -->
+              <div class="space-y-2 mb-4">
+                <div
+                  v-for="plan in ALL_PLANS"
                   :key="plan.name"
-                  class="flex items-center gap-3 rounded-xl border p-3 cursor-pointer transition-all"
-                  :class="managePlanAction === plan.name
-                    ? 'border-glow-500/35 bg-glow-500/[0.07]'
-                    : 'border-white/10 bg-white/[0.03] hover:border-white/20 hover:bg-white/[0.05]'"
+                  class="flex items-center justify-between rounded-xl border p-3.5 transition-all"
+                  :class="plan.name === currentPlanName ? 'border-glow-500/30 bg-glow-500/[0.06]' : 'border-white/10 bg-white/[0.02]'"
                 >
-                  <input type="radio" class="sr-only" :value="plan.name" v-model="managePlanAction" />
-                  <div class="flex-1 min-w-0">
+                  <div>
                     <div class="flex items-center gap-2">
                       <p class="text-sm font-semibold">{{ plan.label }}</p>
-                      <span class="text-xs text-white/50">{{ plan.price }}/mo</span>
+                      <span v-if="plan.name === currentPlanName" class="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-glow-500/15 text-glow-400 uppercase tracking-wider">Current</span>
                     </div>
-                    <p class="text-xs text-white/50 mt-0.5">
-                      {{ plan.storeLimit }} {{ plan.storeLimit === '1' ? 'store' : 'stores' }} &middot;
-                      {{ plan.analytics ? 'Analytics included' : 'No advanced analytics' }}
-                    </p>
+                    <p class="text-xs text-white/45 mt-0.5">{{ plan.price }}/mo · {{ plan.storeLimit }} {{ plan.storeLimit === '1' ? 'store' : 'stores' }}</p>
                   </div>
-                  <!-- Radio indicator -->
-                  <div
-                    class="flex-shrink-0 h-4 w-4 rounded-full border-2 flex items-center justify-center transition-all"
-                    :class="managePlanAction === plan.name ? 'border-glow-500 bg-glow-500' : 'border-white/25'"
+                  <span v-if="plan.name === currentPlanName" class="text-xs text-white/30 font-medium px-3 py-1.5 rounded-lg border border-white/8">
+                    Active
+                  </span>
+                  <button
+                    v-else-if="PLAN_ORDER.indexOf(plan.name) < PLAN_ORDER.indexOf(currentPlanName as any)"
+                    @click="selectPlan(plan.name)"
+                    class="text-xs font-medium px-3 py-1.5 rounded-lg border border-ember-500/25 bg-ember-500/8 text-ember-400 hover:bg-ember-500/15 hover:border-ember-500/40 transition-all whitespace-nowrap"
                   >
-                    <div v-if="managePlanAction === plan.name" class="h-1.5 w-1.5 rounded-full bg-white"></div>
-                  </div>
-                </label>
+                    Downgrade ↓
+                  </button>
+                  <button
+                    v-else
+                    @click="selectPlan(plan.name)"
+                    class="text-xs font-medium px-3 py-1.5 rounded-lg border border-glow-500/30 bg-glow-500/8 text-glow-400 hover:bg-glow-500/15 hover:border-glow-500/45 transition-all whitespace-nowrap"
+                  >
+                    Upgrade ↑
+                  </button>
+                </div>
+              </div>
+
+              <!-- Cancel -->
+              <div class="flex items-center gap-3 mb-3">
+                <div class="flex-1 h-px bg-white/8"></div>
+                <span class="text-[10px] text-white/25 uppercase tracking-wider">or</span>
+                <div class="flex-1 h-px bg-white/8"></div>
+              </div>
+              <button
+                @click="selectPlan('CANCEL')"
+                class="w-full text-xs font-medium text-white/35 hover:text-ember-400 transition-colors py-1.5"
+              >
+                Cancel subscription →
+              </button>
+            </div>
+          </template>
+
+          <!-- ── Step: confirm ── -->
+          <template v-else-if="planStep === 'confirm'">
+            <div
+              class="h-1 w-full bg-gradient-to-r"
+              :class="selectedPlan === 'CANCEL' || PLAN_ORDER.indexOf(selectedPlan as any) < PLAN_ORDER.indexOf(currentPlanName as any)
+                ? 'from-ember-500 to-ember-400'
+                : 'from-glow-500 to-glow-400'"
+            ></div>
+            <div class="p-6">
+
+              <!-- Cancel confirmation -->
+              <template v-if="selectedPlan === 'CANCEL'">
+                <h3 class="text-base font-semibold mb-1">Cancel your subscription?</h3>
+                <p class="text-sm text-white/60 leading-relaxed mb-5">
+                  Your <strong class="text-white/80">{{ currentPlanInfo.label }}</strong> plan will be cancelled. Access continues until the end of your current billing period. Your data stays intact.
+                </p>
+              </template>
+
+              <!-- Downgrade confirmation -->
+              <template v-else-if="PLAN_ORDER.indexOf(selectedPlan as any) < PLAN_ORDER.indexOf(currentPlanName as any)">
+                <h3 class="text-base font-semibold mb-1">Downgrade to {{ PLAN_INFO[selectedPlan]?.label }}?</h3>
+                <p class="text-sm text-white/60 leading-relaxed mb-4">
+                  You'll move from <strong class="text-white/80">{{ currentPlanInfo.label }} ({{ currentPlanInfo.price }}/mo)</strong> to <strong class="text-white/80">{{ PLAN_INFO[selectedPlan]?.label }} ({{ PLAN_INFO[selectedPlan]?.price }}/mo)</strong>. Takes effect immediately.
+                </p>
+                <!-- Store limit warning -->
+                <div
+                  v-if="(PLAN_INFO[selectedPlan]?.storeMax ?? 0) > 0 && (PLAN_INFO[selectedPlan]?.storeMax ?? 0) < stores.length"
+                  class="flex items-start gap-2.5 rounded-xl border border-ember-500/25 bg-ember-500/[0.07] p-3.5 mb-4 text-xs text-ember-300"
+                >
+                  <svg class="w-4 h-4 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z"/>
+                  </svg>
+                  <span>You have {{ stores.length }} stores connected but the {{ PLAN_INFO[selectedPlan]?.label }} plan supports {{ PLAN_INFO[selectedPlan]?.storeMax }}. Some stores may become inaccessible.</span>
+                </div>
+              </template>
+
+              <!-- Upgrade — Stripe Checkout -->
+              <template v-else>
+                <h3 class="text-base font-semibold mb-1">Upgrade to {{ PLAN_INFO[selectedPlan]?.label }}</h3>
+                <p class="text-sm text-white/60 leading-relaxed mb-4">
+                  You'll move to <strong class="text-white/80">{{ PLAN_INFO[selectedPlan]?.label }} ({{ PLAN_INFO[selectedPlan]?.price }}/mo)</strong>. You'll be taken to a secure checkout page to complete your upgrade.
+                </p>
+                <div class="flex gap-3">
+                  <button
+                    @click="planStep = 'pick'"
+                    class="flex-1 rounded-xl border border-white/15 bg-white/5 py-2.5 text-sm font-medium text-white/80 hover:bg-white/10 transition-all"
+                  >
+                    Go back
+                  </button>
+                  <button
+                    @click="confirmPlanChange()"
+                    class="flex-1 flex items-center justify-center gap-2 rounded-xl bg-glow-500/80 hover:bg-glow-500 py-2.5 text-sm font-semibold text-white transition-all"
+                  >
+                    <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3"/>
+                    </svg>
+                    Proceed to checkout
+                  </button>
+                </div>
+              </template>
+
+              <!-- Action buttons (downgrade + cancel only) -->
+              <div
+                v-if="selectedPlan === 'CANCEL' || PLAN_ORDER.indexOf(selectedPlan as any) < PLAN_ORDER.indexOf(currentPlanName as any)"
+                class="flex gap-3 mt-2"
+              >
+                <button
+                  @click="planStep = 'pick'"
+                  class="flex-1 rounded-xl border border-white/15 bg-white/5 py-2.5 text-sm font-medium text-white/80 hover:bg-white/10 transition-all"
+                >
+                  Go back
+                </button>
+                <button
+                  @click="confirmPlanChange()"
+                  class="flex-1 rounded-xl py-2.5 text-sm font-semibold transition-all"
+                  :class="selectedPlan === 'CANCEL'
+                    ? 'bg-ember-500 hover:bg-ember-400 text-white'
+                    : 'bg-ember-500/15 hover:bg-ember-500/25 border border-ember-500/30 text-ember-400'"
+                >
+                  {{ selectedPlan === 'CANCEL' ? 'Yes, cancel plan' : 'Confirm downgrade' }}
+                </button>
               </div>
             </div>
+          </template>
 
-            <!-- Divider -->
-            <div v-if="downgradePlans.length > 0" class="flex items-center gap-3 my-3">
-              <div class="flex-1 h-px bg-white/8"></div>
-              <span class="text-[10px] text-white/35 uppercase tracking-wider">or</span>
-              <div class="flex-1 h-px bg-white/8"></div>
+          <!-- ── Step: processing ── -->
+          <template v-else-if="planStep === 'processing'">
+            <div class="p-10 flex flex-col items-center gap-4">
+              <svg class="w-8 h-8 text-glow-400 animate-spin" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+              </svg>
+              <p class="text-sm text-white/55">Updating your plan…</p>
             </div>
+          </template>
 
-            <!-- Cancel option -->
-            <div class="mb-5">
-              <p v-if="downgradePlans.length === 0" class="text-[10px] font-semibold text-white/40 uppercase tracking-widest mb-2">Cancel plan</p>
-              <label
-                class="flex items-center gap-3 rounded-xl border p-3 cursor-pointer transition-all"
-                :class="managePlanAction === 'cancel'
-                  ? 'border-ember-500/35 bg-ember-500/[0.07]'
-                  : 'border-white/10 bg-white/[0.03] hover:border-white/20 hover:bg-white/[0.05]'"
-              >
-                <input type="radio" class="sr-only" value="cancel" v-model="managePlanAction" />
-                <div class="flex-1 min-w-0">
-                  <p class="text-sm font-semibold">Cancel plan entirely</p>
-                  <p class="text-xs text-white/50 mt-0.5">Access ends at the end of your billing period · Data stays intact</p>
-                </div>
-                <div
-                  class="flex-shrink-0 h-4 w-4 rounded-full border-2 flex items-center justify-center transition-all"
-                  :class="managePlanAction === 'cancel' ? 'border-ember-400 bg-ember-500' : 'border-white/25'"
-                >
-                  <div v-if="managePlanAction === 'cancel'" class="h-1.5 w-1.5 rounded-full bg-white"></div>
-                </div>
-              </label>
-            </div>
-
-            <!-- Footer note -->
-            <p class="text-xs text-white/40 mb-4">
-              Clicking "Submit request" will open your email client with a pre-filled message to
-              <span class="text-white/60">hello@metaflow.io</span>.
-            </p>
-
-            <!-- CTA buttons -->
-            <div class="flex gap-3">
-              <button
-                @click="cancelPlanModal = false"
-                class="flex-1 rounded-xl border border-white/15 bg-white/5 py-2.5 text-sm font-medium text-white/80 hover:bg-white/10 transition-all"
-              >
-                Keep my plan
-              </button>
-              <a
-                :href="managePlanMailto"
-                class="flex-1 flex items-center justify-center gap-2 rounded-xl py-2.5 text-sm font-semibold transition-all"
-                :class="managePlanAction === 'cancel'
-                  ? 'bg-ember-500 hover:bg-ember-400 text-white'
-                  : 'bg-glow-500/15 hover:bg-glow-500/25 border border-glow-500/30 text-glow-400'"
-                @click="cancelPlanModal = false"
-              >
-                <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 0 1-2.25 2.25h-15a2.25 2.25 0 0 1-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0 0 19.5 4.5h-15a2.25 2.25 0 0 0-2.25 2.25m19.5 0v.243a2.25 2.25 0 0 1-1.07 1.916l-7.5 4.615a2.25 2.25 0 0 1-2.36 0L3.32 8.91a2.25 2.25 0 0 1-1.07-1.916V6.75"/>
+          <!-- ── Step: success ── -->
+          <template v-else-if="planStep === 'success'">
+            <div class="h-1 w-full bg-gradient-to-r from-lime-500 to-lime-400"></div>
+            <div class="p-6 text-center">
+              <div class="w-12 h-12 rounded-full bg-lime-500/15 border border-lime-500/25 flex items-center justify-center mx-auto mb-4">
+                <svg class="w-6 h-6 text-lime-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
                 </svg>
-                {{ managePlanAction === 'cancel' ? 'Request cancellation' : 'Request downgrade' }}
-              </a>
+              </div>
+              <template v-if="selectedPlan === 'CANCEL'">
+                <h3 class="text-base font-semibold mb-1">Cancellation requested</h3>
+                <p class="text-sm text-white/55 mb-5">We've received your request. Your access continues until the end of your billing period and we'll be in touch soon.</p>
+              </template>
+              <template v-else>
+                <h3 class="text-base font-semibold mb-1">Plan updated</h3>
+                <p class="text-sm text-white/55 mb-5">You're now on the <strong class="text-white/80">{{ currentPlanInfo.label }}</strong> plan.</p>
+              </template>
+              <button
+                @click="planModal = false"
+                class="w-full rounded-xl bg-white/8 hover:bg-white/12 border border-white/12 py-2.5 text-sm font-medium transition-all"
+              >
+                Done
+              </button>
             </div>
-          </div>
+          </template>
+
+          <!-- ── Step: error ── -->
+          <template v-else-if="planStep === 'error'">
+            <div class="h-1 w-full bg-gradient-to-r from-ember-500 to-ember-400"></div>
+            <div class="p-6 text-center">
+              <div class="w-12 h-12 rounded-full bg-ember-500/15 border border-ember-500/25 flex items-center justify-center mx-auto mb-4">
+                <svg class="w-6 h-6 text-ember-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z"/>
+                </svg>
+              </div>
+              <h3 class="text-base font-semibold mb-1">Something went wrong</h3>
+              <p class="text-sm text-white/55 mb-5">{{ planError }}</p>
+              <div class="flex gap-3">
+                <button @click="planStep = 'confirm'" class="flex-1 rounded-xl border border-white/15 bg-white/5 py-2.5 text-sm font-medium text-white/80 hover:bg-white/10 transition-all">Try again</button>
+                <a href="mailto:hello@metaflow.io" class="flex-1 flex items-center justify-center rounded-xl border border-white/15 bg-white/5 py-2.5 text-sm font-medium text-white/80 hover:bg-white/10 transition-all">Contact us</a>
+              </div>
+            </div>
+          </template>
+
         </div>
       </div>
     </Transition>
@@ -782,6 +930,16 @@ interface ConnRecord {
   provider: string;
   scopes: string;
   expiresAt: string | null;
+  updatedAt?: string;
+}
+
+function timeAgo(iso?: string | null): string {
+  if (!iso) return 'Never';
+  const ms = Date.now() - new Date(iso).getTime();
+  if (ms < 60_000) return 'Just now';
+  if (ms < 3_600_000) return `${Math.floor(ms / 60_000)}m ago`;
+  if (ms < 86_400_000) return `${Math.floor(ms / 3_600_000)}h ago`;
+  return `${Math.floor(ms / 86_400_000)}d ago`;
 }
 interface StoreRecord {
   id: string;
@@ -1016,6 +1174,7 @@ const adsIntegrations = computed(() => [
     label: 'Meta Ads',
     detail: 'Catalog performance · product sets · budget automation',
     connected: !!connectedMetaConn.value,
+    lastSynced: connectedMetaConn.value?.updatedAt ?? null,
     iconBg: 'rgba(24,119,242,0.12)',
     iconColor: '#1877F2',
     iconContent: '<path fill="#1877F2" d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>',
@@ -1146,35 +1305,186 @@ const storeUsagePercent = computed(() => {
   return (stores.value.length / max) * 100;
 });
 
-// ── Manage plan (downgrade / cancel) ──────────────────────────────────────────
-const cancelPlanModal = ref(false);
-const managePlanAction = ref<string>('cancel');
-
+// ── Plan change modal ──────────────────────────────────────────────────────────
 const PLAN_ORDER = ['STARTER', 'GROWTH', 'SCALE'] as const;
+const ALL_PLANS  = PLAN_ORDER.map(p => ({ name: p, ...PLAN_INFO[p] }));
 
-/** Plans the user can downgrade to (all tiers below the current one) */
-const downgradePlans = computed(() => {
-  const currentIdx = PLAN_ORDER.indexOf(currentPlanName.value as typeof PLAN_ORDER[number]);
-  if (currentIdx <= 0) return [];
-  return PLAN_ORDER.slice(0, currentIdx).map(p => ({ name: p, ...PLAN_INFO[p] }));
+const planModal    = ref(false);
+type PlanStep = 'pick' | 'confirm' | 'processing' | 'success' | 'error';
+const planStep     = ref<PlanStep>('pick');
+const selectedPlan = ref<string>('');
+const planError    = ref<string>('');
+
+const upgradeMailto = computed(() => {
+  const label = PLAN_INFO[selectedPlan.value]?.label ?? selectedPlan.value;
+  return `mailto:hello@metaflow.io?subject=Upgrade%20Request&body=Hi%2C%20I%27d%20like%20to%20upgrade%20to%20the%20MetaFlow%20${encodeURIComponent(label)}%20plan.`;
 });
 
-/** Pre-composed mailto URL based on the selected action */
-const managePlanMailto = computed(() => {
-  const from = encodeURIComponent(currentPlanInfo.value.label);
-  if (managePlanAction.value === 'cancel') {
-    return `mailto:hello@metaflow.io?subject=Cancel%20Plan&body=Hi%2C%20I%27d%20like%20to%20cancel%20my%20MetaFlow%20${from}%20plan.`;
-  }
-  const target = PLAN_INFO[managePlanAction.value];
-  const to = encodeURIComponent(target?.label ?? managePlanAction.value);
-  return `mailto:hello@metaflow.io?subject=Plan%20Downgrade%20Request&body=Hi%2C%20I%27d%20like%20to%20downgrade%20my%20MetaFlow%20plan%20from%20${from}%20to%20${to}.`;
-});
-
-function openManagePlan() {
-  // Default selection: first downgrade option if available, otherwise cancel
-  managePlanAction.value = downgradePlans.value[0]?.name ?? 'cancel';
-  cancelPlanModal.value = true;
+function openPlanModal() {
+  planStep.value     = 'pick';
+  selectedPlan.value = '';
+  planError.value    = '';
+  planModal.value    = true;
 }
+
+function selectPlan(name: string) {
+  selectedPlan.value = name;
+  planStep.value     = 'confirm';
+}
+
+async function confirmPlanChange() {
+  if (!selectedPlan.value) return;
+
+  // Upgrades go through Stripe Checkout
+  const isUpgrade = selectedPlan.value !== 'CANCEL' &&
+    PLAN_ORDER.indexOf(selectedPlan.value as any) > PLAN_ORDER.indexOf(currentPlanName.value as any);
+
+  if (isUpgrade) {
+    planStep.value = 'processing';
+    try {
+      const res = await $fetch<{ ok: boolean; url?: string }>(`${apiBase}/v1/billing/checkout`, {
+        method: 'POST',
+        credentials: 'include',
+        body: { plan: selectedPlan.value },
+      });
+      if (res?.ok && res.url) {
+        window.location.href = res.url;
+        return;
+      }
+      // Unexpected response without URL
+      planError.value = 'Unable to start checkout. Please try again.';
+      planStep.value = 'error';
+    } catch (e: any) {
+      // 503 = billing not configured — fall back to support email
+      if (e?.status === 503 || e?.statusCode === 503) {
+        window.location.href = upgradeMailto.value;
+        planModal.value = false;
+        return;
+      }
+      planError.value = e?.data?.message ?? 'Something went wrong. Please try again.';
+      planStep.value = 'error';
+    }
+    return;
+  }
+
+  // Downgrades and cancellations go through the existing settings/plan endpoint
+  planStep.value = 'processing';
+  try {
+    const res = await $fetch<{ ok: boolean; plan?: string }>(`${apiBase}/v1/settings/plan`, {
+      method: 'PATCH',
+      credentials: 'include',
+      body: { plan: selectedPlan.value },
+    });
+    if (selectedPlan.value !== 'CANCEL' && res.plan) {
+      planCookie.value = res.plan;
+    }
+    planStep.value = 'success';
+  } catch (e: any) {
+    planError.value = e?.data?.message ?? 'Something went wrong. Please try again.';
+    planStep.value  = 'error';
+  }
+}
+
+// ── Change Password ────────────────────────────────────────────────────────────
+const pwCurrent = ref('');
+const pwNew = ref('');
+const pwConfirm = ref('');
+const pwSaving = ref(false);
+const pwSuccess = ref(false);
+const pwError = ref('');
+
+async function changePassword() {
+  if (!pwCurrent.value || !pwNew.value || pwNew.value !== pwConfirm.value) return;
+  pwSaving.value = true;
+  pwSuccess.value = false;
+  pwError.value = '';
+  try {
+    await $fetch(`${apiBase}/v1/auth/password`, {
+      method: 'PATCH',
+      credentials: 'include',
+      body: { currentPassword: pwCurrent.value, newPassword: pwNew.value }
+    });
+    pwSuccess.value = true;
+    pwCurrent.value = '';
+    pwNew.value = '';
+    pwConfirm.value = '';
+    setTimeout(() => { pwSuccess.value = false; }, 3000);
+  } catch (e: any) {
+    pwError.value = e?.data?.message ?? 'Failed to update password';
+  } finally {
+    pwSaving.value = false;
+  }
+}
+
+// ── Team members ───────────────────────────────────────────────────────────────
+const inviteEmail = ref('');
+const inviteSending = ref(false);
+const inviteSuccess = ref('');
+const inviteError = ref('');
+const teamMembers = ref<any[]>([]);
+const pendingInvites = ref<any[]>([]);
+const teamLoading = ref(false);
+
+async function loadTeamMembers() {
+  if (!activeStoreId.value) return;
+  teamLoading.value = true;
+  try {
+    const res = await $fetch<any>(`${apiBase}/v1/teams/${activeStoreId.value}/members`, { credentials: 'include' });
+    if (res?.ok) {
+      teamMembers.value = res.members ?? [];
+      pendingInvites.value = res.invites ?? [];
+    }
+  } catch {} finally {
+    teamLoading.value = false;
+  }
+}
+
+async function sendInvite() {
+  if (!inviteEmail.value.trim() || !activeStoreId.value) return;
+  inviteSending.value = true;
+  inviteSuccess.value = '';
+  inviteError.value = '';
+  try {
+    await $fetch(`${apiBase}/v1/teams/${activeStoreId.value}/invite`, {
+      method: 'POST',
+      credentials: 'include',
+      body: { email: inviteEmail.value.trim() }
+    });
+    inviteSuccess.value = `Invite sent to ${inviteEmail.value}`;
+    inviteEmail.value = '';
+    await loadTeamMembers();
+    setTimeout(() => { inviteSuccess.value = ''; }, 3000);
+  } catch (e: any) {
+    inviteError.value = e?.data?.message ?? 'Failed to send invite';
+  } finally {
+    inviteSending.value = false;
+  }
+}
+
+async function removeMember(userId: string) {
+  if (!activeStoreId.value) return;
+  try {
+    await $fetch(`${apiBase}/v1/teams/${activeStoreId.value}/members/${userId}`, {
+      method: 'DELETE',
+      credentials: 'include'
+    });
+    await loadTeamMembers();
+  } catch {}
+}
+
+async function revokeInvite(inviteId: string) {
+  if (!activeStoreId.value) return;
+  try {
+    await $fetch(`${apiBase}/v1/teams/${activeStoreId.value}/invites/${inviteId}`, {
+      method: 'DELETE',
+      credentials: 'include'
+    });
+    await loadTeamMembers();
+  } catch {}
+}
+
+// Load team members when store changes
+watch(activeStoreId, (id) => { if (id) loadTeamMembers(); }, { immediate: true });
 
 // Danger zone modal
 const dangerModal = ref(false);

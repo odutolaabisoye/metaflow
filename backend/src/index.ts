@@ -22,6 +22,9 @@ import { settingsRoutes } from "./routes/settings.js";
 import { adminRoutes } from "./routes/admin.js";
 import { debugRoutes } from "./routes/debug.js";
 import { analyticsRoutes } from "./routes/analytics.js";
+import { stripeRoutes } from "./routes/stripe.js";
+import { teamRoutes } from "./routes/teams.js";
+import { shopifyAppRoutes } from "./routes/shopifyApp.js";
 
 const app = Fastify({
   logger: {
@@ -89,6 +92,11 @@ await app.register(settingsRoutes, { prefix: "/v1" });
 await app.register(adminRoutes, { prefix: "/v1" });
 await app.register(debugRoutes, { prefix: "/v1" });
 await app.register(analyticsRoutes, { prefix: "/v1" });
+await app.register(stripeRoutes, { prefix: "/v1" });
+await app.register(teamRoutes, { prefix: "/v1" });
+
+// Shopify App install flow — no /v1 prefix (URLs set in Shopify Partner Dashboard)
+await app.register(shopifyAppRoutes);
 
 const port = Number(app.config.PORT || 4000);
 

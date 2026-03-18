@@ -1,0 +1,334 @@
+{
+  "info": {
+    "name": "Meta Insights — Direct",
+    "_postman_id": "mf-meta-insights-direct-v1",
+    "description": "Pull raw insights directly from the Meta Graph API. No MetaFlow backend involved.\n\n**Quick start:**\n1. Set `META_TOKEN` to your Meta access token.\n2. Run **List Ad Accounts** → it will auto-set `AD_ACCOUNT_ID`.\n3. Run any insights request.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+
+  "variable": [
+    { "key": "META_TOKEN",    "value": "",                                    "description": "Meta long-lived access token" },
+    { "key": "AD_ACCOUNT_ID", "value": "act_",                               "description": "e.g. act_123456789 — auto-set by List Ad Accounts" },
+    { "key": "CATALOG_ID",    "value": "",                                    "description": "e.g. 987654321 — auto-set by List Catalogs" },
+    { "key": "GRAPH_BASE",    "value": "https://graph.facebook.com/v19.0",   "description": "Meta Graph API base" },
+    { "key": "DATE_SINCE",    "value": "",                                    "description": "Auto-set on every request" },
+    { "key": "DATE_UNTIL",    "value": "",                                    "description": "Auto-set on every request" }
+  ],
+
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "const now   = new Date();",
+          "const until = now.toISOString().slice(0,10);",
+          "const s30   = new Date(now - 30*86400000).toISOString().slice(0,10);",
+          "const s7    = new Date(now -  7*86400000).toISOString().slice(0,10);",
+          "pm.collectionVariables.set('DATE_SINCE',    s30);",
+          "pm.collectionVariables.set('DATE_UNTIL',    until);",
+          "pm.collectionVariables.set('TIME_RANGE',    JSON.stringify({ since: s30,  until }));",
+          "pm.collectionVariables.set('TIME_RANGE_7D', JSON.stringify({ since: s7,   until }));"
+        ]
+      }
+    }
+  ],
+
+  "item": [
+
+    {
+      "name": "1 — Validate Token (/me)",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{GRAPH_BASE}}/me?access_token={{META_TOKEN}}&fields=id,name",
+          "host": ["{{GRAPH_BASE}}"],
+          "path": ["me"],
+          "query": [
+            { "key": "access_token", "value": "{{META_TOKEN}}" },
+            { "key": "fields",       "value": "id,name" }
+          ]
+        },
+        "description": "Confirms the token is valid. Returns the Meta user id and name. OAuthException = expired or revoked."
+      },
+      "response": []
+    },
+
+    {
+      "name": "2 — Debug Token (scopes + expiry)",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{GRAPH_BASE}}/debug_token?input_token={{META_TOKEN}}&access_token={{META_TOKEN}}&fields=type,app_id,application,expires_at,is_valid,issued_at,scopes,user_id",
+          "host": ["{{GRAPH_BASE}}"],
+          "path": ["debug_token"],
+          "query": [
+            { "key": "input_token",  "value": "{{META_TOKEN}}" },
+            { "key": "access_token", "value": "{{META_TOKEN}}" },
+            { "key": "fields",       "value": "type,app_id,application,expires_at,is_valid,issued_at,scopes,user_id" }
+          ]
+        },
+        "description": "Shows token expiry, whether it's still valid, and the exact scopes granted. Check that `ads_read` and `read_insights` are in the scopes list."
+      },
+      "response": []
+    },
+
+    {
+      "name": "3 — List Ad Accounts",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "if (pm.response.code === 200) {",
+              "    const accounts = (pm.response.json().data || []);",
+              "    console.log('Ad accounts (' + accounts.length + '):');",
+              "    accounts.forEach(a => console.log(' • ' + a.id + '  ' + a.name + '  status=' + a.account_status + '  currency=' + a.currency));",
+              "    const current = pm.collectionVariables.get('AD_ACCOUNT_ID');",
+              "    if (accounts.length && (!current || current === 'act_')) {",
+              "        pm.collectionVariables.set('AD_ACCOUNT_ID', accounts[0].id);",
+              "        console.log('AD_ACCOUNT_ID auto-set to: ' + accounts[0].id);",
+              "    }",
+              "}"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{GRAPH_BASE}}/me/adaccounts?access_token={{META_TOKEN}}&fields=account_id,name,currency,timezone_name,account_status&limit=50",
+          "host": ["{{GRAPH_BASE}}"],
+          "path": ["me", "adaccounts"],
+          "query": [
+            { "key": "access_token", "value": "{{META_TOKEN}}" },
+            { "key": "fields",       "value": "account_id,name,currency,timezone_name,account_status" },
+            { "key": "limit",        "value": "50" }
+          ]
+        },
+        "description": "Lists every ad account the token can see. Auto-sets AD_ACCOUNT_ID to the first result if the variable is still the placeholder `act_`."
+      },
+      "response": []
+    },
+
+    {
+      "name": "4 — Account Info + Spend Cap",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{GRAPH_BASE}}/{{AD_ACCOUNT_ID}}?access_token={{META_TOKEN}}&fields=id,name,currency,timezone_name,account_status,spend_cap,amount_spent,balance",
+          "host": ["{{GRAPH_BASE}}"],
+          "path": ["{{AD_ACCOUNT_ID}}"],
+          "query": [
+            { "key": "access_token", "value": "{{META_TOKEN}}" },
+            { "key": "fields",       "value": "id,name,currency,timezone_name,account_status,spend_cap,amount_spent,balance" }
+          ]
+        },
+        "description": "Basic account details: currency, timezone, total amount spent, and any spend cap."
+      },
+      "response": []
+    },
+
+    {
+      "name": "5 — Insights: Account Level, last 30 days",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{GRAPH_BASE}}/{{AD_ACCOUNT_ID}}/insights?access_token={{META_TOKEN}}&time_range={{TIME_RANGE}}&fields=impressions,clicks,spend,ctr,purchase_roas,actions,action_values&level=account",
+          "host": ["{{GRAPH_BASE}}"],
+          "path": ["{{AD_ACCOUNT_ID}}", "insights"],
+          "query": [
+            { "key": "access_token", "value": "{{META_TOKEN}}" },
+            { "key": "time_range",   "value": "{{TIME_RANGE}}" },
+            { "key": "fields",       "value": "impressions,clicks,spend,ctr,purchase_roas,actions,action_values" },
+            { "key": "level",        "value": "account" }
+          ]
+        },
+        "description": "Total account-level spend, ROAS, and purchase values for the last 30 days. Use as a sanity check against what MetaFlow shows."
+      },
+      "response": []
+    },
+
+    {
+      "name": "6 — Insights: Campaign Level, last 30 days",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{GRAPH_BASE}}/{{AD_ACCOUNT_ID}}/insights?access_token={{META_TOKEN}}&time_range={{TIME_RANGE}}&fields=campaign_id,campaign_name,impressions,clicks,spend,ctr,purchase_roas,actions,action_values&level=campaign&limit=50",
+          "host": ["{{GRAPH_BASE}}"],
+          "path": ["{{AD_ACCOUNT_ID}}", "insights"],
+          "query": [
+            { "key": "access_token", "value": "{{META_TOKEN}}" },
+            { "key": "time_range",   "value": "{{TIME_RANGE}}" },
+            { "key": "fields",       "value": "campaign_id,campaign_name,impressions,clicks,spend,ctr,purchase_roas,actions,action_values" },
+            { "key": "level",        "value": "campaign" },
+            { "key": "limit",        "value": "50" }
+          ]
+        },
+        "description": "Per-campaign breakdown for the last 30 days. Check which campaigns are DPA (Dynamic Product Ads) — those will have catalog-linked ad sets."
+      },
+      "response": []
+    },
+
+    {
+      "name": "7 — Insights: Ad Level, last 30 days",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{GRAPH_BASE}}/{{AD_ACCOUNT_ID}}/insights?access_token={{META_TOKEN}}&level=ad&time_range={{TIME_RANGE}}&time_increment=1&fields=ad_id,ad_name,adset_id,adset_name,campaign_id,campaign_name,impressions,clicks,spend,ctr,purchase_roas,actions,action_values&limit=100",
+          "host": ["{{GRAPH_BASE}}"],
+          "path": ["{{AD_ACCOUNT_ID}}", "insights"],
+          "query": [
+            { "key": "access_token",   "value": "{{META_TOKEN}}" },
+            { "key": "level",          "value": "ad" },
+            { "key": "time_range",     "value": "{{TIME_RANGE}}" },
+            { "key": "time_increment", "value": "1" },
+            { "key": "fields",         "value": "ad_id,ad_name,adset_id,adset_name,campaign_id,campaign_name,impressions,clicks,spend,ctr,purchase_roas,actions,action_values" },
+            { "key": "limit",          "value": "100" }
+          ]
+        },
+        "description": "Daily ad-level insights — no product breakdown. `action_values` where action_type=purchase is the attributed revenue. `purchase_roas[0].value` is the ROAS."
+      },
+      "response": []
+    },
+
+    {
+      "name": "8 — Insights: Ad Level, last 7 days",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{GRAPH_BASE}}/{{AD_ACCOUNT_ID}}/insights?access_token={{META_TOKEN}}&level=ad&time_range={{TIME_RANGE_7D}}&time_increment=1&fields=ad_id,ad_name,adset_id,adset_name,impressions,clicks,spend,ctr,purchase_roas,actions,action_values&limit=100",
+          "host": ["{{GRAPH_BASE}}"],
+          "path": ["{{AD_ACCOUNT_ID}}", "insights"],
+          "query": [
+            { "key": "access_token",   "value": "{{META_TOKEN}}" },
+            { "key": "level",          "value": "ad" },
+            { "key": "time_range",     "value": "{{TIME_RANGE_7D}}" },
+            { "key": "time_increment", "value": "1" },
+            { "key": "fields",         "value": "ad_id,ad_name,adset_id,adset_name,impressions,clicks,spend,ctr,purchase_roas,actions,action_values" },
+            { "key": "limit",          "value": "100" }
+          ]
+        },
+        "description": "Same as #7 but the last 7 days only — faster response, good for quick checks."
+      },
+      "response": []
+    },
+
+    {
+      "name": "9 — Insights: Product Breakdown (DPA), last 30 days",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{GRAPH_BASE}}/{{AD_ACCOUNT_ID}}/insights?access_token={{META_TOKEN}}&level=ad&time_range={{TIME_RANGE}}&time_increment=1&breakdowns=product_id&fields=ad_id,ad_name,adset_id,impressions,clicks,spend,ctr,purchase_roas,actions,action_values&limit=500",
+          "host": ["{{GRAPH_BASE}}"],
+          "path": ["{{AD_ACCOUNT_ID}}", "insights"],
+          "query": [
+            { "key": "access_token",   "value": "{{META_TOKEN}}" },
+            { "key": "level",          "value": "ad" },
+            { "key": "time_range",     "value": "{{TIME_RANGE}}" },
+            { "key": "time_increment", "value": "1" },
+            { "key": "breakdowns",     "value": "product_id" },
+            { "key": "fields",         "value": "ad_id,ad_name,adset_id,impressions,clicks,spend,ctr,purchase_roas,actions,action_values" },
+            { "key": "limit",          "value": "500" }
+          ]
+        },
+        "description": "⭐ KEY REQUEST — per-product DPA insights with `product_id` breakdown.\n\nIf this returns rows with a `product_id` field, your campaigns are Dynamic Product Ads and MetaFlow can attribute spend per product.\n\nIf this returns empty data or rows WITHOUT `product_id`, the account is NOT running catalog ads — MetaFlow falls back to proportional distribution which causes inaccurate per-product numbers.\n\nThe `product_id` value should match the `retailer_id` in your product catalog."
+      },
+      "response": []
+    },
+
+    {
+      "name": "10 — Insights: Product Breakdown (DPA), last 7 days",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{GRAPH_BASE}}/{{AD_ACCOUNT_ID}}/insights?access_token={{META_TOKEN}}&level=ad&time_range={{TIME_RANGE_7D}}&time_increment=1&breakdowns=product_id&fields=ad_id,ad_name,adset_id,impressions,clicks,spend,ctr,purchase_roas,actions,action_values&limit=200",
+          "host": ["{{GRAPH_BASE}}"],
+          "path": ["{{AD_ACCOUNT_ID}}", "insights"],
+          "query": [
+            { "key": "access_token",   "value": "{{META_TOKEN}}" },
+            { "key": "level",          "value": "ad" },
+            { "key": "time_range",     "value": "{{TIME_RANGE_7D}}" },
+            { "key": "time_increment", "value": "1" },
+            { "key": "breakdowns",     "value": "product_id" },
+            { "key": "fields",         "value": "ad_id,ad_name,adset_id,impressions,clicks,spend,ctr,purchase_roas,actions,action_values" },
+            { "key": "limit",          "value": "200" }
+          ]
+        },
+        "description": "Same as #9 but last 7 days. Faster — use this first to confirm product_id breakdown is present before pulling the full 30-day window."
+      },
+      "response": []
+    },
+
+    {
+      "name": "11 — List Catalogs linked to Account",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "if (pm.response.code === 200) {",
+              "    const cats = (pm.response.json().data || []);",
+              "    console.log('Catalogs (' + cats.length + '):');",
+              "    cats.forEach(c => console.log(' • ' + c.id + '  ' + c.name));",
+              "    if (cats.length) {",
+              "        pm.collectionVariables.set('CATALOG_ID', cats[0].id);",
+              "        console.log('CATALOG_ID auto-set to: ' + cats[0].id);",
+              "    }",
+              "}"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{GRAPH_BASE}}/{{AD_ACCOUNT_ID}}/product_catalogs?access_token={{META_TOKEN}}&fields=id,name&limit=50",
+          "host": ["{{GRAPH_BASE}}"],
+          "path": ["{{AD_ACCOUNT_ID}}", "product_catalogs"],
+          "query": [
+            { "key": "access_token", "value": "{{META_TOKEN}}" },
+            { "key": "fields",       "value": "id,name" },
+            { "key": "limit",        "value": "50" }
+          ]
+        },
+        "description": "Lists product catalogs linked to the ad account. Auto-sets CATALOG_ID to the first result."
+      },
+      "response": []
+    },
+
+    {
+      "name": "12 — List Catalog Products (first 50)",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{GRAPH_BASE}}/{{CATALOG_ID}}/products?access_token={{META_TOKEN}}&fields=id,retailer_id,name,price,availability,url&limit=50",
+          "host": ["{{GRAPH_BASE}}"],
+          "path": ["{{CATALOG_ID}}", "products"],
+          "query": [
+            { "key": "access_token", "value": "{{META_TOKEN}}" },
+            { "key": "fields",       "value": "id,retailer_id,name,price,availability,url" },
+            { "key": "limit",        "value": "50" }
+          ]
+        },
+        "description": "First 50 products in the catalog. Compare `retailer_id` values here against the `product_id` values in the DPA insights (requests #9/#10) — they must match for MetaFlow to attribute spend to the correct product."
+      },
+      "response": []
+    }
+
+  ]
+}

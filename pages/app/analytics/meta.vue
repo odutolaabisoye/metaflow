@@ -172,12 +172,12 @@
 
         <!-- Catalog Product Matching -->
         <div class="glass rounded-2xl overflow-hidden">
-          <button @click="showCatalog = !showCatalog" class="w-full flex items-center justify-between p-5 text-left">
-            <div class="flex items-center gap-3">
-              <div class="h-8 w-8 rounded-xl bg-glow-500/10 border border-glow-500/20 flex items-center justify-center">
+          <div class="w-full flex items-center justify-between p-5">
+            <button @click="showCatalog = !showCatalog" class="flex items-center gap-3 text-left flex-1 min-w-0">
+              <div class="h-8 w-8 rounded-xl bg-glow-500/10 border border-glow-500/20 flex items-center justify-center flex-shrink-0">
                 <svg class="w-4 h-4 text-glow-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M13.5 16.875h3.375m0 0h3.375m-3.375 0V13.5m0 3.375v3.375M6 10.5h2.25a2.25 2.25 0 0 0 2.25-2.25V6a2.25 2.25 0 0 0-2.25-2.25H6A2.25 2.25 0 0 0 3.75 6v2.25A2.25 2.25 0 0 0 6 10.5Zm0 9.75h2.25A2.25 2.25 0 0 0 10.5 18v-2.25a2.25 2.25 0 0 0-2.25-2.25H6a2.25 2.25 0 0 0-2.25 2.25V18A2.25 2.25 0 0 0 6 20.25Zm9.75-9.75H18a2.25 2.25 0 0 0 2.25-2.25V6A2.25 2.25 0 0 0 18 3.75h-2.25A2.25 2.25 0 0 0 13.5 6v2.25a2.25 2.25 0 0 0 2.25 2.25Z"/></svg>
               </div>
-              <div>
+              <div class="min-w-0">
                 <p class="text-sm font-semibold text-white">Catalog Product Matching</p>
                 <p class="text-xs text-white/50">
                   {{ totalCatalogProducts }} items ·
@@ -185,9 +185,19 @@
                   <span class="text-ember-400">{{ totalCatalogProducts - matchedCount }} unmatched</span>
                 </p>
               </div>
+            </button>
+            <div class="flex items-center gap-2 flex-shrink-0">
+              <button v-if="totalCatalogProducts > 0" @click.stop="exportMetaCsv" class="flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.04] px-3 py-1.5 text-xs font-medium text-white/70 hover:bg-white/[0.07] hover:text-white transition-all">
+                <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3"/>
+                </svg>
+                Export CSV
+              </button>
+              <button @click="showCatalog = !showCatalog" class="p-1">
+                <svg class="w-4 h-4 text-white/40 transition-transform duration-200" :class="showCatalog && 'rotate-180'" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5"/></svg>
+              </button>
             </div>
-            <svg class="w-4 h-4 text-white/40 transition-transform duration-200" :class="showCatalog && 'rotate-180'" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5"/></svg>
-          </button>
+          </div>
 
           <div v-if="showCatalog" class="border-t border-white/8">
             <div v-if="!data.meta?.catalogs?.length" class="p-5 text-sm text-white/40">
@@ -310,6 +320,38 @@ async function load() {
   } finally {
     loading.value = false;
   }
+}
+
+function exportMetaCsv() {
+  if (!data.value?.meta?.catalogs?.length) return;
+
+  const headers = ['Catalog ID', 'Matched', 'Meta Product Name', 'Retailer ID', 'DB Product Title', 'Match Method'];
+  const rows: string[][] = [];
+
+  for (const cat of data.value.meta.catalogs as any[]) {
+    if (cat.error || !cat.products?.length) continue;
+    for (const item of cat.products) {
+      rows.push([
+        cat.catalogId ?? '',
+        item.matchedProductId ? 'Yes' : 'No',
+        `"${(item.name ?? '').replace(/"/g, '""')}"`,
+        `"${(item.retailer_id ?? '').replace(/"/g, '""')}"`,
+        `"${(item.matchedProductTitle ?? '').replace(/"/g, '""')}"`,
+        item.matchMethod ?? '',
+      ]);
+    }
+  }
+
+  if (!rows.length) return;
+
+  const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `metaflow-catalog-matching-${new Date().toISOString().split('T')[0]}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 watch(storeId, (id) => {

@@ -204,4 +204,34 @@ export async function authRoutes(app: FastifyInstance) {
 
     return reply.send({ ok: true });
   });
+
+  app.patch("/auth/password", async (request, reply) => {
+    try {
+      const payload = await request.jwtVerify<{ sub: string }>();
+      const body = request.body as { currentPassword?: string; newPassword?: string };
+
+      if (!body?.currentPassword || !body?.newPassword) {
+        return reply.code(400).send({ ok: false, message: "currentPassword and newPassword are required" });
+      }
+
+      if (body.newPassword.length < 8) {
+        return reply.code(400).send({ ok: false, message: "New password must be at least 8 characters" });
+      }
+
+      const user = await app.prisma.user.findUnique({ where: { id: payload.sub } });
+      if (!user) return reply.code(404).send({ ok: false, message: "User not found" });
+
+      const isValid = await bcrypt.compare(body.currentPassword, user.passwordHash);
+      if (!isValid) {
+        return reply.code(401).send({ ok: false, message: "Current password is incorrect" });
+      }
+
+      const passwordHash = await bcrypt.hash(body.newPassword, 10);
+      await app.prisma.user.update({ where: { id: payload.sub }, data: { passwordHash } });
+
+      return reply.send({ ok: true });
+    } catch {
+      return reply.code(401).send({ ok: false, message: "Unauthorized" });
+    }
+  });
 }

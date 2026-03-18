@@ -25,7 +25,8 @@
     "fastify-plugin": "^5.0.1",
     "ioredis": "^5.4.1",
     "nodemailer": "^6.9.14",
-    "pino": "^9.6.0"
+    "pino": "^9.6.0",
+    "stripe": "^20.4.1"
   },
   "devDependencies": {
     "@types/node": "^20.11.30",
