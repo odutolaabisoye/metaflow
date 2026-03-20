@@ -1,21 +1,28 @@
 <template>
   <div class="performance-chart">
-    <!-- Tab switcher -->
-    <div class="flex items-center gap-1 mb-3">
+
+    <!-- Toggle pills — click to show/hide individual lines -->
+    <div class="flex items-center gap-1 mb-2 flex-wrap">
       <button
-        v-for="tab in TABS"
-        :key="tab.key"
-        @click="activeTab = tab.key"
+        v-for="line in LINES"
+        :key="line.key"
+        @click="toggleLine(line.key)"
         class="flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium transition-all duration-150"
-        :class="activeTab === tab.key
+        :class="activeLines.has(line.key)
           ? 'bg-white/10 text-white'
-          : 'text-white/65 hover:text-white/65 hover:bg-white/5'"
+          : 'text-white/35 hover:text-white/55 hover:bg-white/5'"
+        :title="line.hint"
       >
-        <span class="h-1.5 w-1.5 rounded-full" :class="tab.dot"></span>
-        {{ tab.label }}
+        <span
+          class="h-1.5 w-1.5 rounded-full transition-colors"
+          :style="activeLines.has(line.key)
+            ? { background: line.color }
+            : { background: 'rgba(255,255,255,0.2)' }"
+        ></span>
+        {{ line.label }}
       </button>
 
-      <!-- Range pills — only shown when range is wide enough to zoom into -->
+      <!-- Zoom pills -->
       <div v-if="showRangePills" class="ml-auto flex gap-0.5">
         <button
           v-for="r in visibleRanges"
@@ -27,12 +34,59 @@
       </div>
     </div>
 
-    <!-- Chart area -->
+    <!-- ── Values bar ───────────────────────────────────────────────────────────
+         Shows date + all active metric values at the hovered/pinned point.
+         Replaces a floating tooltip — never gets clipped by overflow.
+         Click any point on the chart to pin; click again or press Esc to unpin.
+    -->
+    <div class="mb-2 h-[38px] flex items-center">
+      <Transition name="valbar">
+        <div
+          v-if="activeIdx >= 0 && slicedData.length > 0"
+          key="active"
+          class="w-full flex items-center gap-3 rounded-lg bg-white/[0.04] border border-white/8 px-3 py-1.5"
+        >
+          <!-- Date -->
+          <span class="text-[10px] font-mono text-white/45 shrink-0">
+            {{ slicedData[activeIdx]?.dateLabel }}
+          </span>
+          <!-- Divider -->
+          <span class="h-3 w-px bg-white/10 shrink-0"></span>
+          <!-- One value per active line -->
+          <div class="flex items-center gap-3 flex-1 flex-wrap">
+            <div
+              v-for="lp in linePoints"
+              :key="'val-' + lp.key"
+              class="flex items-center gap-1.5"
+            >
+              <span class="h-1.5 w-1.5 rounded-full shrink-0" :style="{ background: lp.color }"></span>
+              <span class="text-[11px] font-mono font-semibold" :style="{ color: lp.color }">
+                {{ formatVal(activeIdx, lp.key, lp.unit) }}
+              </span>
+            </div>
+          </div>
+          <!-- Pin indicator -->
+          <span
+            v-if="pinnedIdx >= 0"
+            class="text-[9px] text-white/30 shrink-0 cursor-pointer hover:text-white/60 transition-colors"
+            @click.stop="pinnedIdx = -1"
+            title="Click to unpin"
+          >✕ unpin</span>
+        </div>
+        <!-- Placeholder so the bar height is reserved even when idle -->
+        <div v-else key="idle" class="w-full flex items-center px-3 py-1.5">
+          <span class="text-[10px] text-white/20">Hover or click the chart to inspect a date</span>
+        </div>
+      </Transition>
+    </div>
+
+    <!-- Chart area — hover updates values bar, click pins it -->
     <div
-      class="relative select-none"
+      class="relative select-none cursor-crosshair"
       ref="chartEl"
       @mousemove="onMouseMove"
-      @mouseleave="hoveredIdx = -1"
+      @mouseleave="onMouseLeave"
+      @click="onClick"
     >
       <svg
         :viewBox="`0 0 ${W} ${H}`"
@@ -41,13 +95,18 @@
         :style="{ height: H + 'px' }"
       >
         <defs>
-          <linearGradient :id="gradId" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" :stop-color="activeColor" :stop-opacity="0.22" />
-            <stop offset="100%" :stop-color="activeColor" stop-opacity="0" />
+          <linearGradient
+            v-for="line in activeLineConfigs"
+            :key="'grad-' + line.key"
+            :id="gradId(line.key)"
+            x1="0" y1="0" x2="0" y2="1"
+          >
+            <stop offset="0%"   :stop-color="line.color" :stop-opacity="singleLineActive ? 0.20 : 0.08" />
+            <stop offset="100%" :stop-color="line.color" stop-opacity="0" />
           </linearGradient>
         </defs>
 
-        <!-- Horizontal grid lines -->
+        <!-- Grid lines -->
         <line
           v-for="(_, i) in 4"
           :key="i"
@@ -59,52 +118,59 @@
           stroke-width="1"
         />
 
-        <!-- Area fill -->
+        <!-- Area fill — only when single line -->
         <path
-          v-if="slicedPoints.length > 1"
-          :d="areaPath"
-          :fill="`url(#${gradId})`"
+          v-if="singleLineActive && linePoints[0]?.points.length > 1"
+          :d="areaPath(linePoints[0].points)"
+          :fill="`url(#${gradId(linePoints[0].key)})`"
         />
 
-        <!-- Line -->
-        <path
-          v-if="slicedPoints.length > 1"
-          :d="linePath"
-          fill="none"
-          :stroke="activeColor"
-          stroke-width="1.75"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-        />
-
-        <!-- Single-point dot (when range is "today" / one day) -->
-        <circle
-          v-if="slicedPoints.length === 1"
-          :cx="slicedPoints[0].x"
-          :cy="slicedPoints[0].y"
-          r="4"
-          :fill="activeColor"
-        />
-
-        <!-- Hover crosshair -->
-        <template v-if="hoveredIdx >= 0 && hoveredIdx < slicedPoints.length">
-          <line
-            :x1="slicedPoints[hoveredIdx].x"
-            :y1="PAD_T"
-            :x2="slicedPoints[hoveredIdx].x"
-            :y2="PAD_T + chartH"
-            stroke="rgba(255,255,255,0.12)"
-            stroke-width="1"
-            stroke-dasharray="3 3"
+        <!-- Lines -->
+        <template v-for="lp in linePoints" :key="'line-' + lp.key">
+          <path
+            v-if="lp.points.length > 1"
+            :d="smoothPath(lp.points)"
+            fill="none"
+            :stroke="lp.color"
+            :stroke-width="singleLineActive ? 1.75 : 1.5"
+            stroke-linecap="round"
+            stroke-linejoin="round"
           />
           <circle
-            :cx="slicedPoints[hoveredIdx].x"
-            :cy="slicedPoints[hoveredIdx].y"
+            v-if="lp.points.length === 1"
+            :cx="lp.points[0].x"
+            :cy="lp.points[0].y"
             r="4"
-            :fill="activeColor"
-            stroke="#0e121a"
-            stroke-width="2"
+            :fill="lp.color"
           />
+        </template>
+
+        <!-- Crosshair + dots at active index -->
+        <template v-if="activeIdx >= 0 && activeIdx < slicedData.length">
+          <!-- Vertical crosshair line -->
+          <line
+            :x1="hoverX"
+            :y1="PAD_T"
+            :x2="hoverX"
+            :y2="PAD_T + chartH"
+            :stroke="pinnedIdx >= 0 ? 'rgba(255,255,255,0.22)' : 'rgba(255,255,255,0.12)'"
+            stroke-width="1"
+            :stroke-dasharray="pinnedIdx >= 0 ? '' : '3 3'"
+          />
+          <!-- Dot per line at the active point — v-for and v-if on SEPARATE elements
+               (Vue 3: v-if has higher priority than v-for on the same element,
+               so lp would be undefined when v-if is evaluated — split them) -->
+          <template v-for="lp in linePoints" :key="'dot-' + lp.key">
+            <circle
+              v-if="activeIdx < lp.points.length"
+              :cx="lp.points[activeIdx].x"
+              :cy="lp.points[activeIdx].y"
+              :r="pinnedIdx >= 0 ? 4.5 : 3.5"
+              :fill="lp.color"
+              stroke="#0e121a"
+              :stroke-width="pinnedIdx >= 0 ? 2.5 : 2"
+            />
+          </template>
         </template>
 
         <!-- X-axis date labels -->
@@ -120,76 +186,131 @@
         >{{ label.text }}</text>
       </svg>
 
-      <!-- Y-axis value range (right-aligned, absolute) -->
-      <div class="absolute right-0 top-0 flex flex-col justify-between pointer-events-none" :style="{ height: (PAD_T + chartH) + 'px', top: PAD_T + 'px' }">
-        <span class="text-[9px] font-mono text-white/50 leading-none">{{ formatY(yMax) }}</span>
-        <span class="text-[9px] font-mono text-white/50 leading-none">{{ formatY(yMid) }}</span>
-        <span class="text-[9px] font-mono text-white/50 leading-none">{{ formatY(yMin) }}</span>
+      <!-- Y-axis value labels (right side, absolute) -->
+      <div
+        class="absolute right-0 top-0 flex flex-col justify-between pointer-events-none"
+        :style="{ height: (PAD_T + chartH) + 'px', top: PAD_T + 'px' }"
+      >
+        <span class="text-[9px] font-mono text-white/40 leading-none">{{ formatY(yScale.max) }}</span>
+        <span class="text-[9px] font-mono text-white/40 leading-none">{{ formatY(yScale.mid) }}</span>
+        <span class="text-[9px] font-mono text-white/40 leading-none">{{ formatY(yScale.min) }}</span>
       </div>
-
-      <!-- Hover tooltip -->
-      <Transition name="chart-tip">
-        <div
-          v-if="hoveredIdx >= 0 && hoveredIdx < slicedPoints.length"
-          class="absolute z-10 pointer-events-none px-2.5 py-1.5 rounded-lg bg-ink-900 border border-white/12 shadow-xl text-xs"
-          :style="tooltipStyle"
-        >
-          <p class="text-white/70 mb-0.5 font-mono">{{ slicedData[hoveredIdx]?.dateLabel }}</p>
-          <p class="font-semibold" :class="activeColorClass">{{ tooltipValue }}</p>
-        </div>
-      </Transition>
     </div>
+
+    <!-- Mixed-unit notice — shown when money + ROAS lines are both active -->
+    <p v-if="mixedUnits" class="mt-1 text-[9px] text-white/30 text-center">
+      Lines normalised to their own range when mixing revenue + ROAS scales
+    </p>
+
   </div>
 </template>
 
 <script setup lang="ts">
+import { ref, computed, watch, getCurrentInstance } from 'vue'
+import { useEventListener } from '@vueuse/core'
+
 export interface HistoryPoint {
-  date: string       // ISO "YYYY-MM-DD" or "YYYY-MM-DDTHH:mm:ss.sssZ"
-  revenue: number
-  roas: number
+  date: string
+  revenue: number       // WooCommerce store revenue
+  metaRevenue: number   // Meta omni_purchase-attributed revenue
+  blendedRoas: number   // store revenue / Meta spend
+  roas: number          // Meta ROAS (kept for compat)
   spend: number
 }
 
+type LineKey  = 'revenue' | 'metaRevenue' | 'blendedRoas' | 'spend'
+type LineUnit = 'money' | 'roas'
+
+interface LineConfig {
+  key:   LineKey
+  label: string
+  color: string
+  unit:  LineUnit
+  hint:  string
+}
+
+const LINES: LineConfig[] = [
+  {
+    key:   'revenue',
+    label: 'Store Rev',
+    color: '#a3e635',
+    unit:  'money',
+    hint:  'Actual WooCommerce revenue for this product',
+  },
+  {
+    key:   'metaRevenue',
+    label: 'Meta Rev',
+    color: '#38bdf8',
+    unit:  'money',
+    hint:  'Revenue Meta attributes via omni_purchase (their attribution model)',
+  },
+  {
+    key:   'blendedRoas',
+    label: 'ROAS',
+    color: '#fbbf24',
+    unit:  'roas',
+    hint:  'Blended ROAS = store revenue ÷ ad spend (most honest metric)',
+  },
+  {
+    key:   'spend',
+    label: 'Spend',
+    color: '#fb923c',
+    unit:  'money',
+    hint:  'Meta ad spend for this product',
+  },
+]
+
 const props = defineProps<{
-  data: HistoryPoint[]
-  currency?: string
-  /** ISO date string (YYYY-MM-DD) — filter chart to start from this date */
+  data:        HistoryPoint[]
+  currency?:   string
   rangeStart?: string
-  /** ISO date string (YYYY-MM-DD) — filter chart to end at this date */
-  rangeEnd?: string
+  rangeEnd?:   string
 }>()
 
-const emit = defineEmits<{
-  rangeChange: [range: string]
-}>()
+const emit = defineEmits<{ rangeChange: [range: string] }>()
 
 // ─── Chart geometry ───────────────────────────────────────────────────────────
-const W = 432
-const H = 156
-const PAD_T = 8
-const PAD_B = 22
-const PAD_L = 4
-const PAD_R = 40  // room for y-axis labels
+const W      = 432
+const H      = 156
+const PAD_T  = 8
+const PAD_B  = 22
+const PAD_L  = 4
+const PAD_R  = 40
 const chartH = H - PAD_T - PAD_B
 const chartW = W - PAD_L - PAD_R
 
-const TABS = [
-  { key: 'revenue', label: 'Revenue', dot: 'bg-lime-400' },
-  { key: 'roas',    label: 'ROAS',    dot: 'bg-amber-400' },
-  { key: 'spend',   label: 'Spend',   dot: 'bg-orange-400' },
-] as const
+// ─── Active lines (multi-select, min 1) ──────────────────────────────────────
+const activeLines = ref<Set<LineKey>>(new Set(['revenue', 'metaRevenue']))
 
+function toggleLine(key: LineKey) {
+  const next = new Set(activeLines.value)
+  if (next.has(key)) {
+    if (next.size > 1) next.delete(key)
+  } else {
+    next.add(key)
+  }
+  activeLines.value = next
+}
+
+const activeLineConfigs = computed(() => LINES.filter(l => activeLines.value.has(l.key)))
+const singleLineActive  = computed(() => activeLines.value.size === 1)
+
+// ─── Hover + click (pin) state ────────────────────────────────────────────────
+const hoveredIdx = ref(-1)  // follows mouse
+const pinnedIdx  = ref(-1)  // locked by click until dismissed
+
+// What we actually display — pinned takes priority over hovered
+const activeIdx = computed(() =>
+  pinnedIdx.value >= 0 ? pinnedIdx.value : hoveredIdx.value
+)
+
+// ─── Range pills ──────────────────────────────────────────────────────────────
 const RANGES = ['7D', '14D', '30D'] as const
 type RangeKey = (typeof RANGES)[number]
-type TabKey = (typeof TABS)[number]['key']
 
-const activeTab   = ref<TabKey>('revenue')
 const activeRange = ref<RangeKey>('30D')
-const hoveredIdx  = ref(-1)
 const chartEl     = ref<HTMLDivElement | null>(null)
 
-// ─── Range width from parent props ────────────────────────────────────────────
-/** Number of calendar days in the global date range. */
 const rangeDays = computed(() => {
   if (!props.rangeStart || !props.rangeEnd) return 30
   const s = new Date(props.rangeStart + 'T00:00:00')
@@ -197,86 +318,70 @@ const rangeDays = computed(() => {
   return Math.max(1, Math.round((e.getTime() - s.getTime()) / 86_400_000) + 1)
 })
 
-/**
- * Zoom pills are only meaningful when the range is wide enough to zoom.
- * For today/yesterday/7d, hiding pills avoids confusing "7D inside 1 day" UX.
- */
 const showRangePills = computed(() => rangeDays.value > 14)
-
-/** Only show zoom pills narrower than the current global range. */
-const visibleRanges = computed(() => {
+const visibleRanges  = computed(() => {
   const rd = rangeDays.value
-  return RANGES.filter(r => {
-    const d = r === '7D' ? 7 : r === '14D' ? 14 : 30
-    return d < rd
-  })
+  return RANGES.filter(r => (r === '7D' ? 7 : r === '14D' ? 14 : 30) < rd)
 })
 
-/** Auto-select the largest zoom pill that fits the global range. */
 watch(
   () => [props.rangeStart, props.rangeEnd],
   () => {
     const rd = rangeDays.value
-    if (rd <= 7)       activeRange.value = '7D'
-    else if (rd <= 14) activeRange.value = '14D'
-    else               activeRange.value = '30D'
+    activeRange.value = rd <= 7 ? '7D' : rd <= 14 ? '14D' : '30D'
+    pinnedIdx.value   = -1   // clear pin when date range changes
   },
   { immediate: true }
 )
 
+// Also clear pin when data changes (new product opened)
+watch(() => props.data, () => { pinnedIdx.value = -1 })
+
 function setRange(r: RangeKey) {
   activeRange.value = r
+  pinnedIdx.value   = -1
   emit('rangeChange', r)
 }
 
-// Currency locale map for native symbols (e.g. NGN → ₦)
+// ─── Currency helpers ─────────────────────────────────────────────────────────
 const CURRENCY_LOCALE: Record<string, string> = {
   NGN: 'en-NG', GBP: 'en-GB', EUR: 'de-DE', JPY: 'ja-JP',
   AUD: 'en-AU', CAD: 'en-CA', INR: 'en-IN', ZAR: 'en-ZA',
   GHS: 'en-GH', KES: 'sw-KE',
 }
-const activeCurrency  = computed(() => props.currency ?? 'USD')
-const currencyLocale  = computed(() => CURRENCY_LOCALE[activeCurrency.value] ?? 'en-US')
+const activeCurrency = computed(() => props.currency ?? 'USD')
+const currencyLocale = computed(() => CURRENCY_LOCALE[activeCurrency.value] ?? 'en-US')
 
-// Unique gradient ID per component instance (avoids collisions with multiple sidekick instances)
-const uid    = Math.random().toString(36).slice(2, 7)
-const gradId = computed(() => `pg-${uid}-${activeTab.value}`)
+const formatMoney = (v: number) => new Intl.NumberFormat(currencyLocale.value, {
+  style: 'currency', currency: activeCurrency.value, maximumFractionDigits: 0,
+}).format(v)
 
-// ─── Colors ───────────────────────────────────────────────────────────────────
-const activeColor = computed(() => {
-  if (activeTab.value === 'revenue') return '#a3e635'   // lime-400
-  if (activeTab.value === 'roas')    return '#fbbf24'   // amber-400
-  return '#fb923c'                                       // orange-400 (spend)
+const currencySymbol = computed(() => {
+  const parts = new Intl.NumberFormat(currencyLocale.value, {
+    style: 'currency', currency: activeCurrency.value,
+  }).formatToParts(0)
+  return parts.find(p => p.type === 'currency')?.value ?? ''
 })
 
-const activeColorClass = computed(() => {
-  if (activeTab.value === 'revenue') return 'text-lime-400'
-  if (activeTab.value === 'roas')    return 'text-amber-400'
-  return 'text-orange-400'
-})
+// SSR-safe unique ID per component instance.
+// getCurrentInstance().uid is a stable integer assigned by Vue at component creation
+// — the same value is used on both server and client for the same instance,
+// so SVG gradient IDs stay consistent across SSR hydration.
+const uid    = String(getCurrentInstance()?.uid ?? 'c')
+const gradId = (key: string) => `pg-${uid}-${key}`
 
 // ─── Date helpers ─────────────────────────────────────────────────────────────
-/** Extract YYYY-MM-DD from any date string (strips time/zone portion). */
-function toDateStr(d: string): string {
-  return d.slice(0, 10)
-}
+function toDateStr(d: string) { return d.slice(0, 10) }
 
-/** Format YYYY-MM-DD as "Mar 5" using local date (avoids UTC off-by-one). */
-function dateLabel(dateStr: string): string {
-  const s = toDateStr(dateStr)
-  const [y, m, d] = s.split('-').map(Number)
+function dateLabel(dateStr: string) {
+  const [y, m, d] = toDateStr(dateStr).split('-').map(Number)
   return new Date(y, m - 1, d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 }
 
 // ─── Data filtering ───────────────────────────────────────────────────────────
-/**
- * 1. Filter data to the parent-provided global date window (rangeStart…rangeEnd).
- * 2. Then apply the zoom pill (7D/14D/30D) if the window is wide enough.
- */
 const slicedData = computed<(HistoryPoint & { dateLabel: string })[]>(() => {
   let raw = [...props.data]
 
-  // Step 1: Date range filter (respects global date picker)
   if (props.rangeStart && props.rangeEnd) {
     raw = raw.filter(d => {
       const ds = toDateStr(d.date)
@@ -284,159 +389,167 @@ const slicedData = computed<(HistoryPoint & { dateLabel: string })[]>(() => {
     })
   }
 
-  // Step 2: Zoom pill — only applied when range is wider than the pill
   if (showRangePills.value) {
     const pillDays = activeRange.value === '7D' ? 7 : activeRange.value === '14D' ? 14 : 30
-    if (raw.length > pillDays) {
-      raw = raw.slice(-pillDays)
-    }
+    if (raw.length > pillDays) raw = raw.slice(-pillDays)
   }
 
   return raw.map(d => ({ ...d, dateLabel: dateLabel(d.date) }))
 })
 
-// ─── Numeric values for active tab ───────────────────────────────────────────
-const values = computed(() => slicedData.value.map(d => d[activeTab.value] as number))
+// ─── Y-axis scales ────────────────────────────────────────────────────────────
+const hasMoneyActive = computed(() =>
+  (['revenue', 'metaRevenue', 'spend'] as LineKey[]).some(k => activeLines.value.has(k))
+)
+const hasRoasActive = computed(() => activeLines.value.has('blendedRoas'))
+const mixedUnits    = computed(() => hasMoneyActive.value && hasRoasActive.value)
 
-const yMin = computed(() => {
-  const min = Math.min(...values.value)
-  return Math.max(0, min * 0.88)
+const moneyScale = computed(() => {
+  const keys = (['revenue', 'metaRevenue', 'spend'] as LineKey[]).filter(k => activeLines.value.has(k))
+  if (!keys.length || !slicedData.value.length) return { min: 0, max: 1, range: 1, mid: 0.5 }
+  // Guard: Math.min/max(...[]) = Infinity/-Infinity — filter to finite values
+  const all = slicedData.value.flatMap(d => keys.map(k => d[k] as number)).filter(v => isFinite(v))
+  if (!all.length) return { min: 0, max: 1, range: 1, mid: 0.5 }
+  const min = Math.max(0, Math.min(...all) * 0.88)
+  const max = Math.max(...all, 0) * 1.08 || 1
+  const range = max - min || 1
+  return { min, max, range, mid: (min + max) / 2 }
 })
-const yMax = computed(() => {
-  const max = Math.max(...values.value, 0)
-  return max * 1.08 || 1
-})
-const yMid   = computed(() => (yMin.value + yMax.value) / 2)
-const yRange = computed(() => yMax.value - yMin.value || 1)
 
-// ─── SVG point computation ────────────────────────────────────────────────────
-const slicedPoints = computed(() => {
-  const n = Math.max(values.value.length - 1, 1)
-  return values.value.map((v, i) => ({
-    x: PAD_L + (i / n) * chartW,
-    y: PAD_T + chartH - ((v - yMin.value) / yRange.value) * chartH,
+const roasScale = computed(() => {
+  if (!slicedData.value.length) return { min: 0, max: 1, range: 1, mid: 0.5 }
+  const vals = slicedData.value.map(d => d.blendedRoas).filter(v => isFinite(v))
+  if (!vals.length) return { min: 0, max: 1, range: 1, mid: 0.5 }
+  const min  = Math.max(0, Math.min(...vals) * 0.88)
+  const max  = Math.max(...vals, 0) * 1.08 || 1
+  const range = max - min || 1
+  return { min, max, range, mid: (min + max) / 2 }
+})
+
+const yScale = computed(() => hasMoneyActive.value ? moneyScale.value : roasScale.value)
+
+function getYPos(value: number, unit: LineUnit): number {
+  const scale = mixedUnits.value
+    ? (unit === 'money' ? moneyScale.value : roasScale.value)
+    : yScale.value
+  const clamped = Math.max(scale.min, Math.min(scale.max, value))
+  return PAD_T + chartH - ((clamped - scale.min) / scale.range) * chartH
+}
+
+// ─── SVG paths ────────────────────────────────────────────────────────────────
+const linePoints = computed(() =>
+  activeLineConfigs.value.map(cfg => ({
+    ...cfg,
+    points: slicedData.value.map((d, i) => ({
+      x: PAD_L + (i / Math.max(slicedData.value.length - 1, 1)) * chartW,
+      y: getYPos(d[cfg.key] as number, cfg.unit),
+    })),
   }))
-})
+)
 
-// Smooth bezier path using Catmull-Rom → Bezier conversion
+const hoverX = computed(() =>
+  linePoints.value[0]?.points[activeIdx.value]?.x ?? 0
+)
+
 function smoothPath(pts: { x: number; y: number }[]): string {
   if (pts.length < 2) return ''
-  if (pts.length === 2) {
-    return `M ${pts[0].x} ${pts[0].y} L ${pts[1].x} ${pts[1].y}`
-  }
-
+  if (pts.length === 2) return `M ${pts[0].x} ${pts[0].y} L ${pts[1].x} ${pts[1].y}`
   let d = `M ${pts[0].x} ${pts[0].y}`
   for (let i = 1; i < pts.length; i++) {
     const p0 = pts[i - 2] ?? pts[i - 1]
     const p1 = pts[i - 1]
     const p2 = pts[i]
     const p3 = pts[i + 1] ?? pts[i]
-
-    const cp1x = p1.x + (p2.x - p0.x) / 6
-    const cp1y = p1.y + (p2.y - p0.y) / 6
-    const cp2x = p2.x - (p3.x - p1.x) / 6
-    const cp2y = p2.y - (p3.y - p1.y) / 6
-
+    const cp1x = p1.x + (p2.x - p0.x) / 6, cp1y = p1.y + (p2.y - p0.y) / 6
+    const cp2x = p2.x - (p3.x - p1.x) / 6, cp2y = p2.y - (p3.y - p1.y) / 6
     d += ` C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${p2.x} ${p2.y}`
   }
   return d
 }
 
-const linePath = computed(() => smoothPath(slicedPoints.value))
-
-const areaPath = computed(() => {
-  if (slicedPoints.value.length < 2) return ''
+function areaPath(pts: { x: number; y: number }[]): string {
+  if (pts.length < 2) return ''
   const bottom = PAD_T + chartH
-  const last  = slicedPoints.value[slicedPoints.value.length - 1]
-  const first = slicedPoints.value[0]
-  return `${linePath.value} L ${last.x} ${bottom} L ${first.x} ${bottom} Z`
-})
+  return `${smoothPath(pts)} L ${pts.at(-1)!.x} ${bottom} L ${pts[0].x} ${bottom} Z`
+}
 
-// ─── X-axis labels (5 evenly spaced) ─────────────────────────────────────────
+// ─── X-axis labels ────────────────────────────────────────────────────────────
 const xLabels = computed(() => {
-  const data = slicedData.value
+  const data  = slicedData.value
   if (data.length < 2) return []
   const count = Math.min(5, data.length)
   return Array.from({ length: count }, (_, i) => {
     const idx = Math.round((i / (count - 1)) * (data.length - 1))
     return {
       idx,
-      x: PAD_L + (idx / Math.max(data.length - 1, 1)) * chartW,
-      text: data[idx]?.dateLabel ?? ''
+      x:    PAD_L + (idx / Math.max(data.length - 1, 1)) * chartW,
+      text: data[idx]?.dateLabel ?? '',
     }
   })
 })
 
 // ─── Y-axis formatting ────────────────────────────────────────────────────────
-const formatMoney = (v: number) => new Intl.NumberFormat(currencyLocale.value, {
-  style: 'currency', currency: activeCurrency.value, maximumFractionDigits: 0
-}).format(v)
-
-// Extract just the currency symbol (e.g. "₦" for NGN, "$" for USD)
-const currencySymbol = computed(() => {
-  const parts = new Intl.NumberFormat(currencyLocale.value, {
-    style: 'currency', currency: activeCurrency.value
-  }).formatToParts(0)
-  return parts.find(p => p.type === 'currency')?.value ?? ''
-})
-
 const formatY = (v: number) => {
-  if (activeTab.value === 'roas') return `${v.toFixed(1)}×`
+  if (!hasMoneyActive.value && hasRoasActive.value) return `${v.toFixed(1)}×`
   const sym = currencySymbol.value
   if (v >= 1_000_000) return `${sym}${(v / 1_000_000).toFixed(1)}M`
   if (v >= 1_000)     return `${sym}${(v / 1_000).toFixed(0)}k`
   return `${sym}${Math.round(v)}`
 }
 
-// ─── Tooltip ──────────────────────────────────────────────────────────────────
-const tooltipValue = computed(() => {
-  if (hoveredIdx.value < 0 || hoveredIdx.value >= slicedData.value.length) return ''
-  const v = slicedData.value[hoveredIdx.value][activeTab.value] as number
-  if (activeTab.value === 'roas') return `${v.toFixed(2)}×`
+// ─── Values bar formatting ────────────────────────────────────────────────────
+function formatVal(idx: number, key: LineKey, unit: LineUnit): string {
+  if (idx < 0 || idx >= slicedData.value.length) return '—'
+  const v = slicedData.value[idx][key] as number
+  if (unit === 'roas') return `${v.toFixed(2)}×`
   return formatMoney(v)
-})
+}
 
-const tooltipStyle = computed(() => {
-  if (hoveredIdx.value < 0 || hoveredIdx.value >= slicedPoints.value.length) return {}
-  const pt   = slicedPoints.value[hoveredIdx.value]
-  const svgW = chartEl.value?.clientWidth ?? W
-  const scale = svgW / W
-  const px   = pt.x * scale
-  const py   = pt.y * scale
-  const tipW = 96
-  const left = Math.min(px - tipW / 2, svgW - tipW - 4)
-  return {
-    left: Math.max(0, left) + 'px',
-    top:  Math.max(0, py - 52) + 'px',
-  }
-})
-
-// ─── Mouse interaction ────────────────────────────────────────────────────────
-function onMouseMove(e: MouseEvent) {
-  if (!chartEl.value || slicedPoints.value.length === 0) return
+// ─── Mouse / touch interaction ────────────────────────────────────────────────
+function getIdxFromEvent(e: MouseEvent): number {
+  if (!chartEl.value || !linePoints.value.length || !slicedData.value.length) return -1
   const rect  = chartEl.value.getBoundingClientRect()
-  const svgW  = rect.width
-  const scale = svgW / W
-  const localX = e.clientX - rect.left
-  const svgX   = localX / scale
-
-  let closest = 0
-  let minDist = Infinity
-  slicedPoints.value.forEach((pt, i) => {
+  const scale = rect.width / W
+  const svgX  = (e.clientX - rect.left) / scale
+  const pts   = linePoints.value[0]?.points
+  if (!pts?.length) return -1
+  let closest = 0, minDist = Infinity
+  pts.forEach((pt, i) => {
     const dist = Math.abs(pt.x - svgX)
     if (dist < minDist) { minDist = dist; closest = i }
   })
-  hoveredIdx.value = closest
+  return closest
 }
+
+function onMouseMove(e: MouseEvent) {
+  hoveredIdx.value = getIdxFromEvent(e)
+}
+
+function onMouseLeave() {
+  hoveredIdx.value = -1
+  // Don't clear pinnedIdx — pinned persists until explicitly dismissed
+}
+
+function onClick(e: MouseEvent) {
+  const idx = getIdxFromEvent(e)
+  if (idx < 0) return
+  // Clicking the already-pinned index unpins; clicking a new index pins it
+  pinnedIdx.value = pinnedIdx.value === idx ? -1 : idx
+}
+
+// Escape key to unpin — useEventListener from @vueuse/core is SSR-safe (no window check needed)
+useEventListener('keydown', (e: KeyboardEvent) => {
+  if (e.key === 'Escape') pinnedIdx.value = -1
+})
 </script>
 
 <style scoped>
-.chart-tip-enter-active,
-.chart-tip-leave-active {
-  transition: opacity 0.1s ease;
+.valbar-enter-active,
+.valbar-leave-active {
+  transition: opacity 0.15s ease;
 }
-.chart-tip-enter-from,
-.chart-tip-leave-to {
+.valbar-enter-from,
+.valbar-leave-to {
   opacity: 0;
 }
 </style>

@@ -9,58 +9,90 @@ interface MailService {
  *
  * Computes a 0–100 composite score for each product based on 4 weighted factors:
  *
- *   ROAS      35% — return on ad spend (5x = full marks)
- *   CTR       20% — click-through rate (3% = full marks)
- *   Margin    25% — profit margin (50% = full marks)
- *   Inventory 20% — stock level (≥10 units = full marks)
+ *   ROAS      35% — return on ad spend  (benchmark: user-configurable, default 5x)
+ *   CTR       20% — click-through rate  (benchmark: user-configurable, default 3%)
+ *   Margin    25% — profit margin       (benchmark: user-configurable, default 50%)
+ *   Inventory 20% — stock level         (benchmark: user-configurable, default ≥10 units)
  *
- * Category thresholds:
- *   75–100 → SCALE   (increase budget, prioritize)
- *   50–74  → TEST    (maintain, watch closely)
- *   30–49  → RISK    (reduce spend, investigate)
- *   0–29   → KILL    (pause / cut budget entirely)
+ * Category thresholds (user-configurable, defaults):
+ *   ≥ thresholdScale (75) → SCALE   (increase budget, prioritize)
+ *   ≥ thresholdTest  (50) → TEST    (maintain, watch closely)
+ *   ≥ thresholdKill  (25) → RISK    (reduce spend, investigate)
+ *   <  thresholdKill (25) → KILL    (pause / cut budget entirely)
  */
 
 interface ScoringMetrics {
-  roas: number;         // e.g. 4.2
-  ctr: number;          // e.g. 0.025 (2.5%)
-  margin: number;       // e.g. 0.38 (38%)
+  roas: number;
+  ctr: number;
+  margin: number;
   inventoryLevel: number | null;
 }
 
-export function computeProductScore(metrics: ScoringMetrics): number {
-  // ROAS: 5x is benchmark (100%), cap at 1.0 multiplier
-  const roasScore = Math.min(metrics.roas / 5, 1) * 35;
+export interface ScoringBenchmarks {
+  roasBenchmark: number;
+  ctrBenchmark: number;
+  marginBenchmark: number;
+  inventoryBenchmark: number;
+}
 
-  // CTR: 3% is benchmark (100%)
-  const ctrScore = Math.min(metrics.ctr / 0.03, 1) * 20;
+export interface CategoryThresholds {
+  thresholdScale: number;
+  thresholdTest: number;
+  thresholdKill: number;
+}
 
-  // Margin: 50% is benchmark (100%)
-  const marginScore = Math.min(metrics.margin / 0.5, 1) * 25;
+export const DEFAULT_BENCHMARKS: ScoringBenchmarks = {
+  roasBenchmark: 5,
+  ctrBenchmark: 0.03,
+  marginBenchmark: 0.5,
+  inventoryBenchmark: 10,
+};
 
-  // Inventory: ≥10 units = full score; 0 units = 0 score; null = assume sufficient (50%)
+export const DEFAULT_THRESHOLDS: CategoryThresholds = {
+  thresholdScale: 75,
+  thresholdTest: 50,
+  thresholdKill: 25,
+};
+
+export function computeProductScore(
+  metrics: ScoringMetrics,
+  benchmarks: ScoringBenchmarks = DEFAULT_BENCHMARKS
+): number {
+  const { roasBenchmark, ctrBenchmark, marginBenchmark, inventoryBenchmark } = benchmarks;
+
+  // ROAS: benchmark = full marks (35pts)
+  const roasScore = Math.min(metrics.roas / roasBenchmark, 1) * 35;
+
+  // CTR: benchmark = full marks (20pts)
+  const ctrScore = Math.min(metrics.ctr / ctrBenchmark, 1) * 20;
+
+  // Margin: benchmark = full marks (25pts)
+  const marginScore = Math.min(metrics.margin / marginBenchmark, 1) * 25;
+
+  // Inventory: benchmark units = full marks (20pts); null = neutral (10pts)
   const inventory = metrics.inventoryLevel;
   const inventoryScore = inventory === null
-    ? 10                                      // unknown — neutral penalty
-    : inventory >= 10
+    ? 10
+    : inventory >= inventoryBenchmark
       ? 20
-      : (inventory / 10) * 20;
+      : (inventory / inventoryBenchmark) * 20;
 
   return Math.round(roasScore + ctrScore + marginScore + inventoryScore);
 }
 
-export function scoreToCategory(score: number): ProductCategory {
-  if (score >= 75) return "SCALE";
-  if (score >= 50) return "TEST";
-  if (score >= 30) return "RISK";
+export function scoreToCategory(
+  score: number,
+  thresholds: CategoryThresholds = DEFAULT_THRESHOLDS
+): ProductCategory {
+  const { thresholdScale, thresholdTest, thresholdKill } = thresholds;
+  if (score >= thresholdScale) return "SCALE";
+  if (score >= thresholdTest)  return "TEST";
+  if (score >= thresholdKill)  return "RISK";
   return "KILL";
 }
 
 /**
  * Variant for audit log styling
- * "secondary"   → SCALE (lime / good)
- * "destructive" → KILL  (ember / bad)
- * "default"     → TEST / RISK (glow / neutral)
  */
 function categoryToVariant(category: ProductCategory): string {
   if (category === "SCALE") return "secondary";
@@ -80,8 +112,10 @@ interface ScoringResult {
 /**
  * runScoringJob
  *
- * Scores every product in a store by examining its most-recent DailyMetric.
- * Any product whose score or category changes gets updated and an AuditLog entry written.
+ * Scores every product in a store using 30-day aggregated metrics.
+ * Uses a single batch groupBy query instead of N per-product queries.
+ * Writes pre-computed aggregates back to ProductMeta so the products
+ * page can read directly without re-aggregating DailyMetric on every request.
  */
 export async function runScoringJob(
   prisma: PrismaClient,
@@ -95,19 +129,86 @@ export async function runScoringJob(
     select: { ownerId: true }
   });
 
+  // Load user's custom benchmarks and thresholds up front
+  const userSettings = store?.ownerId
+    ? await prisma.userSettings.findUnique({
+        where: { userId: store.ownerId },
+        select: {
+          benchmarkRoas: true, benchmarkCtr: true,
+          benchmarkMargin: true, benchmarkInventory: true,
+          thresholdScale: true, thresholdTest: true, thresholdKill: true,
+          notifEmailReports: true,
+        },
+      })
+    : null;
+
+  // Load store-level benchmark overrides (take precedence over user-level settings)
+  const storeData = await prisma.store.findUnique({
+    where: { id: storeId },
+    select: {
+      benchmarkRoas: true, benchmarkCtr: true,
+      benchmarkMargin: true, benchmarkInventory: true,
+    }
+  });
+
+  const benchmarks: ScoringBenchmarks = {
+    roasBenchmark:      storeData?.benchmarkRoas      ?? userSettings?.benchmarkRoas      ?? DEFAULT_BENCHMARKS.roasBenchmark,
+    ctrBenchmark:       storeData?.benchmarkCtr       ?? userSettings?.benchmarkCtr       ?? DEFAULT_BENCHMARKS.ctrBenchmark,
+    marginBenchmark:    storeData?.benchmarkMargin     ?? userSettings?.benchmarkMargin    ?? DEFAULT_BENCHMARKS.marginBenchmark,
+    inventoryBenchmark: storeData?.benchmarkInventory  ?? userSettings?.benchmarkInventory ?? DEFAULT_BENCHMARKS.inventoryBenchmark,
+  };
+
+  const thresholds: CategoryThresholds = {
+    thresholdScale: userSettings?.thresholdScale ?? DEFAULT_THRESHOLDS.thresholdScale,
+    thresholdTest:  userSettings?.thresholdTest  ?? DEFAULT_THRESHOLDS.thresholdTest,
+    thresholdKill:  userSettings?.thresholdKill  ?? DEFAULT_THRESHOLDS.thresholdKill,
+  };
+
+  // Load products without DailyMetric include — aggregates fetched below in one query
   const products = await prisma.productMeta.findMany({
     where: { storeId },
-    include: {
-      dailyMetrics: {
-        orderBy: { date: "desc" },
-        take: 1
-      }
-    }
+    select: { id: true, title: true, category: true, score: true }
   });
 
   if (products.length === 0) {
     return { scored: 0, changed: 0, scaled: 0, killed: 0, tested: 0, risked: 0 };
   }
+
+  // Batch groupBy for 30-day AND 7-day aggregates — run in parallel.
+  const now30 = new Date();
+  const since30 = new Date(now30);
+  since30.setDate(since30.getDate() - 30);
+  since30.setHours(0, 0, 0, 0);
+
+  const since7 = new Date(now30);
+  since7.setDate(since7.getDate() - 7);
+  since7.setHours(0, 0, 0, 0);
+
+  const AGG_SUM_FIELDS = {
+    spend: true, revenue: true, metaRevenue: true,
+    impressions: true, clicks: true, conversions: true,
+    addToCart: true, addToCartOmni: true,
+    checkoutInitiated: true, checkoutInitiatedOmni: true,
+  } as const;
+
+  const [metrics30d, metrics7d] = await Promise.all([
+    prisma.dailyMetric.groupBy({
+      by: ["productId"],
+      where: { storeId, date: { gte: since30 } },
+      _sum: AGG_SUM_FIELDS,
+      _avg: { margin: true },
+      _max: { inventoryLevel: true },
+    }),
+    prisma.dailyMetric.groupBy({
+      by: ["productId"],
+      where: { storeId, date: { gte: since7 } },
+      _sum: AGG_SUM_FIELDS,
+    }),
+  ]);
+
+  const metricMap  = new Map(metrics30d.map(m => [m.productId, m]));
+  const metricMap7 = new Map(metrics7d.map(m => [m.productId, m]));
+  const computedAt = new Date();
 
   let changed = 0;
   let scaled = 0;
@@ -115,45 +216,83 @@ export async function runScoringJob(
   let tested = 0;
   let risked = 0;
 
-  // Process in batches to avoid overwhelming the DB
   const BATCH_SIZE = 50;
   for (let i = 0; i < products.length; i += BATCH_SIZE) {
     const batch = products.slice(i, i + BATCH_SIZE);
 
     await Promise.all(
       batch.map(async (product) => {
-        const metric = product.dailyMetrics[0];
+        const m  = metricMap.get(product.id);
+        const m7 = metricMap7.get(product.id);
 
-        if (!metric) return;
+        const spend30d       = m?._sum.spend        ?? 0;
+        const revenue30d     = m?._sum.revenue      ?? 0;
+        const metaRevenue30d = m?._sum.metaRevenue  ?? 0;
+        const impressions30d = m?._sum.impressions  ?? 0;
+        const clicks30d      = m?._sum.clicks       ?? 0;
+        const conversions30d = m?._sum.conversions  ?? 0;
+        const margin         = m?._avg.margin       ?? 0.35;
+        const inventoryLevel = m?._max.inventoryLevel ?? null;
+        const roas30d        = spend30d > 0 && metaRevenue30d > 0 ? metaRevenue30d / spend30d : 0;
+        const ctr30d         = impressions30d > 0 ? clicks30d / impressions30d : 0;
+        const addToCart30d           = m?._sum.addToCart        ?? 0;
+        const addToCartOmni30d       = m?._sum.addToCartOmni    ?? 0;
+        const checkoutInitiated30d   = m?._sum.checkoutInitiated    ?? 0;
+        const checkoutInitiatedOmni30d = m?._sum.checkoutInitiatedOmni ?? 0;
 
-        const newScore = computeProductScore({
-          roas: metric.roas,
-          ctr: metric.ctr,
-          margin: metric.margin,
-          inventoryLevel: metric.inventoryLevel
-        });
+        // 7-day aggregates
+        const spend7d       = m7?._sum.spend        ?? 0;
+        const revenue7d     = m7?._sum.revenue      ?? 0;
+        const metaRevenue7d = m7?._sum.metaRevenue  ?? 0;
+        const impressions7d = m7?._sum.impressions  ?? 0;
+        const clicks7d      = m7?._sum.clicks       ?? 0;
+        const conversions7d = m7?._sum.conversions  ?? 0;
+        const roas7d        = spend7d > 0 && metaRevenue7d > 0 ? metaRevenue7d / spend7d : 0;
+        const ctr7d         = impressions7d > 0 ? clicks7d / impressions7d : 0;
+        const addToCart7d            = m7?._sum.addToCart        ?? 0;
+        const addToCartOmni7d        = m7?._sum.addToCartOmni    ?? 0;
+        const checkoutInitiated7d    = m7?._sum.checkoutInitiated    ?? 0;
+        const checkoutInitiatedOmni7d = m7?._sum.checkoutInitiatedOmni ?? 0;
 
-        const newCategory = scoreToCategory(newScore);
+        const newScore = computeProductScore(
+          { roas: roas30d, ctr: ctr30d, margin, inventoryLevel },
+          benchmarks
+        );
+
+        const newCategory = scoreToCategory(newScore, thresholds);
         const oldCategory = product.category;
         const oldScore = product.score;
 
         const scoreShifted = Math.abs(newScore - oldScore) >= 2;
         const categoryChanged = newCategory !== oldCategory;
 
-        if (!scoreShifted && !categoryChanged) return;
-
-        // Update product score + category
         await prisma.productMeta.update({
           where: { id: product.id },
-          data: { score: newScore, category: newCategory }
+          data: {
+            spend30d, revenue30d, metaRevenue30d,
+            impressions30d, clicks30d, conversions30d,
+            roas30d, ctr30d, margin, inventoryLevel,
+            addToCart30d, addToCartOmni30d,
+            checkoutInitiated30d, checkoutInitiatedOmni30d,
+            spend7d, revenue7d, metaRevenue7d,
+            impressions7d, clicks7d, conversions7d,
+            roas7d, ctr7d,
+            addToCart7d, addToCartOmni7d,
+            checkoutInitiated7d, checkoutInitiatedOmni7d,
+            metricsComputedAt: computedAt,
+            ...(scoreShifted || categoryChanged
+              ? { score: newScore, category: newCategory }
+              : {}),
+          }
         });
 
-        // Save score history snapshot
+        if (!scoreShifted && !categoryChanged) return;
+
         await prisma.productScoreHistory.upsert({
           where: {
             productId_date: {
               productId: product.id,
-              date: new Date(new Date().toISOString().split('T')[0]) // date only, no time
+              date: new Date(new Date().toISOString().split('T')[0])
             }
           },
           update: { score: newScore, category: newCategory },
@@ -168,7 +307,6 @@ export async function runScoringJob(
 
         changed++;
 
-        // Write an audit log entry for category transitions
         if (categoryChanged) {
           const actionLabel = newCategory === "SCALE"
             ? "Budget Scaled"
@@ -197,11 +335,7 @@ export async function runScoringJob(
 
           // Send score alert email if notifications are enabled
           try {
-            const settings = await prisma.userSettings.findUnique({
-              where: { userId: store?.ownerId ?? "" },
-              select: { notifEmailReports: true }
-            });
-            if (settings?.notifEmailReports && (newCategory === "KILL" || newCategory === "SCALE")) {
+            if (userSettings?.notifEmailReports && (newCategory === "KILL" || newCategory === "SCALE")) {
               const owner = await prisma.user.findUnique({
                 where: { id: store?.ownerId ?? "" },
                 select: { email: true, name: true }
@@ -228,12 +362,5 @@ export async function runScoringJob(
     );
   }
 
-  return {
-    scored: products.length,
-    changed,
-    scaled,
-    killed,
-    tested,
-    risked
-  };
+  return { scored: products.length, changed, scaled, killed, tested, risked };
 }

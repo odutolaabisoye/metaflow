@@ -24,7 +24,9 @@
         class="rounded-2xl border border-white/10 bg-white/[0.04] p-5 hover:bg-white/[0.06] transition-colors cursor-default"
       >
         <div class="flex items-start justify-between mb-3">
-          <p class="text-xs text-white/80 font-medium">{{ stat.label }}</p>
+          <p class="text-xs text-white/80 font-medium">
+            <MetricTooltip :metric="stat.metric">{{ stat.label }}</MetricTooltip>
+          </p>
           <div class="h-7 w-7 rounded-lg flex items-center justify-center flex-shrink-0" :style="{ background: stat.iconBg }">
             <svg class="w-3.5 h-3.5" :style="{ color: stat.iconColor }" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5" v-html="stat.icon"></svg>
           </div>
@@ -89,7 +91,10 @@
           </div>
           <div class="mt-5 grid grid-cols-3 gap-3 border-t border-white/8 pt-5">
             <div v-for="a in attributionRows" :key="a.label" class="text-center">
-              <p class="text-xs text-white/75 mb-1">{{ a.label }}</p>
+              <p class="text-xs text-white/75 mb-1">
+                <MetricTooltip v-if="a.metric" :metric="a.metric">{{ a.label }}</MetricTooltip>
+                <template v-else>{{ a.label }}</template>
+              </p>
               <p class="text-base font-semibold">{{ a.value }}</p>
             </div>
           </div>
@@ -311,10 +316,25 @@ interface RoiData {
 const roi = ref<RoiData | null>(null);
 const roiLoading = ref(true);
 
+const CURRENCY_LOCALE: Record<string, string> = {
+  NGN: 'en-NG', GBP: 'en-GB', EUR: 'de-DE', JPY: 'ja-JP',
+  AUD: 'en-AU', CAD: 'en-CA', INR: 'en-IN', ZAR: 'en-ZA',
+  GHS: 'en-GH', KES: 'sw-KE', EGP: 'ar-EG', MAD: 'ar-MA',
+};
 function formatCurrency(val: number): string {
-  if (val >= 1_000_000) return `$${(val / 1_000_000).toFixed(1)}M`;
-  if (val >= 1_000)     return `$${(val / 1_000).toFixed(1)}K`;
-  return `$${val.toLocaleString()}`;
+  const cur = (data.value as any)?.currency ?? 'USD';
+  const locale = CURRENCY_LOCALE[cur] ?? 'en-US';
+  try {
+    if (val >= 1_000_000) {
+      return new Intl.NumberFormat(locale, { style: 'currency', currency: cur, notation: 'compact', maximumFractionDigits: 1 }).format(val);
+    }
+    if (val >= 1_000) {
+      return new Intl.NumberFormat(locale, { style: 'currency', currency: cur, notation: 'compact', maximumFractionDigits: 1 }).format(val);
+    }
+    return new Intl.NumberFormat(locale, { style: 'currency', currency: cur, maximumFractionDigits: 0 }).format(val);
+  } catch {
+    return `$${val.toLocaleString()}`;
+  }
 }
 
 async function fetchRoi() {
@@ -369,10 +389,10 @@ const aiGuidance = computed(() => dashboard.value?.aiGuidance ?? []);
 const automation = computed(() => dashboard.value?.automation ?? { liveRules: [], recentActivity: [] });
 
 const statCards = computed(() => [
-  { label: 'Meta ROAS', value: stats.value.roas.value, trend: stats.value.roas.delta || '+0%', trendLabel: 'vs last period', trendUp: true, icon: '<path stroke-linecap="round" stroke-linejoin="round" d="M2.25 18L9 11.25l4.306 4.307a11.95 11.95 0 015.814-5.519l2.74-1.22m0 0l-5.94-2.28m5.94 2.28l-2.28 5.941"/>', iconBg: 'rgba(34,211,238,0.1)', iconColor: '#22d3ee' },
-  { label: 'Blended ROAS', value: stats.value.blendedRoas?.value ?? '--', trend: stats.value.blendedRoas?.delta || 'All channels', trendLabel: '', trendUp: true, icon: '<path stroke-linecap="round" stroke-linejoin="round" d="M3.75 3v11.25A2.25 2.25 0 006 16.5h2.25M3.75 3h-1.5m1.5 0h16.5m0 0h1.5m-1.5 0v11.25A2.25 2.25 0 0118 16.5h-2.25m-7.5 0h7.5m-7.5 0l-1 3m8.5-3l1 3m0 0l.5 1.5m-.5-1.5h-9.5m0 0l-.5 1.5"/>', iconBg: 'rgba(132,204,22,0.1)', iconColor: '#84cc16' },
-  { label: 'Active SKUs', value: stats.value.activeProducts.value, trend: stats.value.activeProducts.detail || stats.value.activeProducts.delta || '', trendLabel: '', trendUp: true, icon: '<path stroke-linecap="round" stroke-linejoin="round" d="M9.568 3H5.25A2.25 2.25 0 003 5.25v4.318c0 .597.237 1.17.659 1.591l9.581 9.581c.699.699 1.78.872 2.607.33a18.095 18.095 0 005.223-5.223c.542-.827.369-1.908-.33-2.607L11.16 3.66A2.25 2.25 0 009.568 3z"/>', iconBg: 'rgba(139,92,246,0.1)', iconColor: '#a78bfa' },
-  { label: 'Inventory Risk', value: stats.value.inventoryRisk.value, trend: stats.value.inventoryRisk.detail || stats.value.inventoryRisk.delta || '', trendLabel: '', trendUp: false, icon: '<path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126z"/>', iconBg: 'rgba(249,115,22,0.1)', iconColor: '#f97316' },
+  { metric: 'roas', label: 'Meta ROAS', value: stats.value.roas.value, trend: stats.value.roas.delta || '+0%', trendLabel: 'vs last period', trendUp: true, icon: '<path stroke-linecap="round" stroke-linejoin="round" d="M2.25 18L9 11.25l4.306 4.307a11.95 11.95 0 015.814-5.519l2.74-1.22m0 0l-5.94-2.28m5.94 2.28l-2.28 5.941"/>', iconBg: 'rgba(34,211,238,0.1)', iconColor: '#22d3ee' },
+  { metric: 'roas', label: 'Blended ROAS', value: stats.value.blendedRoas?.value ?? '--', trend: stats.value.blendedRoas?.delta || 'All channels', trendLabel: '', trendUp: true, icon: '<path stroke-linecap="round" stroke-linejoin="round" d="M3.75 3v11.25A2.25 2.25 0 006 16.5h2.25M3.75 3h-1.5m1.5 0h16.5m0 0h1.5m-1.5 0v11.25A2.25 2.25 0 0118 16.5h-2.25m-7.5 0h7.5m-7.5 0l-1 3m8.5-3l1 3m0 0l.5 1.5m-.5-1.5h-9.5m0 0l-.5 1.5"/>', iconBg: 'rgba(132,204,22,0.1)', iconColor: '#84cc16' },
+  { metric: 'score', label: 'Active SKUs', value: stats.value.activeProducts.value, trend: stats.value.activeProducts.detail || stats.value.activeProducts.delta || '', trendLabel: '', trendUp: true, icon: '<path stroke-linecap="round" stroke-linejoin="round" d="M9.568 3H5.25A2.25 2.25 0 003 5.25v4.318c0 .597.237 1.17.659 1.591l9.581 9.581c.699.699 1.78.872 2.607.33a18.095 18.095 0 005.223-5.223c.542-.827.369-1.908-.33-2.607L11.16 3.66A2.25 2.25 0 009.568 3z"/>', iconBg: 'rgba(139,92,246,0.1)', iconColor: '#a78bfa' },
+  { metric: 'category', label: 'Inventory Risk', value: stats.value.inventoryRisk.value, trend: stats.value.inventoryRisk.detail || stats.value.inventoryRisk.delta || '', trendLabel: '', trendUp: false, icon: '<path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126z"/>', iconBg: 'rgba(249,115,22,0.1)', iconColor: '#f97316' },
 ]);
 
 const chartData = computed(() => {
@@ -395,9 +415,9 @@ const chartLabels = computed(() => {
 });
 
 const attributionRows = computed(() => [
-  { label: 'Top category', value: attribution.value.topCategory },
-  { label: 'Avg CTR', value: attribution.value.avgCtr },
-  { label: 'Conv. rate', value: attribution.value.conversionRate },
+  { metric: 'category', label: 'Top category', value: attribution.value.topCategory },
+  { metric: 'ctr', label: 'Avg CTR', value: attribution.value.avgCtr },
+  { metric: 'ctr', label: 'Conv. rate', value: attribution.value.conversionRate },
 ]);
 
 const quickLinks = [

@@ -1,0 +1,18 @@
+-- AlterTable
+ALTER TABLE "ProductMeta" ADD COLUMN     "clicks30d" INTEGER NOT NULL DEFAULT 0,
+ADD COLUMN     "conversions30d" INTEGER NOT NULL DEFAULT 0,
+ADD COLUMN     "ctr30d" DOUBLE PRECISION NOT NULL DEFAULT 0,
+ADD COLUMN     "impressions30d" INTEGER NOT NULL DEFAULT 0,
+ADD COLUMN     "inventoryLevel" DOUBLE PRECISION,
+ADD COLUMN     "margin" DOUBLE PRECISION NOT NULL DEFAULT 0.35,
+ADD COLUMN     "metaRevenue30d" DOUBLE PRECISION NOT NULL DEFAULT 0,
+ADD COLUMN     "metricsComputedAt" TIMESTAMP(3),
+ADD COLUMN     "revenue30d" DOUBLE PRECISION NOT NULL DEFAULT 0,
+ADD COLUMN     "roas30d" DOUBLE PRECISION NOT NULL DEFAULT 0,
+ADD COLUMN     "spend30d" DOUBLE PRECISION NOT NULL DEFAULT 0;
+
+-- CreateIndex
+CREATE INDEX "ProductMeta_storeId_spend30d_idx" ON "ProductMeta"("storeId", "spend30d");
+
+-- CreateIndex
+CREATE INDEX "ProductMeta_storeId_roas30d_idx" ON "ProductMeta"("storeId", "roas30d");

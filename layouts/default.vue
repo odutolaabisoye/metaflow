@@ -250,37 +250,33 @@
               <span class="font-medium text-white/80">{{ pageTitle }}</span>
             </div>
           </div>
-          <div class="flex items-center gap-2.5">
+          <div class="flex items-center gap-2">
+            <!-- Sync status pill — hidden on small mobile -->
             <div
               v-if="activeStore"
-              class="hidden md:flex items-center gap-1.5 rounded-full bg-white/5 border border-white/10 px-3 py-1.5 text-xs"
+              class="hidden sm:flex items-center gap-1.5 rounded-full bg-white/5 border border-white/10 px-3 py-1.5 text-xs"
               :title="activeStore.lastSyncError ?? undefined"
             >
               <span class="h-1.5 w-1.5 rounded-full" :class="syncStatusClass(activeStore.lastSyncStatus)"></span>
-              <span class="text-white/70">
+              <span class="text-white/70 hidden md:inline">
                 <template v-if="activeStore.lastSyncStatus === 'RUNNING'">Syncing…</template>
                 <template v-else-if="activeStore.lastSyncStatus === 'ERROR'">Sync error</template>
-                <template v-else-if="activeStore.lastSyncAt">Updated {{ timeAgo(activeStore.lastSyncAt) }}</template>
-                <template v-else>Not synced yet</template>
+                <template v-else-if="activeStore.lastSyncAt">{{ timeAgo(activeStore.lastSyncAt) }}</template>
+                <template v-else>Not synced</template>
               </span>
             </div>
-            <div class="flex items-center gap-2">
+            <!-- Date range — hidden on mobile, shown from md up -->
+            <div class="hidden md:flex items-center gap-2">
               <select v-model="selectedRange" class="rounded-xl border border-white/10 bg-white/[0.05] px-3 py-1.5 text-xs text-white/80 outline-none focus:border-glow-500/40 transition-colors cursor-pointer">
                 <option v-for="opt in rangeOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
               </select>
-              <div v-if="isCustom" class="flex items-center gap-2 flex-col sm:flex-row">
-                <input
-                  v-model="customStart"
-                  type="date"
-                  class="rounded-xl border border-white/10 bg-white/[0.05] px-2.5 py-1 text-xs text-white/70 outline-none focus:border-glow-500/40 transition-colors w-[140px]"
-                />
-                <span class="text-xs text-white/60 hidden sm:inline">→</span>
-                <input
-                  v-model="customEnd"
-                  type="date"
-                  class="rounded-xl border border-white/10 bg-white/[0.05] px-2.5 py-1 text-xs text-white/70 outline-none focus:border-glow-500/40 transition-colors w-[140px]"
-                />
-              </div>
+              <template v-if="isCustom">
+                <input v-model="customStart" type="date"
+                  class="rounded-xl border border-white/10 bg-white/[0.05] px-2.5 py-1 text-xs text-white/70 outline-none focus:border-glow-500/40 transition-colors w-[130px]"/>
+                <span class="text-xs text-white/60">→</span>
+                <input v-model="customEnd" type="date"
+                  class="rounded-xl border border-white/10 bg-white/[0.05] px-2.5 py-1 text-xs text-white/70 outline-none focus:border-glow-500/40 transition-colors w-[130px]"/>
+              </template>
             </div>
             <NuxtLink to="/app/audit" class="relative h-8 w-8 rounded-xl border border-white/10 bg-white/5 flex items-center justify-center text-white/70 hover:text-white hover:bg-white/10 transition-all" title="Activity log">
               <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M14.857 17.082a23.848 23.848 0 005.454-1.31A8.967 8.967 0 0118 9.75v-.7V9A6 6 0 006 9v.75a8.967 8.967 0 01-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 01-5.714 0m5.714 0a3 3 0 11-5.714 0"/></svg>
@@ -338,7 +334,7 @@
         </header>
 
         <!-- Page content -->
-        <main class="flex-1 overflow-y-auto px-6 py-7">
+        <main class="flex-1 overflow-y-auto px-4 py-5 sm:px-6 sm:py-7">
           <slot />
         </main>
       </div>
@@ -351,7 +347,8 @@
       </Transition>
       <Transition name="slide-left">
         <div v-if="navOpen" class="lg:hidden fixed inset-y-0 left-0 z-50 w-72 bg-ink-900 border-r border-white/[0.07] flex flex-col overflow-y-auto shadow-xl">
-          <div class="flex items-center justify-between border-b border-white/10 h-16 px-5">
+          <!-- Header -->
+          <div class="flex items-center justify-between border-b border-white/10 h-16 px-5 flex-shrink-0">
             <div class="flex items-center gap-2.5">
               <div class="h-8 w-8 rounded-xl bg-gradient-to-br from-glow-500 to-lime-500 flex items-center justify-center flex-shrink-0">
                 <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M2 13L8 3L14 13H2Z" stroke="white" stroke-width="1.5" stroke-linejoin="round" fill="none"/><circle cx="8" cy="8" r="2" fill="white"/></svg>
@@ -362,8 +359,66 @@
               <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
             </button>
           </div>
+
+          <!-- Mobile store switcher -->
+          <div class="flex-shrink-0 border-b border-white/8 p-3">
+            <p class="text-[10px] font-semibold uppercase tracking-widest text-white/45 mb-2 px-1">Store</p>
+            <!-- No stores yet -->
+            <NuxtLink v-if="allStores.length === 0" to="/app/onboarding" @click="navOpen = false"
+              class="flex items-center gap-2.5 rounded-xl border border-dashed border-white/12 px-3 py-2.5 text-white/65 hover:text-white/80 transition-colors">
+              <div class="h-7 w-7 flex-shrink-0 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center">
+                <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
+              </div>
+              <span class="text-xs font-medium">Connect a store</span>
+            </NuxtLink>
+            <!-- Store list (always visible on mobile, no dropdown needed) -->
+            <div v-else class="space-y-1">
+              <button
+                v-for="store in allStores"
+                :key="store.id"
+                @click="switchStore(store); navOpen = false"
+                class="w-full flex items-center gap-2.5 rounded-xl px-2.5 py-2 text-left transition-colors"
+                :class="store.id === activeStore?.id ? 'bg-white/8' : 'hover:bg-white/5'"
+              >
+                <div class="h-8 w-8 flex-shrink-0 rounded-lg flex items-center justify-center text-xs font-bold"
+                  :style="{ background: storeStyle(store.platform).bg, color: storeStyle(store.platform).color }">
+                  {{ store.name.charAt(0).toUpperCase() }}
+                </div>
+                <div class="flex-1 min-w-0">
+                  <p class="text-sm font-medium truncate" :class="store.id === activeStore?.id ? 'text-white' : 'text-white/80'">{{ store.name }}</p>
+                  <p class="text-[10px] text-white/50 capitalize truncate">{{ store.platform.toLowerCase() }}</p>
+                </div>
+                <svg v-if="store.id === activeStore?.id" class="w-3.5 h-3.5 text-glow-400 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                  <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/>
+                </svg>
+              </button>
+              <NuxtLink to="/app/onboarding" @click="navOpen = false"
+                class="flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-[11px] font-medium text-white/50 hover:text-white/70 hover:bg-white/5 transition-colors">
+                <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
+                Add another store
+              </NuxtLink>
+            </div>
+          </div>
+
+          <!-- Nav links -->
           <nav class="flex-1 p-4 space-y-0.5">
-            <NuxtLink v-for="item in [...nav, ...navSecondary]" :key="item.to" :to="item.to" class="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition-colors" :class="route.path === item.to ? 'bg-white/10 text-white' : 'text-white/75 hover:text-white hover:bg-white/5'" @click="navOpen = false">
+            <p class="px-2 py-1.5 text-[10px] font-semibold uppercase tracking-widest text-white/45">Main</p>
+            <NuxtLink v-for="item in nav" :key="item.to" :to="item.to"
+              class="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition-colors"
+              :class="route.path === item.to ? 'bg-white/10 text-white' : 'text-white/75 hover:text-white hover:bg-white/5'"
+              @click="navOpen = false">
+              <div class="h-7 w-7 rounded-lg flex items-center justify-center bg-white/5 flex-shrink-0" :style="route.path === item.to ? { color: item.color } : {}">
+                <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5" v-html="item.icon"></svg>
+              </div>
+              <span class="flex-1">{{ item.label }}</span>
+              <span v-if="item.badge" class="rounded-full px-1.5 py-0.5 text-[10px] font-semibold" :style="{ background: item.badgeBg, color: item.badgeColor }">{{ item.badge }}</span>
+            </NuxtLink>
+            <div class="my-2 border-t border-white/8"></div>
+            <p class="px-2 py-1.5 text-[10px] font-semibold uppercase tracking-widest text-white/45">Workspace</p>
+            <NuxtLink v-for="item in navSecondary" :key="item.to" :to="item.to"
+              class="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition-colors"
+              :class="route.path === item.to ? 'bg-white/10 text-white' : 'text-white/75 hover:text-white hover:bg-white/5'"
+              @click="navOpen = false">
               <div class="h-7 w-7 rounded-lg flex items-center justify-center bg-white/5 flex-shrink-0">
                 <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5" v-html="item.icon"></svg>
               </div>
@@ -561,7 +616,7 @@ const logout = async () => {
 
 // Analytics visibility: show for SCALE plan or ADMIN role
 const showAnalytics = computed(() =>
-  user.value?.role === 'ADMIN' || planCookie.value?.toUpperCase() === 'SCALE'
+  user.value?.role === 'ADMIN' || planCookie.value?.toUpperCase() === 'SCALE' ||  planCookie.value?.toUpperCase() === 'GRANDFATHERED'
 );
 
 const ANALYTICS_ICON = '<path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z"/>';

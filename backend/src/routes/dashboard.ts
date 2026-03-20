@@ -1,4 +1,5 @@
 import type { FastifyInstance } from "fastify";
+import { storeLocalDayBounds } from "../jobs/dateUtils.js";
 
 function formatRoas(val: number): string {
   return val > 0 ? `${val.toFixed(1)}x` : "—";
@@ -37,37 +38,22 @@ function isValidDate(value?: string) {
   return !Number.isNaN(date.getTime());
 }
 
-function parseRange(range?: string, start?: string, end?: string) {
-  // Frontend always sends computed start/end — use them directly when valid
-  if (start && end && isValidDate(start) && isValidDate(end)) {
-    const s = new Date(start);
-    const e = new Date(end);
-    if (s <= e) {
-      s.setHours(0, 0, 0, 0);
-      e.setHours(23, 59, 59, 999);
-      return { start: s, end: e, range: range ?? "custom" };
-    }
-  }
-
-  // Fallback: derive from range string (used when start/end are absent)
+function parseRange(range?: string, start?: string, end?: string, timezone = "Africa/Lagos") {
   const now = new Date();
-  const e = new Date(now);
-  e.setHours(23, 59, 59, 999);
-
-  if (range === "today") {
-    const s = new Date(now); s.setHours(0, 0, 0, 0);
-    return { start: s, end: e, range: "today" };
+  if (start && end && isValidDate(start) && isValidDate(end)) {
+    const sDay = storeLocalDayBounds(timezone, new Date(`${start}T12:00:00Z`));
+    const eDay = storeLocalDayBounds(timezone, new Date(`${end}T12:00:00Z`));
+    if (sDay.start <= eDay.end) return { start: sDay.start, end: eDay.end, range: range ?? "custom" };
   }
+  const { start: todayStart, end: todayEnd } = storeLocalDayBounds(timezone, now);
+  if (range === "today") return { start: todayStart, end: todayEnd, range: "today" };
   if (range === "yesterday") {
-    const s = new Date(now); s.setDate(s.getDate() - 1); s.setHours(0, 0, 0, 0);
-    const ye = new Date(s); ye.setHours(23, 59, 59, 999);
-    return { start: s, end: ye, range: "yesterday" };
+    const { start: ys, end: ye } = storeLocalDayBounds(timezone, new Date(now.getTime() - 86_400_000));
+    return { start: ys, end: ye, range: "yesterday" };
   }
   const days = range === "7d" ? 7 : range === "90d" ? 90 : 30;
-  const s = new Date(now);
-  s.setDate(s.getDate() - days + 1);
-  s.setHours(0, 0, 0, 0);
-  return { start: s, end: e, range: range ?? "30d" };
+  const { start: ps } = storeLocalDayBounds(timezone, new Date(now.getTime() - (days - 1) * 86_400_000));
+  return { start: ps, end: todayEnd, range: range ?? "30d" };
 }
 
 export async function dashboardRoutes(app: FastifyInstance) {
@@ -76,24 +62,28 @@ export async function dashboardRoutes(app: FastifyInstance) {
    * Returns aggregated stats, top-performing products, and risk products
    * for the authenticated user's active store.
    *
-   * Query: { storeId? }  — defaults to user's first store
+   * For the default 30d range, KPIs are derived from pre-computed ProductMeta
+   * fields written by the scoring job — no DailyMetric aggregation needed.
+   * Other ranges fall back to DailyMetric aggregation.
    */
   app.get("/dashboard", async (request, reply) => {
     try {
       const payload = await request.jwtVerify<{ sub: string }>();
       const { storeId, range, start, end } = request.query as { storeId?: string; range?: string; start?: string; end?: string };
 
-      // Resolve store
       const storeWhere = storeId
         ? { id: storeId, ownerId: payload.sub }
         : { ownerId: payload.sub };
 
       const store = await app.prisma.store.findFirst({
         where: storeWhere,
-        orderBy: { createdAt: "asc" }
+        orderBy: { createdAt: "asc" },
+        select: {
+          id: true, name: true, platform: true, currency: true,
+          timezone: true, lastSyncAt: true, lastSyncStatus: true
+        }
       });
 
-      // No store connected yet — return zeroed-out defaults
       if (!store) {
         return reply.send({
           ok: true,
@@ -109,7 +99,10 @@ export async function dashboardRoutes(app: FastifyInstance) {
         });
       }
 
-      const { start: rangeStart, end: rangeEnd, range: resolvedRange } = parseRange(range, start, end);
+      const storeTimezone = store.timezone ?? "Africa/Lagos";
+      const { start: rangeStart, end: rangeEnd, range: resolvedRange } = parseRange(range, start, end, storeTimezone);
+      const usePrecomputed = resolvedRange === "30d" && !start && !end;
+
       const durationDays = Math.max(
         1,
         Math.floor((rangeEnd.getTime() - rangeStart.getTime()) / (1000 * 60 * 60 * 24)) + 1
@@ -120,96 +113,102 @@ export async function dashboardRoutes(app: FastifyInstance) {
       const prevStart = new Date(prevEnd);
       prevStart.setDate(prevStart.getDate() - durationDays + 1);
 
-      const [currentMetrics, prevMetrics, activeSKUs, riskCount, topProducts, riskProducts] =
-        await app.prisma.$transaction([
-          // Current period aggregates — use _sum for all rate-derived metrics
+      const cur = store.currency ?? "USD";
+      const fmtDate = (date: Date) =>
+        date.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
+
+      // ── Top / risk products — read directly from ProductMeta pre-computed fields ──
+      // No DailyMetric include needed — scoring job stores roas30d, spend30d etc.
+      const [activeSKUs, riskCount, topProducts, riskProducts] = await Promise.all([
+        app.prisma.productMeta.count({ where: { storeId: store.id } }),
+        app.prisma.productMeta.count({
+          where: { storeId: store.id, category: { in: ["RISK", "KILL"] } }
+        }),
+        app.prisma.productMeta.findMany({
+          where: { storeId: store.id, category: "SCALE" },
+          orderBy: { score: "desc" },
+          take: 6,
+          select: {
+            id: true, title: true, sku: true, imageUrl: true, score: true, category: true,
+            roas30d: true, spend30d: true, revenue30d: true, metaRevenue30d: true, margin: true,
+          }
+        }),
+        app.prisma.productMeta.findMany({
+          where: { storeId: store.id, category: { in: ["RISK", "KILL"] } },
+          orderBy: { score: "asc" },
+          take: 6,
+          select: {
+            id: true, title: true, sku: true, imageUrl: true, score: true, category: true,
+            roas30d: true, revenue30d: true, metaRevenue30d: true, margin: true,
+          }
+        })
+      ]);
+
+      // ── Trend chart — always needs per-day DailyMetric rows ──
+      const dailyRevenue = await app.prisma.dailyMetric.groupBy({
+        by: ["date"],
+        where: { storeId: store.id, date: { gte: rangeStart, lte: rangeEnd } },
+        _sum: { revenue: true },
+        orderBy: { date: "asc" }
+      });
+
+      let totalRevenue = 0, totalSpend = 0, totalMetaRevenue = 0;
+      let totalImpressions = 0, totalClicks = 0, totalConversions = 0;
+      let prevTotalRevenue = 0, prevTotalSpend = 0;
+
+      if (usePrecomputed) {
+        // ── Fast path: KPIs from pre-computed ProductMeta fields (no DailyMetric scan) ──
+        const agg = await app.prisma.productMeta.aggregate({
+          where: { storeId: store.id },
+          _sum: {
+            spend30d: true, revenue30d: true, metaRevenue30d: true,
+            impressions30d: true, clicks30d: true, conversions30d: true,
+          }
+        });
+        totalSpend       = agg._sum.spend30d       ?? 0;
+        totalRevenue     = agg._sum.revenue30d     ?? 0;
+        totalMetaRevenue = agg._sum.metaRevenue30d ?? 0;
+        totalImpressions = agg._sum.impressions30d ?? 0;
+        totalClicks      = agg._sum.clicks30d      ?? 0;
+        totalConversions = agg._sum.conversions30d ?? 0;
+
+        // Previous period still needs DailyMetric (pre-computed covers current 30d only)
+        const prevMetrics = await app.prisma.dailyMetric.aggregate({
+          where: { storeId: store.id, date: { gte: prevStart, lte: prevEnd } },
+          _sum: { revenue: true, spend: true }
+        });
+        prevTotalRevenue = prevMetrics._sum.revenue ?? 0;
+        prevTotalSpend   = prevMetrics._sum.spend   ?? 0;
+      } else {
+        // ── Fallback: aggregate DailyMetric for custom / 7d / 90d ranges ──
+        const [currentMetrics, prevMetrics] = await Promise.all([
           app.prisma.dailyMetric.aggregate({
             where: { storeId: store.id, date: { gte: rangeStart, lte: rangeEnd } },
             _sum: { revenue: true, metaRevenue: true, spend: true, impressions: true, clicks: true, conversions: true }
           }),
-
-          // Previous period aggregates — sum-based for accurate delta
           app.prisma.dailyMetric.aggregate({
             where: { storeId: store.id, date: { gte: prevStart, lte: prevEnd } },
             _sum: { revenue: true, spend: true }
-          }),
-
-          // Total active products
-          app.prisma.productMeta.count({ where: { storeId: store.id } }),
-
-          // Risk/Kill products count
-          app.prisma.productMeta.count({
-            where: { storeId: store.id, category: { in: ["RISK", "KILL"] } }
-          }),
-
-          // Top SCALE products (by score desc)
-          app.prisma.productMeta.findMany({
-            where: { storeId: store.id, category: "SCALE" },
-            orderBy: { score: "desc" },
-            take: 6,
-            include: {
-              dailyMetrics: {
-                orderBy: { date: "desc" },
-                take: 1
-              }
-            }
-          }),
-
-          // Risk / Kill products (by score asc)
-          app.prisma.productMeta.findMany({
-            where: { storeId: store.id, category: { in: ["RISK", "KILL"] } },
-            orderBy: { score: "asc" },
-            take: 6,
-            include: {
-              dailyMetrics: {
-                orderBy: { date: "desc" },
-                take: 1
-              }
-            }
           })
         ]);
+        totalRevenue     = currentMetrics._sum.revenue     ?? 0;
+        totalSpend       = currentMetrics._sum.spend       ?? 0;
+        totalMetaRevenue = currentMetrics._sum.metaRevenue ?? 0;
+        totalImpressions = currentMetrics._sum.impressions ?? 0;
+        totalClicks      = currentMetrics._sum.clicks      ?? 0;
+        totalConversions = currentMetrics._sum.conversions ?? 0;
+        prevTotalRevenue = prevMetrics._sum.revenue ?? 0;
+        prevTotalSpend   = prevMetrics._sum.spend   ?? 0;
+      }
 
-      // ── Extra queries outside the transaction (groupBy not supported in array transactions) ──
-      const [dailyRevenue, productRevenueInRange, allProductCats] = await Promise.all([
-        // Daily store revenue totals for the trend chart
-        app.prisma.dailyMetric.groupBy({
-          by: ["date"],
-          where: { storeId: store.id, date: { gte: rangeStart, lte: rangeEnd } },
-          _sum: { revenue: true },
-          orderBy: { date: "asc" }
-        }),
-        // Per-product revenue in range — used to determine top category by revenue
-        app.prisma.dailyMetric.groupBy({
-          by: ["productId"],
-          where: { storeId: store.id, date: { gte: rangeStart, lte: rangeEnd } },
-          _sum: { revenue: true }
-        }),
-        // All product categories for the store (lightweight: id + category only)
-        app.prisma.productMeta.findMany({
-          where: { storeId: store.id },
-          select: { id: true, category: true }
-        })
-      ]);
-
-      const totalRevenue     = currentMetrics._sum.revenue     ?? 0;
-      const totalSpend       = currentMetrics._sum.spend       ?? 0;
-      const totalImpressions = currentMetrics._sum.impressions ?? 0;
-      const totalClicks      = currentMetrics._sum.clicks      ?? 0;
-      const totalConversions = currentMetrics._sum.conversions ?? 0;
-
-      // Derive rates from totals — averaging daily rates is mathematically incorrect
       const avgRoas        = totalSpend > 0 ? totalRevenue / totalSpend : 0;
-      const avgBlendedRoas = avgRoas; // same numerator/denominator (all-channel)
+      const avgBlendedRoas = avgRoas;
       const avgCtrVal      = totalImpressions > 0 ? totalClicks / totalImpressions : null;
       const avgConvRateVal = totalClicks > 0 ? totalConversions / totalClicks : null;
 
-      // Previous period — also sum-based
-      const prevTotalRevenue = prevMetrics._sum.revenue ?? 0;
-      const prevTotalSpend   = prevMetrics._sum.spend   ?? 0;
-      const prevAvgRoas      = prevTotalSpend > 0 ? prevTotalRevenue / prevTotalSpend : 0;
-      const prevBlendedRoas  = prevAvgRoas;
+      const prevAvgRoas     = prevTotalSpend > 0 ? prevTotalRevenue / prevTotalSpend : 0;
+      const prevBlendedRoas = prevAvgRoas;
 
-      // Compute delta % vs previous period
       const roasDelta = prevAvgRoas > 0
         ? ((avgRoas - prevAvgRoas) / prevAvgRoas) * 100
         : null;
@@ -223,25 +222,18 @@ export async function dashboardRoutes(app: FastifyInstance) {
         return `${sign}${pct.toFixed(1)}% vs last 30d`;
       };
 
-      // ── Trend chart data ────────────────────────────────────────────────────
+      // ── Trend chart ────────────────────────────────────────────────────────
       const revenueValues = dailyRevenue.map(d => d._sum.revenue ?? 0);
       const maxRev = Math.max(...revenueValues, 1);
-      const cur = store.currency ?? "USD";
-
-      // Use timeZone:"UTC" so the stored UTC-midnight date is displayed correctly
-      // regardless of server timezone — avoids off-by-one on negative UTC offsets
-      const fmtDate = (date: Date) =>
-        date.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
 
       const trendSeries = dailyRevenue.map(d => {
         const rev = d._sum.revenue ?? 0;
         return {
-          value: Math.max(4, Math.round((rev / maxRev) * 100)), // min 4% so bars are visible
+          value: Math.max(4, Math.round((rev / maxRev) * 100)),
           label: `${fmtDate(d.date)}: ${formatCurrency(rev, cur)}`
         };
       });
 
-      // Sample up to 5 evenly-spaced X-axis labels
       const LABEL_COUNT = 5;
       const trendLabels: string[] = dailyRevenue.length === 0 ? [] : (() => {
         const n = Math.min(LABEL_COUNT, dailyRevenue.length);
@@ -251,20 +243,18 @@ export async function dashboardRoutes(app: FastifyInstance) {
         });
       })();
 
-      // ── Attribution row ─────────────────────────────────────────────────────
-      // Top category: by revenue in the selected range (not product count)
-      const catLookup = new Map(allProductCats.map(p => [p.id, p.category]));
+      // ── Top category by revenue ────────────────────────────────────────────
+      // Use pre-computed revenue30d grouped by category instead of DailyMetric groupBy
+      const allProductCats = await app.prisma.productMeta.findMany({
+        where: { storeId: store.id },
+        select: { category: true, revenue30d: true }
+      });
       const catRevMap = new Map<string, number>();
-      for (const r of productRevenueInRange) {
-        const cat = catLookup.get(r.productId);
-        if (cat) catRevMap.set(cat, (catRevMap.get(cat) ?? 0) + (r._sum.revenue ?? 0));
+      for (const p of allProductCats) {
+        catRevMap.set(p.category, (catRevMap.get(p.category) ?? 0) + p.revenue30d);
       }
       const topCategory =
         [...catRevMap.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? "--";
-
-      // CTR and conv rate derived from totals — not averages of daily rates
-      const avgCtr      = avgCtrVal;
-      const avgConvRate = avgConvRateVal;
 
       return reply.send({
         ok: true,
@@ -302,41 +292,35 @@ export async function dashboardRoutes(app: FastifyInstance) {
         },
         attribution: {
           topCategory,
-          avgCtr: fmtPct(avgCtr),
-          conversionRate: fmtPct(avgConvRate)
+          avgCtr: fmtPct(avgCtrVal),
+          conversionRate: fmtPct(avgConvRateVal)
         },
-        topProducts: topProducts.map((p) => {
-          const m = p.dailyMetrics[0];
-          return {
-            id: p.id,
-            title: p.title,
-            sku: p.sku,
-            imageUrl: p.imageUrl,
-            score: p.score,
-            category: p.category,
-            roas: m?.roas ?? 0,
-            blendedRoas: m?.blendedRoas ?? null,
-            revenue: m?.revenue ?? 0,
-            metaRevenue: m?.metaRevenue ?? 0,
-            spend: m?.spend ?? 0,
-            margin: m?.margin ?? 0
-          };
-        }),
-        riskProducts: riskProducts.map((p) => {
-          const m = p.dailyMetrics[0];
-          return {
-            id: p.id,
-            title: p.title,
-            sku: p.sku,
-            imageUrl: p.imageUrl,
-            score: p.score,
-            category: p.category,
-            roas: m?.roas ?? 0,
-            revenue: m?.revenue ?? 0,
-            metaRevenue: m?.metaRevenue ?? 0,
-            margin: m?.margin ?? 0
-          };
-        })
+        topProducts: topProducts.map((p) => ({
+          id: p.id,
+          title: p.title,
+          sku: p.sku,
+          imageUrl: p.imageUrl,
+          score: p.score,
+          category: p.category,
+          roas: p.roas30d,
+          blendedRoas: p.spend30d > 0 && p.revenue30d > 0 ? p.revenue30d / p.spend30d : null,
+          revenue: p.revenue30d,
+          metaRevenue: p.metaRevenue30d,
+          spend: p.spend30d,
+          margin: p.margin
+        })),
+        riskProducts: riskProducts.map((p) => ({
+          id: p.id,
+          title: p.title,
+          sku: p.sku,
+          imageUrl: p.imageUrl,
+          score: p.score,
+          category: p.category,
+          roas: p.roas30d,
+          revenue: p.revenue30d,
+          metaRevenue: p.metaRevenue30d,
+          margin: p.margin
+        }))
       });
     } catch (err) {
       app.log.error({ err }, "Dashboard error");

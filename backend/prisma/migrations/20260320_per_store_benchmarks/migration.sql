@@ -1,0 +1,4 @@
+ALTER TABLE "Store" ADD COLUMN "benchmarkRoas"      DOUBLE PRECISION;
+ALTER TABLE "Store" ADD COLUMN "benchmarkCtr"       DOUBLE PRECISION;
+ALTER TABLE "Store" ADD COLUMN "benchmarkMargin"    DOUBLE PRECISION;
+ALTER TABLE "Store" ADD COLUMN "benchmarkInventory" INTEGER;

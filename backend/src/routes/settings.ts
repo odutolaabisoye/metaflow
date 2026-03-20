@@ -4,6 +4,7 @@ import type { FastifyInstance } from "fastify";
 function formatSettings(s: {
   ruleScale: boolean; ruleTest: boolean; ruleKill: boolean; ruleInventory: boolean;
   thresholdScale: number; thresholdTest: number; thresholdKill: number;
+  benchmarkRoas: number; benchmarkCtr: number; benchmarkMargin: number; benchmarkInventory: number;
   notifEmailReports: boolean; notifWhatsapp: boolean; notifWeeklyDigest: boolean;
 }) {
   return {
@@ -17,6 +18,12 @@ function formatSettings(s: {
       scale: s.thresholdScale,
       test:  s.thresholdTest,
       kill:  s.thresholdKill,
+    },
+    benchmarks: {
+      roas:      s.benchmarkRoas,
+      ctr:       s.benchmarkCtr,
+      margin:    s.benchmarkMargin,
+      inventory: s.benchmarkInventory,
     },
     notifications: {
       emailReports:   s.notifEmailReports,
@@ -66,6 +73,12 @@ export async function settingsRoutes(app: FastifyInstance) {
           test?: number;
           kill?: number;
         };
+        benchmarks?: {
+          roas?: number;
+          ctr?: number;
+          margin?: number;
+          inventory?: number;
+        };
         notifications?: {
           emailReports?: boolean;
           whatsappAlerts?: boolean;
@@ -87,6 +100,14 @@ export async function settingsRoutes(app: FastifyInstance) {
         if (body.thresholds.scale !== undefined) data.thresholdScale = clamp(body.thresholds.scale);
         if (body.thresholds.test  !== undefined) data.thresholdTest  = clamp(body.thresholds.test);
         if (body.thresholds.kill  !== undefined) data.thresholdKill  = clamp(body.thresholds.kill);
+      }
+
+      if (body.benchmarks) {
+        const clampPositive = (v: number) => Math.max(0.001, v);
+        if (body.benchmarks.roas      !== undefined) data.benchmarkRoas      = clampPositive(body.benchmarks.roas);
+        if (body.benchmarks.ctr       !== undefined) data.benchmarkCtr       = Math.min(1, clampPositive(body.benchmarks.ctr / 100)); // accept as % like "3" → store as 0.03
+        if (body.benchmarks.margin    !== undefined) data.benchmarkMargin    = Math.min(1, clampPositive(body.benchmarks.margin / 100)); // accept as % like "50" → 0.5
+        if (body.benchmarks.inventory !== undefined) data.benchmarkInventory = Math.max(1, Math.round(body.benchmarks.inventory));
       }
 
       if (body.notifications) {
@@ -148,6 +169,96 @@ export async function settingsRoutes(app: FastifyInstance) {
       });
 
       return reply.send({ ok: true, action: "downgraded", plan: updated.plan });
+    } catch {
+      return reply.code(401).send({ ok: false, message: "Unauthorized" });
+    }
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // GET /settings/store/:storeId — get effective benchmarks for a store
+  // (merged: store overrides take precedence over user defaults)
+  // ═══════════════════════════════════════════════════════════════════════════
+  app.get("/settings/store/:storeId", async (request, reply) => {
+    try {
+      const payload = await request.jwtVerify<{ sub: string }>();
+      const { storeId } = request.params as { storeId: string };
+
+      // Verify ownership
+      const store = await app.prisma.store.findFirst({
+        where: { id: storeId, ownerId: payload.sub },
+        select: { benchmarkRoas: true, benchmarkCtr: true, benchmarkMargin: true, benchmarkInventory: true }
+      });
+      if (!store) return reply.code(403).send({ ok: false, message: "Forbidden" });
+
+      // Get user defaults
+      const userSettings = await app.prisma.userSettings.findUnique({
+        where: { userId: payload.sub },
+        select: { benchmarkRoas: true, benchmarkCtr: true, benchmarkMargin: true, benchmarkInventory: true }
+      });
+
+      return reply.send({
+        ok: true,
+        storeBenchmarks: {
+          roas:      store.benchmarkRoas      ?? null,
+          ctr:       store.benchmarkCtr       != null ? store.benchmarkCtr * 100 : null,   // stored as decimal, return as %
+          margin:    store.benchmarkMargin    != null ? store.benchmarkMargin * 100 : null, // stored as decimal, return as %
+          inventory: store.benchmarkInventory ?? null,
+        },
+        effectiveBenchmarks: {
+          roas:      store.benchmarkRoas      ?? userSettings?.benchmarkRoas      ?? 5,
+          ctr:       (store.benchmarkCtr      ?? userSettings?.benchmarkCtr       ?? 0.03) * 100,
+          margin:    (store.benchmarkMargin   ?? userSettings?.benchmarkMargin    ?? 0.5) * 100,
+          inventory: store.benchmarkInventory ?? userSettings?.benchmarkInventory ?? 10,
+        }
+      });
+    } catch {
+      return reply.code(401).send({ ok: false, message: "Unauthorized" });
+    }
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // PATCH /settings/store/:storeId — update store-level benchmark overrides
+  // Send null for a field to clear its override (fall back to user-level default)
+  // ═══════════════════════════════════════════════════════════════════════════
+  app.patch("/settings/store/:storeId", async (request, reply) => {
+    try {
+      const payload = await request.jwtVerify<{ sub: string }>();
+      const { storeId } = request.params as { storeId: string };
+
+      // Verify ownership
+      const existing = await app.prisma.store.findFirst({
+        where: { id: storeId, ownerId: payload.sub }
+      });
+      if (!existing) return reply.code(403).send({ ok: false, message: "Forbidden" });
+
+      const body = request.body as {
+        roas?:      number | null;
+        ctr?:       number | null;   // sent as % (e.g. 3 = 3%), stored as decimal (0.03)
+        margin?:    number | null;   // sent as % (e.g. 50 = 50%), stored as decimal (0.5)
+        inventory?: number | null;
+      };
+
+      const data: Record<string, unknown> = {};
+      if (body.roas      !== undefined) data.benchmarkRoas      = body.roas      != null ? Math.max(0.1, body.roas) : null;
+      if (body.ctr       !== undefined) data.benchmarkCtr       = body.ctr       != null ? Math.min(1, Math.max(0.001, body.ctr / 100)) : null;
+      if (body.margin    !== undefined) data.benchmarkMargin    = body.margin    != null ? Math.min(1, Math.max(0.001, body.margin / 100)) : null;
+      if (body.inventory !== undefined) data.benchmarkInventory = body.inventory != null ? Math.max(1, Math.round(body.inventory)) : null;
+
+      const updated = await app.prisma.store.update({
+        where: { id: storeId },
+        data,
+        select: { benchmarkRoas: true, benchmarkCtr: true, benchmarkMargin: true, benchmarkInventory: true }
+      });
+
+      return reply.send({
+        ok: true,
+        storeBenchmarks: {
+          roas:      updated.benchmarkRoas      ?? null,
+          ctr:       updated.benchmarkCtr       != null ? updated.benchmarkCtr * 100 : null,
+          margin:    updated.benchmarkMargin    != null ? updated.benchmarkMargin * 100 : null,
+          inventory: updated.benchmarkInventory ?? null,
+        }
+      });
     } catch {
       return reply.code(401).send({ ok: false, message: "Unauthorized" });
     }

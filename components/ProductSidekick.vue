@@ -134,20 +134,29 @@
         <div class="mx-6 mb-4 rounded-2xl border border-glow-500/20 bg-glow-500/[0.06] p-4 flex-shrink-0">
           <div class="flex items-center justify-between">
             <div>
-              <p class="text-xs text-glow-400/70 font-medium uppercase tracking-widest mb-0.5">Blended ROAS</p>
+              <div class="flex items-center gap-1.5 mb-0.5">
+                <p class="text-xs text-glow-400/70 font-medium uppercase tracking-widest">Blended ROAS</p>
+                <MetricTip>Actual WooCommerce store revenue ÷ Meta ad spend. Uses real orders — not Meta's attribution model. This is the most honest ROAS.</MetricTip>
+              </div>
               <p class="text-3xl font-bold text-glow-400">{{ displayBlendedRoas }}×</p>
-              <p class="text-xs text-white/65 mt-1">Total revenue / total ad spend</p>
+              <p class="text-xs text-white/65 mt-1">Store revenue / ad spend</p>
             </div>
             <div class="text-right">
-              <p class="text-xs text-white/60 mb-1">Meta ROAS</p>
-              <p class="text-xl font-semibold">{{ Number(product.roas).toFixed(2) }}×</p>
-              <p class="text-xs text-white/60 mt-1">Meta ads only</p>
+              <div class="flex items-center justify-end gap-1.5 mb-1">
+                <MetricTip side="left">Revenue Meta attributes to this product's ads via omni_purchase ÷ spend. Can differ significantly from store revenue due to attribution modelling.</MetricTip>
+                <p class="text-xs text-white/60">Meta ROAS</p>
+              </div>
+              <p class="text-xl font-semibold">{{ displayMetaRoas }}×</p>
+              <p class="text-xs text-white/60 mt-1">Meta-attributed only</p>
             </div>
           </div>
           <!-- Blended vs Meta bar -->
           <div class="mt-4">
             <div class="flex justify-between text-xs text-white/60 mb-1.5">
-              <span>Meta</span>
+              <span class="flex items-center gap-1">
+                Meta-attributed
+                <MetricTip>Share of total ROAS explained by Meta's omni_purchase attribution. 100% = all revenue is Meta-attributed; 0% = Meta claims no revenue but store sees orders.</MetricTip>
+              </span>
               <span>Organic / Other</span>
             </div>
             <div class="h-2 rounded-full bg-white/10 overflow-hidden flex">
@@ -169,23 +178,55 @@
 
         <!-- Key metrics grid -->
         <div class="mx-6 mb-4 grid grid-cols-2 gap-3 flex-shrink-0">
+          <!-- Store Revenue -->
           <div class="rounded-xl border border-white/8 bg-white/[0.03] p-3.5">
-            <p class="text-xs text-white/65 mb-1">Revenue</p>
-            <p class="text-base font-semibold">{{ formatMoney(displayRevenue) }}</p>
+            <div class="flex items-center gap-1 mb-1">
+              <p class="text-xs text-white/65">Store Revenue</p>
+              <MetricTip>Actual revenue from WooCommerce orders containing this product. Source of truth — no attribution models, just real purchases.</MetricTip>
+            </div>
+            <p class="text-base font-semibold text-lime-400">{{ formatMoney(displayRevenue) }}</p>
           </div>
+          <!-- Meta Revenue -->
           <div class="rounded-xl border border-white/8 bg-white/[0.03] p-3.5">
-            <p class="text-xs text-white/65 mb-1">Ad Spend</p>
+            <div class="flex items-center gap-1 mb-1">
+              <p class="text-xs text-white/65">Meta Revenue</p>
+              <MetricTip>Purchase value Meta attributes to this product's ads via omni_purchase — their canonical, deduplicated conversion metric. Zero means Meta's attribution window didn't credit a direct product purchase.</MetricTip>
+            </div>
+            <p class="text-base font-semibold text-sky-400">{{ displayMetaRevenue > 0 ? formatMoney(displayMetaRevenue) : '—' }}</p>
+          </div>
+          <!-- Ad Spend -->
+          <div class="rounded-xl border border-white/8 bg-white/[0.03] p-3.5">
+            <div class="flex items-center gap-1 mb-1">
+              <p class="text-xs text-white/65">Ad Spend</p>
+              <MetricTip>Total amount spent on Meta ads for this product in the selected period. Converted from the ad account's billing currency to your store currency.</MetricTip>
+            </div>
             <p class="text-base font-semibold">{{ formatMoney(displaySpend) }}</p>
           </div>
+          <!-- Gross Margin -->
           <div class="rounded-xl border border-white/8 bg-white/[0.03] p-3.5">
-            <p class="text-xs text-white/65 mb-1">Gross Margin</p>
+            <div class="flex items-center gap-1 mb-1">
+              <p class="text-xs text-white/65">Gross Margin</p>
+              <MetricTip>Estimated profit margin after cost of goods. ≥30% is healthy (lime), 20–30% is moderate (amber), below 20% is thin (red). Set per-product in your catalogue.</MetricTip>
+            </div>
             <p class="text-base font-semibold" :class="displayMarginPct >= 30 ? 'text-lime-400' : displayMarginPct >= 20 ? 'text-glow-400' : 'text-ember-400'">
               {{ displayMarginPct.toFixed(1) }}%
             </p>
           </div>
+          <!-- Velocity -->
           <div class="rounded-xl border border-white/8 bg-white/[0.03] p-3.5">
-            <p class="text-xs text-white/65 mb-1">Velocity</p>
+            <div class="flex items-center gap-1 mb-1">
+              <p class="text-xs text-white/65">Velocity</p>
+              <MetricTip>Average daily revenue rate relative to the product's 30-day baseline. A higher velocity means this product is selling faster than its historical average.</MetricTip>
+            </div>
             <p class="text-base font-semibold">{{ Number(product.velocity).toFixed(1) }}×</p>
+          </div>
+          <!-- Conv Rate -->
+          <div class="rounded-xl border border-white/8 bg-white/[0.03] p-3.5">
+            <div class="flex items-center gap-1 mb-1">
+              <p class="text-xs text-white/65">Conv. Rate</p>
+              <MetricTip>Conversions ÷ clicks — the % of people who clicked this product's ad and were attributed a purchase by Meta's omni_purchase metric.</MetricTip>
+            </div>
+            <p class="text-base font-semibold text-lime-400">{{ displayConvRatePct }}%</p>
           </div>
         </div>
 
@@ -205,6 +246,7 @@
                   </svg>
                 </div>
                 <span class="text-sm text-white/65">Impressions</span>
+                <MetricTip>How many times this product's ad was shown in Meta's network (Facebook, Instagram, Audience Network). One person seeing the same ad 3× = 3 impressions.</MetricTip>
               </div>
               <span class="font-mono text-sm font-medium">{{ formatNumber(displayImpressions) }}</span>
             </div>
@@ -216,6 +258,7 @@
                   </svg>
                 </div>
                 <span class="text-sm text-white/65">Clicks</span>
+                <MetricTip>Total link clicks on this product's ads. Includes clicks to your website or Meta's onsite checkout. Used to compute CTR and conversion rate.</MetricTip>
               </div>
               <span class="font-mono text-sm font-medium">{{ formatNumber(displayClicks) }}</span>
             </div>
@@ -229,6 +272,7 @@
                   </svg>
                 </div>
                 <span class="text-sm text-white/65">CTR</span>
+                <MetricTip>Click-through rate = clicks ÷ impressions. DPA (Dynamic Product Ad) benchmark: 1–2% is solid. Below 0.5% suggests the creative or product image needs work.</MetricTip>
               </div>
               <span class="font-mono text-sm font-medium text-glow-400">{{ displayCtrPct }}%</span>
             </div>
@@ -236,43 +280,97 @@
         </div>
 
         <!-- Conversion details -->
-        <div class="px-6 mb-6 flex-shrink-0">
-          <h3 class="text-xs text-white/65 uppercase tracking-widest font-medium mb-3">Conversions</h3>
+        <div class="px-6 mb-4 flex-shrink-0">
+          <div class="flex items-center gap-2 mb-3">
+            <h3 class="text-xs text-white/65 uppercase tracking-widest font-medium">Conversions</h3>
+            <MetricTip>Based on Meta's omni_purchase metric — their canonical, deduplicated attribution. A customer who clicked this product's ad and later purchased it (within 7-day click / 1-day view window) counts as 1 conversion.</MetricTip>
+          </div>
           <div class="rounded-2xl border border-lime-500/15 bg-lime-500/[0.04] p-4">
             <div class="grid grid-cols-2 gap-4">
               <div>
-                <p class="text-xs text-white/65 mb-1">Total Conversions</p>
+                <div class="flex items-center gap-1 mb-1">
+                  <p class="text-xs text-white/65">omni_purchase</p>
+                  <MetricTip>Meta's unified purchase count for this product. Uses omni_purchase — deduplicated across pixel, onsite, and app — to avoid counting the same purchase twice.</MetricTip>
+                </div>
                 <p class="text-xl font-bold text-lime-400">{{ formatNumber(displayConversions) }}</p>
               </div>
               <div>
-                <p class="text-xs text-white/65 mb-1">Conv. Rate</p>
-                <p class="text-xl font-bold text-lime-400">{{ displayConvRatePct }}%</p>
+                <div class="flex items-center gap-1 mb-1">
+                  <p class="text-xs text-white/65">Session Purchases</p>
+                  <MetricTip>onsite_web_purchase count — purchases that happened in a Meta session where this product's ad was shown. May include purchases of OTHER products clicked after seeing this ad.</MetricTip>
+                </div>
+                <p class="text-xl font-bold text-sky-400/80">{{ formatNumber(displayOnsitePurchases) }}</p>
               </div>
             </div>
-            <!-- Funnel bar -->
+            <!-- Funnel bar — Impressions → Clicks → ATC → Checkout → Purchase -->
             <div class="mt-4 space-y-1.5">
               <div class="flex justify-between text-xs text-white/60 mb-2">
-                <span>Funnel</span>
-                <span>{{ formatNumber(displayImpressions) }} → {{ formatNumber(displayClicks) }} → {{ formatNumber(displayConversions) }}</span>
+                <span>Ad Funnel</span>
+                <span class="font-mono text-[10px]">{{ formatNumber(displayImpressions) }} → {{ formatNumber(displayClicks) }} → {{ formatNumber(displayAddToCartOmni) }} → {{ formatNumber(displayConversions) }}</span>
               </div>
               <div class="flex items-center gap-1.5">
                 <span class="text-xs text-white/60 w-24 text-right">Impressions</span>
                 <div class="flex-1 h-1.5 rounded-full bg-white/10">
                   <div class="h-full rounded-full bg-white/25" style="width: 100%"></div>
                 </div>
+                <span class="text-[10px] text-white/40 font-mono w-12 text-right">{{ formatNumber(displayImpressions) }}</span>
               </div>
               <div class="flex items-center gap-1.5">
                 <span class="text-xs text-white/60 w-24 text-right">Clicks</span>
                 <div class="flex-1 h-1.5 rounded-full bg-white/10">
                   <div class="h-full rounded-full bg-glow-400/60" :style="{ width: clickRate + '%' }"></div>
                 </div>
+                <span class="text-[10px] text-white/40 font-mono w-12 text-right">{{ formatNumber(displayClicks) }}</span>
               </div>
               <div class="flex items-center gap-1.5">
-                <span class="text-xs text-white/60 w-24 text-right">Conversions</span>
+                <span class="text-xs text-white/60 w-24 text-right">Add to Cart</span>
+                <div class="flex-1 h-1.5 rounded-full bg-white/10">
+                  <div class="h-full rounded-full bg-amber-400/60" :style="{ width: atcFunnelWidth + '%' }"></div>
+                </div>
+                <span class="text-[10px] text-white/40 font-mono w-12 text-right">{{ formatNumber(displayAddToCartOmni) }}</span>
+              </div>
+              <div class="flex items-center gap-1.5">
+                <span class="text-xs text-white/60 w-24 text-right">Checkout</span>
+                <div class="flex-1 h-1.5 rounded-full bg-white/10">
+                  <div class="h-full rounded-full bg-orange-400/60" :style="{ width: coFunnelWidth + '%' }"></div>
+                </div>
+                <span class="text-[10px] text-white/40 font-mono w-12 text-right">{{ formatNumber(displayCheckoutOmni) }}</span>
+              </div>
+              <div class="flex items-center gap-1.5">
+                <span class="text-xs text-white/60 w-24 text-right">Purchases</span>
                 <div class="flex-1 h-1.5 rounded-full bg-white/10">
                   <div class="h-full rounded-full bg-lime-400/70" :style="{ width: convFunnelWidth + '%' }"></div>
                 </div>
+                <span class="text-[10px] text-white/40 font-mono w-12 text-right">{{ formatNumber(displayConversions) }}</span>
               </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Add to Cart / Checkout detail -->
+        <div class="px-6 mb-6 flex-shrink-0">
+          <div class="flex items-center gap-2 mb-3">
+            <h3 class="text-xs text-white/65 uppercase tracking-widest font-medium">Funnel Events</h3>
+            <MetricTip>Meta returns two variants for each event: Omni (all channels — pixel + onsite + app, deduplicated) and Site (website pixel only). Omni is the headline number.</MetricTip>
+          </div>
+          <div class="grid grid-cols-2 gap-3">
+            <!-- Add to Cart -->
+            <div class="rounded-xl border border-amber-500/15 bg-amber-500/[0.04] p-3.5">
+              <div class="flex items-center gap-1 mb-2">
+                <p class="text-xs text-amber-400/80 font-medium">Add to Cart</p>
+                <MetricTip>omni_add_to_cart — deduplicated adds-to-cart across all Meta channels. Includes pixel, onsite (Instagram/Facebook shop), and app events.</MetricTip>
+              </div>
+              <p class="text-2xl font-bold text-amber-400">{{ formatNumber(displayAddToCartOmni) }}</p>
+              <p class="text-[10px] text-white/35 mt-1">omni · <span class="font-mono">{{ formatNumber(displayAddToCart) }}</span> site-only</p>
+            </div>
+            <!-- Checkout Initiated -->
+            <div class="rounded-xl border border-orange-500/15 bg-orange-500/[0.04] p-3.5">
+              <div class="flex items-center gap-1 mb-2">
+                <p class="text-xs text-orange-400/80 font-medium">Checkout Started</p>
+                <MetricTip>omni_initiated_checkout — people who started checkout across all Meta channels after seeing this product's ad. High checkout drop-off may signal price or UX issues.</MetricTip>
+              </div>
+              <p class="text-2xl font-bold text-orange-400">{{ formatNumber(displayCheckoutOmni) }}</p>
+              <p class="text-[10px] text-white/35 mt-1">omni · <span class="font-mono">{{ formatNumber(displayCheckoutInitiated) }}</span> site-only</p>
             </div>
           </div>
         </div>
@@ -297,6 +395,11 @@ interface HistoryPoint {
   clicks: number
   conversions: number
   conversionRate: number
+  onsitePurchases?: number   // onsite_web_purchase session count (may be different product)
+  addToCart?: number
+  addToCartOmni?: number
+  checkoutInitiated?: number
+  checkoutInitiatedOmni?: number
 }
 
 interface Product {
@@ -312,6 +415,7 @@ interface Product {
   category: string
   spend: number
   revenue: number
+  metaRevenue?: number
   impressions: number
   clicks: number
   conversions: number
@@ -434,43 +538,79 @@ const rangeMetrics = computed(() => {
 
   const n = slice.length || 1
 
-  const totalRevenue     = slice.reduce((s, d) => s + (d.revenue ?? 0), 0)
-  const totalMetaRevenue = slice.reduce((s, d) => s + (d.metaRevenue ?? 0), 0)
-  const totalSpend       = slice.reduce((s, d) => s + (d.spend ?? 0), 0)
-  const totalImpressions = slice.reduce((s, d) => s + (d.impressions ?? 0), 0)
-  const totalClicks      = slice.reduce((s, d) => s + (d.clicks ?? 0), 0)
-  const totalConversions = slice.reduce((s, d) => s + (d.conversions ?? 0), 0)
+  const totalRevenue            = slice.reduce((s, d) => s + (d.revenue ?? 0), 0)
+  const totalMetaRevenue        = slice.reduce((s, d) => s + (d.metaRevenue ?? 0), 0)
+  const totalSpend              = slice.reduce((s, d) => s + (d.spend ?? 0), 0)
+  const totalImpressions        = slice.reduce((s, d) => s + (d.impressions ?? 0), 0)
+  const totalClicks             = slice.reduce((s, d) => s + (d.clicks ?? 0), 0)
+  const totalConversions        = slice.reduce((s, d) => s + (d.conversions ?? 0), 0)
+  const totalAddToCart          = slice.reduce((s, d) => s + (d.addToCart ?? 0), 0)
+  const totalAddToCartOmni      = slice.reduce((s, d) => s + (d.addToCartOmni ?? 0), 0)
+  const totalCheckout           = slice.reduce((s, d) => s + (d.checkoutInitiated ?? 0), 0)
+  const totalCheckoutOmni       = slice.reduce((s, d) => s + (d.checkoutInitiatedOmni ?? 0), 0)
   // Weighted avg margin (weight by revenue)
   const avgMargin = totalRevenue > 0
     ? slice.reduce((s, d) => s + (d.margin ?? 0) * (d.revenue ?? 0), 0) / totalRevenue
     : slice.reduce((s, d) => s + (d.margin ?? 0), 0) / n
 
   return {
-    revenue:        totalRevenue,
-    metaRevenue:    totalMetaRevenue,
-    spend:          totalSpend,
-    impressions:    totalImpressions,
-    clicks:         totalClicks,
-    conversions:    totalConversions,
+    revenue:              totalRevenue,
+    metaRevenue:          totalMetaRevenue,
+    spend:                totalSpend,
+    impressions:          totalImpressions,
+    clicks:               totalClicks,
+    conversions:          totalConversions,
+    addToCart:            totalAddToCart,
+    addToCartOmni:        totalAddToCartOmni,
+    checkoutInitiated:    totalCheckout,
+    checkoutInitiatedOmni: totalCheckoutOmni,
     ctr:            totalImpressions > 0 ? totalClicks / totalImpressions : 0,
     conversionRate: totalClicks > 0 ? totalConversions / totalClicks : 0,
+    // Blended ROAS = actual store revenue / Meta spend (the honest number)
     blendedRoas:    totalSpend > 0 ? totalRevenue / totalSpend : 0,
+    // Meta ROAS = Meta-attributed revenue / Meta spend
+    metaRoas:       totalSpend > 0 && totalMetaRevenue > 0 ? totalMetaRevenue / totalSpend : 0,
     margin:         avgMargin,
   }
 })
 
 // ── Display values: prefer rangeMetrics (when history loaded), else product prop ──
 const displayRevenue     = computed(() => rangeMetrics.value?.revenue     ?? props.product?.revenue     ?? 0)
+const displayMetaRevenue = computed(() => rangeMetrics.value?.metaRevenue ?? props.product?.metaRevenue ?? 0)
 const displaySpend       = computed(() => rangeMetrics.value?.spend       ?? props.product?.spend       ?? 0)
 const displayImpressions = computed(() => rangeMetrics.value?.impressions ?? props.product?.impressions ?? 0)
 const displayClicks      = computed(() => rangeMetrics.value?.clicks      ?? props.product?.clicks      ?? 0)
 const displayConversions = computed(() => rangeMetrics.value?.conversions ?? props.product?.conversions ?? 0)
+const displayAddToCart          = computed(() => rangeMetrics.value?.addToCart            ?? 0)
+const displayAddToCartOmni      = computed(() => rangeMetrics.value?.addToCartOmni         ?? 0)
+const displayCheckoutInitiated  = computed(() => rangeMetrics.value?.checkoutInitiated     ?? 0)
+const displayCheckoutOmni       = computed(() => rangeMetrics.value?.checkoutInitiatedOmni ?? 0)
+
+// onsite_web_purchase session count — sum from history if loaded
+const displayOnsitePurchases = computed(() => {
+  const history = props.product?.history
+  if (!history?.length) return 0
+  let slice = props.rangeStart && props.rangeEnd
+    ? history.filter(d => { const ds = toDateStr(d.date); return ds >= props.rangeStart! && ds <= props.rangeEnd! })
+    : [...history]
+  if (globalRangeDays.value > 14) {
+    const pillDays = chartRange.value === '7D' ? 7 : chartRange.value === '14D' ? 14 : 30
+    if (slice.length > pillDays) slice = slice.slice(-pillDays)
+  }
+  return slice.reduce((s, d) => s + (d.onsitePurchases ?? 0), 0)
+})
 // Stored as decimal (0.025 = 2.5%), multiply × 100 for display
 const displayCtrPct      = computed(() => ((rangeMetrics.value?.ctr      ?? props.product?.ctr      ?? 0) * 100).toFixed(2))
 const displayConvRatePct = computed(() => ((rangeMetrics.value?.conversionRate ?? props.product?.conversionRate ?? 0) * 100).toFixed(2))
 // Stored as decimal (0.35 = 35%), multiply × 100 for display
 const displayMarginPct   = computed(() => (rangeMetrics.value?.margin ?? props.product?.margin ?? 0) * 100)
 const displayBlendedRoas = computed(() => (rangeMetrics.value?.blendedRoas ?? Number(props.product?.blendedRoas) ?? 0).toFixed(2))
+// Meta ROAS = metaRevenue / spend (computed from aggregated history window)
+const displayMetaRoas = computed(() => {
+  const spd = displaySpend.value
+  const meta = displayMetaRevenue.value
+  return spd > 0 && meta > 0 ? (meta / spd).toFixed(2) : '0.00'
+})
 
 // ── Meta share bar ─────────────────────────────────────────────────────────────
 const metaShare = computed(() => {
@@ -486,6 +626,20 @@ const clickRate = computed(() => {
   const clk = displayClicks.value
   if (!imp) return 0
   return Math.min((clk / imp) * 100 * 10, 100)
+})
+
+const atcFunnelWidth = computed(() => {
+  const imp = displayImpressions.value
+  const atc = displayAddToCartOmni.value
+  if (!imp) return 0
+  return Math.min((atc / imp) * 100 * 20, 100)
+})
+
+const coFunnelWidth = computed(() => {
+  const imp = displayImpressions.value
+  const co  = displayCheckoutOmni.value
+  if (!imp) return 0
+  return Math.min((co / imp) * 100 * 30, 100)
 })
 
 const convFunnelWidth = computed(() => {
@@ -522,6 +676,50 @@ const badgeDot = (category: string) => {
   if (category === 'KILL') return 'bg-ember-500'
   return 'bg-violet-400'
 }
+
+// ── MetricTip — inline tooltip pill ──────────────────────────────────────────
+// Usage in template: <MetricTip>Explain what this metric means.</MetricTip>
+// Optional prop:     <MetricTip side="left"> — flips tooltip to open right-to-left
+const MetricTip = defineComponent({
+  props: { side: { type: String, default: 'center' } },
+  setup(props, { slots }) {
+    const show = ref(false)
+    return () => h('span', {
+      class: 'relative inline-flex items-center shrink-0',
+      onMouseenter: () => { show.value = true },
+      onMouseleave: () => { show.value = false },
+    }, [
+      // The ? badge
+      h('span', {
+        class: 'h-3.5 w-3.5 rounded-full bg-white/10 flex items-center justify-center text-[9px] font-bold text-white/40 hover:bg-white/20 hover:text-white/70 transition-all cursor-help select-none leading-none',
+      }, '?'),
+      // Tooltip bubble — only rendered when hovered
+      show.value ? h('div', {
+        class: [
+          'absolute bottom-full mb-2 z-[200] w-56 rounded-xl',
+          'bg-[#0d1017] border border-white/12 shadow-2xl px-3 py-2.5',
+          'text-[11px] text-white/75 leading-relaxed whitespace-normal',
+          props.side === 'left'  ? 'right-0'
+          : props.side === 'right' ? 'left-0'
+          : 'left-1/2 -translate-x-1/2',
+        ].join(' '),
+      }, [
+        slots.default?.(),
+        // Caret arrow
+        h('div', {
+          class: [
+            'absolute top-full w-0 h-0',
+            'border-l-[5px] border-r-[5px] border-t-[5px]',
+            'border-l-transparent border-r-transparent border-t-[#0d1017]',
+            props.side === 'left'  ? 'right-2'
+            : props.side === 'right' ? 'left-2'
+            : 'left-1/2 -translate-x-1/2',
+          ].join(' '),
+        }),
+      ]) : null,
+    ])
+  },
+})
 </script>
 
 <style scoped>

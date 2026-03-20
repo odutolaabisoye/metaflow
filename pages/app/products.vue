@@ -24,19 +24,129 @@
           </svg>
           {{ syncing ? 'Syncing…' : syncDisabled ? `Sync in ${cooldownLabel}` : 'Sync now' }}
         </button>
-        <button
-          @click="exportCsv"
-          class="flex items-center gap-2 rounded-xl bg-white text-ink-950 px-4 py-2.5 text-sm font-semibold hover:bg-white/90 transition-all"
-        >
-          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3"/>
-          </svg>
-          Export CSV
-        </button>
+        <!-- Split export button -->
+        <div ref="exportMenuRef" class="relative">
+          <div class="flex items-center rounded-xl overflow-hidden bg-white text-ink-950 hover:bg-white/90 transition-all">
+            <button
+              @click="exportCsv('page')"
+              :disabled="exportingAll"
+              class="flex items-center gap-2 pl-4 pr-3 py-2.5 text-sm font-semibold disabled:opacity-60 disabled:cursor-not-allowed"
+            >
+              <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3"/>
+              </svg>
+              {{ exportingAll ? exportProgress : 'Export CSV' }}
+            </button>
+            <button
+              @click="showExportMenu = !showExportMenu"
+              :disabled="exportingAll"
+              class="flex items-center justify-center px-2 py-2.5 border-l border-ink-950/15 disabled:opacity-60 disabled:cursor-not-allowed"
+              aria-label="Export options"
+            >
+              <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/>
+              </svg>
+            </button>
+          </div>
+          <!-- Dropdown -->
+          <Transition name="fade-drop">
+            <div
+              v-if="showExportMenu"
+              class="absolute right-0 mt-1.5 w-52 rounded-xl border border-white/10 bg-ink-900/95 backdrop-blur-md shadow-2xl overflow-hidden z-50"
+            >
+              <button
+                @click="exportCsv('page'); showExportMenu = false"
+                class="w-full flex items-start gap-3 px-4 py-3 text-left hover:bg-white/[0.06] transition-colors"
+              >
+                <svg class="w-4 h-4 mt-0.5 text-white/60 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 002.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 00-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 00.75-.75a2.25 2.25 0 00-.1-.664m-5.8 0A2.251 2.251 0 0113.5 2.25H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25z"/>
+                </svg>
+                <div>
+                  <p class="text-sm font-medium text-white">This page only</p>
+                  <p class="text-xs text-white/50">{{ products.length }} rows</p>
+                </div>
+              </button>
+              <div class="h-px bg-white/[0.07]"></div>
+              <button
+                @click="exportCsv('all'); showExportMenu = false"
+                class="w-full flex items-start gap-3 px-4 py-3 text-left hover:bg-white/[0.06] transition-colors"
+              >
+                <svg class="w-4 h-4 mt-0.5 text-white/60 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 5.625c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125"/>
+                </svg>
+                <div>
+                  <p class="text-sm font-medium text-white">All products</p>
+                  <p class="text-xs text-white/50">{{ total.toLocaleString() }} rows — fetches all pages</p>
+                </div>
+              </button>
+            </div>
+          </Transition>
+        </div>
       </div>
     </div>
 
-    <!-- Sync error banner -->
+    <!-- Freshness strip — last sync + last scored timestamps -->
+    <div v-if="lastSyncAt || lastScoredAt" class="flex flex-wrap items-center gap-x-5 gap-y-1 text-[11px] text-white/40 -mt-2">
+      <span v-if="lastSyncAt">
+        <span class="text-white/25 mr-1">Last synced</span>
+        <span class="text-white/55">{{ timeAgo(lastSyncAt) }}</span>
+      </span>
+      <span v-if="lastScoredAt">
+        <span class="text-white/25 mr-1">Scores refreshed</span>
+        <span class="text-white/55">{{ timeAgo(lastScoredAt) }}</span>
+      </span>
+    </div>
+
+    <!-- ATC backfill notice — shown when products have spend but no add-to-cart data yet -->
+    <Transition name="fade-up">
+      <div v-if="needsAtcResync" class="flex items-start gap-3 rounded-2xl border border-amber-500/20 bg-amber-500/[0.06] px-5 py-3.5">
+        <svg class="w-4 h-4 text-amber-400 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z"/>
+        </svg>
+        <div class="flex-1">
+          <p class="text-sm font-medium text-amber-300">Add to Cart &amp; Checkout data not yet available</p>
+          <p class="text-xs text-amber-400/70 mt-0.5">These columns were recently added. Run a sync to pull the latest event data from Meta.</p>
+        </div>
+        <button @click="triggerSync" :disabled="syncDisabled"
+          class="flex-shrink-0 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/25 px-3 py-1.5 text-xs font-semibold text-amber-300 transition-colors disabled:opacity-50">
+          Sync now
+        </button>
+      </div>
+    </Transition>
+
+    <!-- Persistent background-sync error banners (shown after page load, not just manual syncs) -->
+    <Transition name="fade-up">
+      <div v-if="needsReauth" class="flex items-start gap-3 rounded-2xl border border-ember-500/25 bg-ember-500/[0.07] px-5 py-3.5">
+        <svg class="w-4 h-4 text-ember-400 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z"/>
+        </svg>
+        <div class="flex-1 min-w-0">
+          <p class="text-sm font-medium text-ember-300">Meta connection expired or revoked</p>
+          <p class="text-xs text-ember-400/70 mt-0.5">Your Meta access token is no longer valid. Sync has been paused until you reconnect.</p>
+        </div>
+        <NuxtLink to="/app/settings#meta"
+          class="flex-shrink-0 rounded-lg bg-ember-500/20 hover:bg-ember-500/30 border border-ember-500/30 px-3 py-1.5 text-xs font-semibold text-ember-300 transition-colors whitespace-nowrap">
+          Reconnect Meta →
+        </NuxtLink>
+      </div>
+    </Transition>
+    <Transition name="fade-up">
+      <div v-if="hasSyncError && !needsReauth" class="flex items-start gap-3 rounded-2xl border border-amber-500/20 bg-amber-500/[0.06] px-5 py-3.5">
+        <svg class="w-4 h-4 text-amber-400 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z"/>
+        </svg>
+        <div class="flex-1 min-w-0">
+          <p class="text-sm font-medium text-amber-300">Last sync failed</p>
+          <p class="text-xs text-amber-400/70 mt-0.5 truncate">{{ storeSyncError ?? 'An error occurred during the last sync. Try syncing again.' }}</p>
+        </div>
+        <button @click="triggerSync" :disabled="syncDisabled"
+          class="flex-shrink-0 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/25 px-3 py-1.5 text-xs font-semibold text-amber-300 transition-colors disabled:opacity-50 whitespace-nowrap">
+          {{ syncing ? 'Syncing…' : 'Retry sync' }}
+        </button>
+      </div>
+    </Transition>
+
+    <!-- Sync error banner (manual sync attempt) -->
     <Transition name="fade-up">
       <div v-if="syncError" class="flex items-center justify-between gap-3 rounded-2xl border border-ember-500/25 bg-ember-500/8 px-5 py-3">
         <div class="flex items-center gap-2.5">
@@ -85,6 +195,29 @@
         </button>
       </div>
 
+      <!-- Divider -->
+      <div class="h-6 w-px bg-white/10 hidden sm:block"></div>
+
+      <!-- Stock toggle -->
+      <div class="flex items-center gap-0.5 rounded-lg bg-white/[0.05] border border-white/8 p-0.5">
+        <button
+          v-for="opt in stockOptions"
+          :key="opt.value"
+          @click="stockFilter = opt.value"
+          class="flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium transition-all"
+          :class="stockFilter === opt.value
+            ? 'bg-white/15 text-white shadow-sm'
+            : 'text-white/45 hover:text-white/70'"
+        >
+          <span
+            v-if="opt.dot"
+            class="h-1.5 w-1.5 rounded-full flex-shrink-0"
+            :class="opt.dot"
+          ></span>
+          {{ opt.label }}
+        </button>
+      </div>
+
       <!-- Spacer -->
       <div class="flex-1 hidden sm:block"></div>
 
@@ -102,6 +235,8 @@
           <option value="clicks">Clicks</option>
           <option value="spend">Spend</option>
           <option value="revenue">Revenue</option>
+          <option value="addToCart">Add to Cart</option>
+          <option value="checkoutInitiated">Checkout</option>
           <option value="velocity">Velocity</option>
           <option value="title">Title</option>
         </select>
@@ -147,45 +282,51 @@
               <th class="text-left text-xs font-medium text-white/80 px-5 py-3.5 whitespace-nowrap">Product</th>
               <th class="text-left px-4 py-3.5 whitespace-nowrap">
                 <button class="flex items-center gap-1.5 text-xs font-medium text-white/80 hover:text-white/80 transition-colors" @click="setSort('score')">
-                  Score
+                  <MetricTooltip metric="score">Score</MetricTooltip>
                   <span v-if="sortBy === 'score'" class="text-glow-500 text-[10px]">{{ sortIndicator('score') }}</span>
                 </button>
               </th>
               <th class="text-left px-4 py-3.5 whitespace-nowrap">
                 <button class="flex items-center gap-1.5 text-xs font-medium text-white/80 hover:text-white/80 transition-colors" @click="setSort('roas')">
-                  ROAS
+                  <MetricTooltip metric="roas">ROAS</MetricTooltip>
                   <span v-if="sortBy === 'roas'" class="text-glow-500 text-[10px]">{{ sortIndicator('roas') }}</span>
                 </button>
               </th>
               <th class="text-left px-4 py-3.5 whitespace-nowrap">
                 <button class="flex items-center gap-1.5 text-xs font-medium text-white/80 hover:text-white/80 transition-colors" @click="setSort('ctr')">
-                  CTR
+                  <MetricTooltip metric="ctr">CTR</MetricTooltip>
                   <span v-if="sortBy === 'ctr'" class="text-glow-500 text-[10px]">{{ sortIndicator('ctr') }}</span>
                 </button>
               </th>
               <th class="text-left px-4 py-3.5 whitespace-nowrap">
                 <button class="flex items-center gap-1.5 text-xs font-medium text-white/80 hover:text-white/80 transition-colors" @click="setSort('impressions')">
-                  Impressions
+                  <MetricTooltip metric="impressions">Impressions</MetricTooltip>
                   <span v-if="sortBy === 'impressions'" class="text-glow-500 text-[10px]">{{ sortIndicator('impressions') }}</span>
                 </button>
               </th>
               <th class="text-left px-4 py-3.5 whitespace-nowrap">
                 <button class="flex items-center gap-1.5 text-xs font-medium text-white/80 hover:text-white/80 transition-colors" @click="setSort('clicks')">
-                  Clicks
+                  <MetricTooltip metric="clicks">Clicks</MetricTooltip>
                   <span v-if="sortBy === 'clicks'" class="text-glow-500 text-[10px]">{{ sortIndicator('clicks') }}</span>
                 </button>
               </th>
               <th class="text-left px-4 py-3.5 whitespace-nowrap">
                 <button class="flex items-center gap-1.5 text-xs font-medium text-white/80 hover:text-white/80 transition-colors" @click="setSort('spend')">
-                  Spend
+                  <MetricTooltip metric="spend">Spend</MetricTooltip>
                   <span v-if="sortBy === 'spend'" class="text-glow-500 text-[10px]">{{ sortIndicator('spend') }}</span>
                 </button>
               </th>
               <th class="text-left px-4 py-3.5 whitespace-nowrap">
                 <button class="flex items-center gap-1.5 text-xs font-medium text-white/80 hover:text-white/80 transition-colors" @click="setSort('revenue')">
-                  Revenue
+                  <MetricTooltip metric="revenue">Revenue</MetricTooltip>
                   <span v-if="sortBy === 'revenue'" class="text-glow-500 text-[10px]">{{ sortIndicator('revenue') }}</span>
                 </button>
+              </th>
+              <th class="text-left px-4 py-3.5 whitespace-nowrap text-xs font-medium text-white/80">
+                <MetricTooltip metric="addToCart">Add to Cart</MetricTooltip>
+              </th>
+              <th class="text-left px-4 py-3.5 whitespace-nowrap text-xs font-medium text-white/80">
+                <MetricTooltip metric="checkoutInitiated">Checkout</MetricTooltip>
               </th>
               <th class="text-left px-4 py-3.5 whitespace-nowrap text-xs font-medium text-white/80">Status</th>
               <!-- hint column -->
@@ -213,7 +354,14 @@
                     />
                   </div>
                   <div class="min-w-0">
-                    <p class="font-medium truncate max-w-[180px]">{{ item.title }}</p>
+                    <div class="flex items-center gap-1.5">
+                      <p class="font-medium truncate max-w-[180px]">{{ item.title }}</p>
+                      <span
+                        v-if="item.variantCount > 0"
+                        class="flex-shrink-0 rounded-md bg-white/[0.07] border border-white/10 px-1.5 py-0.5 text-[10px] font-medium text-white/45"
+                        :title="`${item.variantCount} variant${item.variantCount === 1 ? '' : 's'}`"
+                      >{{ item.variantCount }}v</span>
+                    </div>
                     <div class="flex items-center gap-2 mt-0.5">
                       <span class="text-xs text-white/70 font-mono">{{ item.sku }}</span>
                       <a
@@ -276,6 +424,24 @@
 
               <!-- Revenue -->
               <td class="px-4 py-4 text-sm font-medium">{{ formatMoney(item.revenue) }}</td>
+
+              <!-- Add to Cart (null = no data yet; 0 = real zero) -->
+              <td class="px-4 py-4 text-sm font-mono">
+                <template v-if="item.addToCartOmni != null || item.addToCart != null">
+                  <span class="block text-white/70">{{ (item.addToCartOmni ?? 0).toLocaleString() }}</span>
+                  <span class="block text-[10px] text-white/35">{{ (item.addToCart ?? 0).toLocaleString() }} site</span>
+                </template>
+                <span v-else class="text-white/25">—</span>
+              </td>
+
+              <!-- Checkout Initiated (null = no data yet; 0 = real zero) -->
+              <td class="px-4 py-4 text-sm font-mono">
+                <template v-if="item.checkoutInitiatedOmni != null || item.checkoutInitiated != null">
+                  <span class="block text-white/70">{{ (item.checkoutInitiatedOmni ?? 0).toLocaleString() }}</span>
+                  <span class="block text-[10px] text-white/35">{{ (item.checkoutInitiated ?? 0).toLocaleString() }} site</span>
+                </template>
+                <span v-else class="text-white/25">—</span>
+              </td>
 
               <!-- Category badge -->
               <td class="px-4 py-4">
@@ -404,10 +570,11 @@ import { useGlobalFilters } from "~/composables/useGlobalFilters";
 
 const { public: { apiBase } } = useRuntimeConfig();
 
-const search = ref("");
-const filter = ref("all");
-const sortBy = ref("score");
-const sortDir = ref("desc");
+const search      = ref("");
+const filter      = ref("all");
+const stockFilter = ref<'all' | 'inStock' | 'outOfStock'>("all");
+const sortBy      = ref("score");
+const sortDir     = ref("desc");
 const limit = ref(20);
 const syncing = ref(false);
 
@@ -428,8 +595,14 @@ const categories = [
   { value: 'RISK', label: 'Risk', dot: 'bg-violet-400' },
 ];
 
+const stockOptions: { value: 'all' | 'inStock' | 'outOfStock'; label: string; dot: string | null }[] = [
+  { value: 'all',          label: 'All stock',   dot: null },
+  { value: 'inStock',      label: 'In stock',    dot: 'bg-lime-400' },
+  { value: 'outOfStock',   label: 'Out of stock', dot: 'bg-ember-400' },
+];
+
 // Reset to page 0 whenever any filter/sort/range changes
-watch([sortBy, sortDir, limit, filter, query], () => { page.value = 0; });
+watch([sortBy, sortDir, limit, filter, stockFilter, query], () => { page.value = 0; });
 watch(search, () => { page.value = 0; });
 
 const { data, pending, refresh } = await useFetch(`${apiBase}/v1/products`, {
@@ -439,6 +612,7 @@ const { data, pending, refresh } = await useFetch(`${apiBase}/v1/products`, {
     ...query.value,
     search: search.value || undefined,
     category: filter.value === "all" ? undefined : filter.value,
+    stock: stockFilter.value === "all" ? undefined : stockFilter.value,
     sortBy: sortBy.value,
     sortDir: sortDir.value,
     limit: limit.value,
@@ -450,6 +624,36 @@ const currency   = computed(() => data.value?.currency   ?? "USD");
 const products   = computed(() => data.value?.items      ?? []);
 const total      = computed(() => data.value?.total      ?? 0);
 const totalPages = computed(() => data.value?.totalPages ?? 1);
+
+// Store freshness + sync health — surfaced from backend response
+const lastSyncAt      = computed(() => data.value?.store?.lastSyncAt      ?? null);
+const lastScoredAt    = computed(() => data.value?.store?.lastScoredAt    ?? null);
+const storeSyncStatus = computed(() => data.value?.store?.lastSyncStatus  ?? 'IDLE');
+const storeSyncError  = computed(() => data.value?.store?.lastSyncError   ?? null);
+const needsReauth     = computed(() => storeSyncStatus.value === 'NEEDS_REAUTH');
+const hasSyncError    = computed(() => storeSyncStatus.value === 'ERROR');
+
+// Human-readable "X ago" helper
+function timeAgo(iso: string | null): string {
+  if (!iso) return 'never';
+  const diff = Date.now() - new Date(iso).getTime();
+  const mins  = Math.floor(diff / 60_000);
+  const hours = Math.floor(diff / 3_600_000);
+  const days  = Math.floor(diff / 86_400_000);
+  if (mins < 2)   return 'just now';
+  if (mins < 60)  return `${mins}m ago`;
+  if (hours < 24) return `${hours}h ago`;
+  return `${days}d ago`;
+}
+
+// True when products exist but all ATC/Checkout values are null → data hasn't been populated yet
+const needsAtcResync = computed(() => {
+  const items = products.value as any[];
+  if (!items.length) return false;
+  const itemsWithSpend = items.filter(p => (p.spend ?? 0) > 0);
+  if (!itemsWithSpend.length) return false;
+  return itemsWithSpend.every(p => p.addToCartOmni == null && p.checkoutInitiatedOmni == null);
+});
 
 // Page range shown in the pagination footer ("X–Y of N")
 const pageStart = computed(() => total.value === 0 ? 0 : page.value * limit.value + 1);
@@ -496,17 +700,20 @@ const formatMoney = (value: number) => {
   }).format(value);
 };
 
+const userThresholds = reactive({ scale: 75, test: 50, kill: 25 });
+const userBenchmarks = reactive({ roas: 5, ctr: 3, margin: 50, inventory: 10 });
+
 const scoreColor = (score: number) => {
-  if (score >= 75) return 'text-lime-400';
-  if (score >= 50) return 'text-glow-400';
-  if (score >= 25) return 'text-ember-400';
+  if (score >= userThresholds.scale) return 'text-lime-400';
+  if (score >= userThresholds.test)  return 'text-glow-400';
+  if (score >= userThresholds.kill)  return 'text-ember-400';
   return 'text-white/65';
 };
 
 const scoreBarColor = (score: number) => {
-  if (score >= 75) return 'bg-lime-400';
-  if (score >= 50) return 'bg-glow-400';
-  if (score >= 25) return 'bg-ember-400';
+  if (score >= userThresholds.scale) return 'bg-lime-400';
+  if (score >= userThresholds.test)  return 'bg-glow-400';
+  if (score >= userThresholds.kill)  return 'bg-ember-400';
   return 'bg-white/30';
 };
 
@@ -557,6 +764,9 @@ const openSidekick = async (item: Record<string, unknown>) => {
           ctr: number; margin: number; velocity: number;
           impressions: number | null; clicks: number | null;
           conversions: number | null; conversionRate: number;
+          onsitePurchases?: number | null;
+          addToCart?: number | null; addToCartOmni?: number | null;
+          checkoutInitiated?: number | null; checkoutInitiatedOmni?: number | null;
         }[];
       };
     }>(`${apiBase}/v1/products/${item.id}`, { credentials: 'include' });
@@ -564,19 +774,24 @@ const openSidekick = async (item: Record<string, unknown>) => {
     if (res?.ok && selectedProduct.value?.id === item.id) {
       // dailyMetrics comes in desc order — reverse for the chart (oldest → newest)
       const history = [...res.product.dailyMetrics].reverse().map(m => ({
-        date:           m.date,
-        revenue:        m.revenue,
-        metaRevenue:    m.metaRevenue ?? 0,
-        roas:           m.roas,
-        blendedRoas:    m.blendedRoas ?? m.roas,
-        spend:          m.spend,
-        ctr:            m.ctr,
-        margin:         m.margin,
-        velocity:       m.velocity,
-        impressions:    m.impressions ?? 0,
-        clicks:         m.clicks ?? 0,
-        conversions:    m.conversions ?? 0,
-        conversionRate: m.conversionRate,
+        date:                  m.date,
+        revenue:               m.revenue,
+        metaRevenue:           m.metaRevenue ?? 0,
+        roas:                  m.roas,
+        blendedRoas:           m.blendedRoas ?? (m.spend > 0 ? m.revenue / m.spend : 0),
+        spend:                 m.spend,
+        ctr:                   m.ctr,
+        margin:                m.margin,
+        velocity:              m.velocity,
+        impressions:           m.impressions ?? 0,
+        clicks:                m.clicks ?? 0,
+        conversions:           m.conversions ?? 0,
+        conversionRate:        m.conversionRate,
+        onsitePurchases:       m.onsitePurchases ?? 0,
+        addToCart:             m.addToCart             ?? 0,
+        addToCartOmni:         m.addToCartOmni         ?? 0,
+        checkoutInitiated:     m.checkoutInitiated     ?? 0,
+        checkoutInitiatedOmni: m.checkoutInitiatedOmni ?? 0,
       }));
       selectedProduct.value = { ...selectedProduct.value, history };
     }
@@ -624,10 +839,36 @@ const loadCsrf = async () => {
   } catch {}
 };
 
-onMounted(loadCsrf);
+function onDocClick(e: MouseEvent) {
+  if (exportMenuRef.value && !exportMenuRef.value.contains(e.target as Node)) {
+    showExportMenu.value = false;
+  }
+}
+
+onMounted(async () => {
+  document.addEventListener('click', onDocClick, true);
+  loadCsrf();
+  try {
+    const config = useRuntimeConfig();
+    const res = await $fetch<{ ok: boolean; settings: { thresholds: { scale: number; test: number; kill: number }; benchmarks: { roas: number; ctr: number; margin: number; inventory: number } } }>(
+      `${config.public.apiBase}/v1/settings`,
+      { credentials: 'include' }
+    );
+    if (res?.ok) {
+      userThresholds.scale = res.settings.thresholds.scale;
+      userThresholds.test  = res.settings.thresholds.test;
+      userThresholds.kill  = res.settings.thresholds.kill;
+      userBenchmarks.roas      = res.settings.benchmarks.roas;
+      userBenchmarks.ctr       = +(res.settings.benchmarks.ctr * 100).toFixed(2);
+      userBenchmarks.margin    = +(res.settings.benchmarks.margin * 100).toFixed(0);
+      userBenchmarks.inventory = res.settings.benchmarks.inventory;
+    }
+  } catch {}
+});
 
 onBeforeUnmount(() => {
   if (cooldownTimer) clearInterval(cooldownTimer);
+  document.removeEventListener('click', onDocClick, true);
 });
 
 const triggerSync = async () => {
@@ -677,35 +918,40 @@ function explainFactors(product: Record<string, any>) {
   const margin    = Number(product.margin    ?? 0);
   const inventory = product.inventoryLevel != null ? Number(product.inventoryLevel) : null;
 
-  const roasScore      = Math.min(roas / 5,    1) * 35;
-  const ctrScore       = Math.min(ctr / 0.03,  1) * 20;
-  const marginScore    = Math.min(margin / 0.5, 1) * 25;
-  const inventoryScore = inventory === null ? 10 : inventory >= 10 ? 20 : (inventory / 10) * 20;
+  const roasBenchmark      = userBenchmarks.roas;
+  const ctrBenchmark       = userBenchmarks.ctr / 100;
+  const marginBenchmark    = userBenchmarks.margin / 100;
+  const inventoryBenchmark = userBenchmarks.inventory;
+
+  const roasScore      = Math.min(roas / roasBenchmark,   1) * 35;
+  const ctrScore       = Math.min(ctr / ctrBenchmark,     1) * 20;
+  const marginScore    = Math.min(margin / marginBenchmark, 1) * 25;
+  const inventoryScore = inventory === null ? 10 : inventory >= inventoryBenchmark ? 20 : (inventory / inventoryBenchmark) * 20;
 
   return [
     {
       label:        'ROAS (Return on Ad Spend)',
       contribution: Math.round(roasScore * 10) / 10,
       max:          35,
-      detail:       `${roas.toFixed(2)}× (benchmark: 5×)`,
+      detail:       `${roas.toFixed(2)}× (benchmark: ${roasBenchmark}×)`,
     },
     {
       label:        'CTR (Click-Through Rate)',
       contribution: Math.round(ctrScore * 10) / 10,
       max:          20,
-      detail:       `${(ctr * 100).toFixed(2)}% (benchmark: 3%)`,
+      detail:       `${(ctr * 100).toFixed(2)}% (benchmark: ${userBenchmarks.ctr}%)`,
     },
     {
       label:        'Profit Margin',
       contribution: Math.round(marginScore * 10) / 10,
       max:          25,
-      detail:       `${(margin * 100).toFixed(1)}% (benchmark: 50%)`,
+      detail:       `${(margin * 100).toFixed(1)}% (benchmark: ${userBenchmarks.margin}%)`,
     },
     {
       label:        'Inventory Level',
       contribution: Math.round(inventoryScore * 10) / 10,
       max:          20,
-      detail:       inventory === null ? 'Unknown (neutral)' : `${inventory} units (≥10 = full marks)`,
+      detail:       inventory === null ? 'Unknown (neutral)' : `${inventory} units (≥${inventoryBenchmark} = full marks)`,
     },
   ];
 }
@@ -753,29 +999,107 @@ watch(() => products.value, (prods) => {
 });
 
 // ── CSV export ────────────────────────────────────────────────────────────────
-const exportCsv = async () => {
-  const rows = products.value as Record<string, unknown>[];
-  if (!rows.length) return;
-  if (!csrfToken.value) await loadCsrf();
-  const headers = ['title', 'sku', 'category', 'score', 'roas', 'blendedRoas', 'ctr', 'impressions', 'clicks', 'spend', 'revenue', 'conversions'];
-  const csv = [
-    headers.join(','),
-    ...rows.map(r => headers.map(h => JSON.stringify(r[h] ?? '')).join(','))
+const showExportMenu = ref(false);
+const exportMenuRef  = ref<HTMLElement | null>(null);
+const exportingAll   = ref(false);
+const exportProgress = ref('');
+
+const EXPORT_HEADERS = ['title', 'sku', 'category', 'score', 'roas', 'blendedRoas', 'ctr', 'impressions', 'clicks', 'spend', 'revenue', 'conversions', 'addToCartOmni', 'addToCart', 'checkoutInitiatedOmni', 'checkoutInitiated'];
+
+function rowsToCsv(rows: Record<string, unknown>[]) {
+  return [
+    EXPORT_HEADERS.join(','),
+    ...rows.map(r => EXPORT_HEADERS.map(h => JSON.stringify(r[h] ?? '')).join(','))
   ].join('\n');
+}
+
+function downloadCsv(csv: string, filename: string) {
   const blob = new Blob([csv], { type: 'text/csv' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `metaflow-products-${new Date().toISOString().slice(0, 10)}.csv`;
+  a.download = filename;
   a.click();
   URL.revokeObjectURL(url);
+}
 
-  // Notify backend so an export confirmation email can be sent
-  $fetch(`${apiBase}/v1/products/notify-export`, {
-    method: 'POST',
-    credentials: 'include',
-    headers: { 'x-csrf-token': csrfToken.value },
-    body: { productCount: rows.length },
-  }).catch(() => {/* non-critical — ignore errors */});
+const exportCsv = async (mode: 'page' | 'all' = 'page') => {
+  if (!csrfToken.value) await loadCsrf();
+  const filename = `metaflow-products-${new Date().toISOString().slice(0, 10)}.csv`;
+
+  if (mode === 'page') {
+    const rows = products.value as Record<string, unknown>[];
+    if (!rows.length) return;
+    downloadCsv(rowsToCsv(rows), filename);
+    $fetch(`${apiBase}/v1/products/notify-export`, {
+      method: 'POST', credentials: 'include',
+      headers: { 'x-csrf-token': csrfToken.value },
+      body: { productCount: rows.length },
+    }).catch(() => {});
+    return;
+  }
+
+  // mode === 'all' — paginate through the full dataset
+  exportingAll.value = true;
+  exportProgress.value = 'Loading…';
+  const batchSize = 200;
+  let currentPage = 0;
+  let fetched = 0;
+  let totalCount = total.value || 0;
+  const allRows: Record<string, unknown>[] = [];
+
+  try {
+    while (true) {
+      const res = await $fetch<{ items: Record<string, unknown>[]; total: number }>(`${apiBase}/v1/products`, {
+        credentials: 'include',
+        query: {
+          ...query.value,
+          search:   search.value || undefined,
+          category: filter.value === 'all' ? undefined : filter.value,
+          stock:    stockFilter.value === 'all' ? undefined : stockFilter.value,
+          sortBy:   sortBy.value,
+          sortDir:  sortDir.value,
+          limit:    batchSize,
+          page:     currentPage,
+        },
+      });
+      const items = res?.items ?? [];
+      if (!items.length) break;
+      allRows.push(...items);
+      fetched += items.length;
+      totalCount = res?.total ?? totalCount;
+      exportProgress.value = `${fetched.toLocaleString()} / ${totalCount.toLocaleString()}`;
+      currentPage++;
+      if (items.length < batchSize) break;
+    }
+    downloadCsv(rowsToCsv(allRows), filename);
+    $fetch(`${apiBase}/v1/products/notify-export`, {
+      method: 'POST', credentials: 'include',
+      headers: { 'x-csrf-token': csrfToken.value },
+      body: { productCount: allRows.length },
+    }).catch(() => {});
+  } catch (err: any) {
+    syncError.value = err?.data?.message || 'Export failed. Please try again.';
+  } finally {
+    exportingAll.value = false;
+    exportProgress.value = '';
+  }
 };
 </script>
+
+<style scoped>
+.fade-drop-enter-active,
+.fade-drop-leave-active {
+  transition: opacity 0.12s ease, transform 0.12s ease;
+}
+.fade-drop-enter-from,
+.fade-drop-leave-to {
+  opacity: 0;
+  transform: translateY(-4px);
+}
+.fade-drop-enter-to,
+.fade-drop-leave-from {
+  opacity: 1;
+  transform: translateY(0);
+}
+</style>

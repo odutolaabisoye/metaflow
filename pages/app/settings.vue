@@ -73,46 +73,36 @@
               <div
                 v-for="store in storeIntegrations"
                 :key="store.id"
-                class="flex items-center gap-3 rounded-xl border p-3 transition-all"
+                class="flex flex-col gap-2.5 rounded-xl border p-3 transition-all"
                 :class="store.connected
                   ? 'border-lime-500/25 bg-lime-500/5'
                   : store.disabled
                     ? 'border-white/8 bg-white/[0.02] opacity-35'
                     : 'border-white/8 bg-white/[0.02] opacity-60'"
               >
-                <div class="h-8 w-8 rounded-lg flex items-center justify-center flex-shrink-0" :style="{ background: store.iconBg }">
-                  <svg class="w-4 h-4" :style="{ color: store.iconColor }" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5" v-html="store.icon"></svg>
+                <!-- Icon + label row -->
+                <div class="flex items-center gap-2.5">
+                  <div class="h-8 w-8 rounded-lg flex items-center justify-center flex-shrink-0" :style="{ background: store.iconBg }">
+                    <svg class="w-4 h-4" :style="{ color: store.iconColor }" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5" v-html="store.icon"></svg>
+                  </div>
+                  <div class="flex-1 min-w-0">
+                    <p class="text-sm font-medium truncate">{{ store.label }}</p>
+                    <p class="text-xs text-white/75 truncate mt-0.5">{{ store.detail }}</p>
+                  </div>
                 </div>
-                <div class="flex-1 min-w-0">
-                  <p class="text-sm font-medium truncate">{{ store.label }}</p>
-                  <p class="text-xs text-white/75 truncate mt-0.5">{{ store.detail }}</p>
-                </div>
-                <div class="flex-shrink-0 flex flex-col items-end gap-1.5">
-                  <span class="flex items-center gap-1.5 text-xs font-medium whitespace-nowrap" :class="store.connected ? 'text-lime-400' : 'text-white/50'">
-                    <span class="h-1.5 w-1.5 rounded-full" :class="store.connected ? 'bg-lime-400 animate-pulse' : 'bg-white/15'"></span>
+                <!-- Status + action row -->
+                <div class="flex items-center justify-between gap-2">
+                  <span class="flex items-center gap-1.5 text-xs font-medium" :class="store.connected ? 'text-lime-400' : 'text-white/50'">
+                    <span class="h-1.5 w-1.5 rounded-full flex-shrink-0" :class="store.connected ? 'bg-lime-400 animate-pulse' : 'bg-white/15'"></span>
                     {{ store.connected ? 'Active' : 'Not connected' }}
                   </span>
-                  <!-- Connected: show Disconnect -->
                   <button
                     v-if="store.connected"
                     @click="openDisconnect('store', connectedStore?.id ?? '', store.label)"
-                    class="text-xs text-ember-400 hover:text-ember-300 transition-colors whitespace-nowrap"
-                  >
-                    Disconnect
-                  </button>
-                  <!-- Disabled: another platform is active -->
-                  <span
-                    v-else-if="store.disabled"
-                    class="text-xs text-white/45 whitespace-nowrap select-none"
-                  >
-                    Connect →
-                  </span>
-                  <!-- Available: go to onboarding -->
-                  <NuxtLink
-                    v-else
-                    to="/app/onboarding"
-                    class="text-xs text-glow-500/80 hover:text-glow-500 transition-colors whitespace-nowrap"
-                  >
+                    class="text-xs text-ember-400 hover:text-ember-300 transition-colors"
+                  >Disconnect</button>
+                  <span v-else-if="store.disabled" class="text-xs text-white/40 select-none">Unavailable</span>
+                  <NuxtLink v-else to="/app/onboarding" class="text-xs text-glow-500/80 hover:text-glow-500 transition-colors">
                     Connect →
                   </NuxtLink>
                 </div>
@@ -125,7 +115,7 @@
         <div
           v-for="integration in adsIntegrations"
           :key="integration.id"
-          class="flex items-center gap-4 rounded-xl border p-4 transition-all"
+          class="flex flex-wrap items-center gap-3 rounded-xl border p-4 transition-all"
           :class="integration.connected
             ? 'border-lime-500/20 bg-lime-500/[0.04]'
             : 'border-white/10 bg-white/[0.03]'"
@@ -133,14 +123,14 @@
           <div class="h-10 w-10 rounded-xl flex items-center justify-center flex-shrink-0" :style="{ background: integration.iconBg }">
             <svg class="w-5 h-5" :style="{ color: integration.iconColor }" v-html="integration.iconContent" viewBox="0 0 24 24"></svg>
           </div>
-          <div class="flex-1 min-w-0">
+          <div class="flex-1 min-w-0" style="min-width: 120px;">
             <p class="text-sm font-semibold">{{ integration.label }}</p>
             <p class="text-xs text-white/65 mt-0.5">{{ integration.detail }}</p>
           </div>
-          <div class="flex items-center gap-4 flex-shrink-0">
+          <div class="flex items-center gap-3 ml-auto">
             <div class="text-right hidden sm:block">
               <span class="flex items-center gap-1.5 text-xs font-medium" :class="integration.connected ? 'text-lime-400' : 'text-white/55'">
-                <span class="h-1.5 w-1.5 rounded-full" :class="integration.connected ? 'bg-lime-400 animate-pulse' : 'bg-white/15'"></span>
+                <span class="h-1.5 w-1.5 rounded-full flex-shrink-0" :class="integration.connected ? 'bg-lime-400 animate-pulse' : 'bg-white/15'"></span>
                 {{ integration.connected ? 'Connected' : 'Not connected' }}
               </span>
               <p v-if="integration.connected && integration.lastSynced" class="text-[10px] text-white/50 mt-1">
@@ -151,7 +141,7 @@
               @click="integration.connected
                 ? openDisconnect('connection', connectedMetaConn?.id ?? '', 'Meta Ads')
                 : connectMeta()"
-              class="text-xs font-medium px-3 py-1.5 rounded-lg border transition-all whitespace-nowrap"
+              class="text-xs font-medium px-3 py-1.5 rounded-lg border transition-all"
               :class="integration.connected
                 ? 'border-ember-500/25 bg-ember-500/8 text-ember-400 hover:bg-ember-500/15'
                 : 'border-glow-500/25 bg-glow-500/8 text-glow-400 hover:bg-glow-500/15'"
@@ -304,6 +294,199 @@
             />
           </div>
         </div>
+      </div>
+
+      <!-- Scoring benchmarks -->
+      <div v-if="!loadingRules" class="mt-5 pt-5 border-t border-white/8 space-y-4">
+        <div>
+          <p class="text-xs font-medium text-white/60 uppercase tracking-wider">Scoring benchmarks</p>
+          <p class="text-xs text-white/45 mt-1">What targets count as 'full marks' when calculating product scores. Changes apply on the next sync.</p>
+        </div>
+        <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <!-- ROAS target -->
+          <div>
+            <label class="text-xs font-medium text-white/75 block mb-1.5">ROAS Target</label>
+            <div class="relative">
+              <input
+                type="number"
+                step="0.5"
+                min="0.5"
+                placeholder="5"
+                v-model.number="benchmarkValues.roas"
+                class="w-full rounded-xl border border-white/10 bg-white/[0.06] pl-3 pr-8 py-2 text-sm text-white placeholder:text-white/40 outline-none focus:border-glow-500/40 focus:ring-2 focus:ring-glow-500/15 transition-all"
+              />
+              <span class="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-white/40">×</span>
+            </div>
+            <p class="text-[10px] text-white/40 mt-1">35% of score</p>
+          </div>
+          <!-- CTR target -->
+          <div>
+            <label class="text-xs font-medium text-white/75 block mb-1.5">CTR Target</label>
+            <div class="relative">
+              <input
+                type="number"
+                step="0.1"
+                min="0.01"
+                placeholder="3"
+                v-model.number="benchmarkValues.ctr"
+                class="w-full rounded-xl border border-white/10 bg-white/[0.06] pl-3 pr-8 py-2 text-sm text-white placeholder:text-white/40 outline-none focus:border-glow-500/40 focus:ring-2 focus:ring-glow-500/15 transition-all"
+              />
+              <span class="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-white/40">%</span>
+            </div>
+            <p class="text-[10px] text-white/40 mt-1">20% of score</p>
+          </div>
+          <!-- Margin target -->
+          <div>
+            <label class="text-xs font-medium text-white/75 block mb-1.5">Margin Target</label>
+            <div class="relative">
+              <input
+                type="number"
+                step="1"
+                min="1"
+                max="100"
+                placeholder="50"
+                v-model.number="benchmarkValues.margin"
+                class="w-full rounded-xl border border-white/10 bg-white/[0.06] pl-3 pr-8 py-2 text-sm text-white placeholder:text-white/40 outline-none focus:border-glow-500/40 focus:ring-2 focus:ring-glow-500/15 transition-all"
+              />
+              <span class="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-white/40">%</span>
+            </div>
+            <p class="text-[10px] text-white/40 mt-1">25% of score</p>
+          </div>
+          <!-- Inventory minimum -->
+          <div>
+            <label class="text-xs font-medium text-white/75 block mb-1.5">Min. Stock</label>
+            <div class="relative">
+              <input
+                type="number"
+                step="1"
+                min="1"
+                placeholder="10"
+                v-model.number="benchmarkValues.inventory"
+                class="w-full rounded-xl border border-white/10 bg-white/[0.06] pl-3 pr-12 py-2 text-sm text-white placeholder:text-white/40 outline-none focus:border-glow-500/40 focus:ring-2 focus:ring-glow-500/15 transition-all"
+              />
+              <span class="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-white/40">units</span>
+            </div>
+            <p class="text-[10px] text-white/40 mt-1">20% of score</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Per-store benchmark overrides -->
+      <div v-if="!loadingRules && stores.length > 0" class="mt-5 pt-5 border-t border-white/8 space-y-4">
+        <div>
+          <p class="text-xs font-medium text-white/60 uppercase tracking-wider">Store benchmark overrides</p>
+          <p class="text-xs text-white/45 mt-1">Set different scoring targets per store. Leave blank to inherit account defaults.</p>
+        </div>
+
+        <!-- Store picker -->
+        <div v-if="stores.length > 1">
+          <label class="text-xs font-medium text-white/75 block mb-1.5">Store</label>
+          <select
+            v-model="storeBenchmarkStoreId"
+            class="form-input"
+            @change="loadStoreBenchmarks(storeBenchmarkStoreId)"
+          >
+            <option v-for="s in stores" :key="s.id" :value="s.id">{{ s.name }}</option>
+          </select>
+        </div>
+
+        <!-- Loading skeleton -->
+        <div v-if="storeBenchmarkLoading" class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <div v-for="i in 4" :key="i" class="h-16 rounded-xl bg-white/5 animate-pulse"></div>
+        </div>
+
+        <div v-else class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <!-- Store ROAS target -->
+          <div>
+            <label class="text-xs font-medium text-white/75 block mb-1.5">ROAS Target</label>
+            <div class="relative">
+              <input
+                type="number"
+                step="0.5"
+                min="0.5"
+                :placeholder="String(storeBenchmarkDefaults.roas)"
+                v-model.number="storeBenchmarkValues.roas"
+                class="w-full rounded-xl border border-white/10 bg-white/[0.06] pl-3 pr-8 py-2 text-sm text-white placeholder:text-white/40 outline-none focus:border-glow-500/40 focus:ring-2 focus:ring-glow-500/15 transition-all"
+              />
+              <span class="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-white/40">×</span>
+            </div>
+            <p class="text-[10px] text-white/40 mt-1">default: {{ storeBenchmarkDefaults.roas }}×</p>
+          </div>
+          <!-- Store CTR target -->
+          <div>
+            <label class="text-xs font-medium text-white/75 block mb-1.5">CTR Target</label>
+            <div class="relative">
+              <input
+                type="number"
+                step="0.1"
+                min="0.01"
+                :placeholder="String(storeBenchmarkDefaults.ctr)"
+                v-model.number="storeBenchmarkValues.ctr"
+                class="w-full rounded-xl border border-white/10 bg-white/[0.06] pl-3 pr-8 py-2 text-sm text-white placeholder:text-white/40 outline-none focus:border-glow-500/40 focus:ring-2 focus:ring-glow-500/15 transition-all"
+              />
+              <span class="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-white/40">%</span>
+            </div>
+            <p class="text-[10px] text-white/40 mt-1">default: {{ storeBenchmarkDefaults.ctr }}%</p>
+          </div>
+          <!-- Store Margin target -->
+          <div>
+            <label class="text-xs font-medium text-white/75 block mb-1.5">Margin Target</label>
+            <div class="relative">
+              <input
+                type="number"
+                step="1"
+                min="1"
+                max="100"
+                :placeholder="String(storeBenchmarkDefaults.margin)"
+                v-model.number="storeBenchmarkValues.margin"
+                class="w-full rounded-xl border border-white/10 bg-white/[0.06] pl-3 pr-8 py-2 text-sm text-white placeholder:text-white/40 outline-none focus:border-glow-500/40 focus:ring-2 focus:ring-glow-500/15 transition-all"
+              />
+              <span class="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-white/40">%</span>
+            </div>
+            <p class="text-[10px] text-white/40 mt-1">default: {{ storeBenchmarkDefaults.margin }}%</p>
+          </div>
+          <!-- Store Min Stock -->
+          <div>
+            <label class="text-xs font-medium text-white/75 block mb-1.5">Min. Stock</label>
+            <div class="relative">
+              <input
+                type="number"
+                step="1"
+                min="1"
+                :placeholder="String(storeBenchmarkDefaults.inventory)"
+                v-model.number="storeBenchmarkValues.inventory"
+                class="w-full rounded-xl border border-white/10 bg-white/[0.06] pl-3 pr-12 py-2 text-sm text-white placeholder:text-white/40 outline-none focus:border-glow-500/40 focus:ring-2 focus:ring-glow-500/15 transition-all"
+              />
+              <span class="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-white/40">units</span>
+            </div>
+            <p class="text-[10px] text-white/40 mt-1">default: {{ storeBenchmarkDefaults.inventory }} units</p>
+          </div>
+        </div>
+
+        <!-- Store benchmark actions -->
+        <div v-if="!storeBenchmarkLoading" class="flex gap-3">
+          <button
+            @click="saveStoreBenchmarks"
+            :disabled="storeBenchmarkSaving"
+            class="flex-1 flex items-center justify-center gap-2 rounded-xl bg-white/10 border border-white/15 text-white py-2.5 text-sm font-semibold hover:bg-white/15 transition-all disabled:opacity-60 disabled:cursor-not-allowed"
+          >
+            <svg v-if="storeBenchmarkSaving" class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+            </svg>
+            {{ storeBenchmarkSaving ? 'Saving…' : 'Save store benchmarks' }}
+          </button>
+          <button
+            @click="resetStoreBenchmarks"
+            :disabled="storeBenchmarkSaving"
+            class="px-4 flex items-center justify-center rounded-xl border border-white/12 bg-white/[0.03] text-white/60 text-sm hover:text-white/85 hover:border-white/20 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            Reset to defaults
+          </button>
+        </div>
+
+        <p v-if="storeBenchmarkSuccess" class="text-xs text-lime-400">Store benchmarks saved.</p>
+        <p v-if="storeBenchmarkError" class="text-xs text-red-400">{{ storeBenchmarkError }}</p>
       </div>
 
       <button
@@ -525,31 +708,27 @@
       </div>
       <p class="text-xs text-white/55 mb-5">Irreversible actions — proceed with caution</p>
       <div class="grid sm:grid-cols-2 gap-3">
-        <div class="rounded-xl border border-ember-500/15 bg-ember-500/[0.03] p-4 flex items-center justify-between">
-          <div>
+        <div class="rounded-xl border border-ember-500/15 bg-ember-500/[0.03] p-4 flex flex-wrap items-center gap-3">
+          <div class="flex-1 min-w-0">
             <p class="text-sm font-medium">Reset all rules</p>
             <p class="text-xs text-white/55 mt-0.5">Restore automation rules to defaults</p>
           </div>
           <button
             @click="openDangerConfirm('reset')"
             :disabled="savingRules"
-            class="text-xs text-ember-400 hover:text-ember-300 border border-ember-500/25 hover:border-ember-500/45 bg-ember-500/8 rounded-lg px-3 py-1.5 transition-all whitespace-nowrap ml-3 disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            Reset
-          </button>
+            class="text-xs text-ember-400 hover:text-ember-300 border border-ember-500/25 hover:border-ember-500/45 bg-ember-500/8 rounded-lg px-3 py-1.5 transition-all flex-shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
+          >Reset</button>
         </div>
-        <div class="rounded-xl border border-ember-500/15 bg-ember-500/[0.03] p-4 flex items-center justify-between">
-          <div>
+        <div class="rounded-xl border border-ember-500/15 bg-ember-500/[0.03] p-4 flex flex-wrap items-center gap-3">
+          <div class="flex-1 min-w-0">
             <p class="text-sm font-medium">Disconnect all integrations</p>
             <p class="text-xs text-white/55 mt-0.5">Remove all store and ad connections</p>
           </div>
           <button
             @click="connectedStore ? openDangerConfirm('disconnect') : undefined"
             :disabled="!connectedStore || loadingConnections"
-            class="text-xs text-ember-400 hover:text-ember-300 border border-ember-500/25 hover:border-ember-500/45 bg-ember-500/8 rounded-lg px-3 py-1.5 transition-all whitespace-nowrap ml-3 disabled:opacity-30 disabled:cursor-not-allowed"
-          >
-            Disconnect
-          </button>
+            class="text-xs text-ember-400 hover:text-ember-300 border border-ember-500/25 hover:border-ember-500/45 bg-ember-500/8 rounded-lg px-3 py-1.5 transition-all flex-shrink-0 disabled:opacity-30 disabled:cursor-not-allowed"
+          >Disconnect</button>
         </div>
       </div>
     </div>
@@ -985,7 +1164,14 @@ async function loadConnections() {
 }
 
 onMounted(() => {
-  loadConnections();
+  loadConnections().then(() => {
+    // Seed per-store benchmark picker after connections load
+    const id = activeStoreId.value ?? stores.value[0]?.id ?? '';
+    if (id) {
+      storeBenchmarkStoreId.value = id;
+      loadStoreBenchmarks(id);
+    }
+  });
   loadSettings();
 });
 
@@ -1187,6 +1373,7 @@ const savingRules  = ref(false);
 
 const rules = reactive({ scale: true, test: true, kill: true, inventory: true });
 const thresholdValues = reactive({ scale: 80, test: 50, kill: 25 });
+const benchmarkValues = reactive({ roas: 5, ctr: 3, margin: 50, inventory: 10 });
 
 const automationRules = [
   { key: 'scale',     label: 'Scale winners (score ≥ threshold)',     desc: 'Move to SCALE set, increase budget by 15%',    bg: 'rgba(132,204,22,0.12)', color: '#84cc16' },
@@ -1214,6 +1401,7 @@ const notificationItems = [
 function applySettings(s: {
   rules:         { scale: boolean; test: boolean; kill: boolean; inventory: boolean };
   thresholds:    { scale: number; test: number; kill: number };
+  benchmarks:    { roas: number; ctr: number; margin: number; inventory: number };
   notifications: { emailReports: boolean; whatsappAlerts: boolean; weeklyDigest: boolean };
 }) {
   rules.scale         = s.rules.scale;
@@ -1223,6 +1411,10 @@ function applySettings(s: {
   thresholdValues.scale = s.thresholds.scale;
   thresholdValues.test  = s.thresholds.test;
   thresholdValues.kill  = s.thresholds.kill;
+  benchmarkValues.roas      = s.benchmarks.roas;
+  benchmarkValues.ctr       = +(s.benchmarks.ctr * 100).toFixed(2);
+  benchmarkValues.margin    = +(s.benchmarks.margin * 100).toFixed(0);
+  benchmarkValues.inventory = s.benchmarks.inventory;
   notifications.emailReports   = s.notifications.emailReports;
   notifications.whatsappAlerts = s.notifications.whatsappAlerts;
   notifications.weeklyDigest   = s.notifications.weeklyDigest;
@@ -1251,6 +1443,7 @@ async function saveRules() {
         body: {
           rules:         { scale: rules.scale, test: rules.test, kill: rules.kill, inventory: rules.inventory },
           thresholds:    { scale: thresholdValues.scale, test: thresholdValues.test, kill: thresholdValues.kill },
+          benchmarks:    { roas: benchmarkValues.roas, ctr: benchmarkValues.ctr, margin: benchmarkValues.margin, inventory: benchmarkValues.inventory },
           notifications: { emailReports: notifications.emailReports, whatsappAlerts: notifications.whatsappAlerts, weeklyDigest: notifications.weeklyDigest },
         },
       }
@@ -1485,6 +1678,101 @@ async function revokeInvite(inviteId: string) {
 
 // Load team members when store changes
 watch(activeStoreId, (id) => { if (id) loadTeamMembers(); }, { immediate: true });
+
+// ── Per-store benchmark overrides ─────────────────────────────────────────────
+const storeBenchmarkStoreId = ref<string>(activeStoreId.value ?? '');
+const storeBenchmarkValues  = reactive<{ roas: number | null; ctr: number | null; margin: number | null; inventory: number | null }>({
+  roas: null, ctr: null, margin: null, inventory: null
+});
+const storeBenchmarkDefaults = reactive({ roas: 5, ctr: 3, margin: 50, inventory: 10 });
+const storeBenchmarkLoading  = ref(false);
+const storeBenchmarkSaving   = ref(false);
+const storeBenchmarkSuccess  = ref(false);
+const storeBenchmarkError    = ref('');
+
+// When the stores list loads or the active store changes, seed the store picker
+watch([stores, activeStoreId], ([s, id]) => {
+  if (!storeBenchmarkStoreId.value && s.length > 0) {
+    storeBenchmarkStoreId.value = id ?? s[0]?.id ?? '';
+  }
+  if (storeBenchmarkStoreId.value) loadStoreBenchmarks(storeBenchmarkStoreId.value);
+}, { immediate: false });
+
+async function loadStoreBenchmarks(storeId: string) {
+  if (!storeId) return;
+  storeBenchmarkLoading.value = true;
+  storeBenchmarkError.value = '';
+  try {
+    const res = await $fetch<{
+      ok: boolean;
+      storeBenchmarks: { roas: number | null; ctr: number | null; margin: number | null; inventory: number | null };
+      effectiveBenchmarks: { roas: number; ctr: number; margin: number; inventory: number };
+    }>(`${apiBase}/v1/settings/store/${storeId}`, { credentials: 'include' });
+    if (res.ok) {
+      storeBenchmarkValues.roas      = res.storeBenchmarks.roas;
+      storeBenchmarkValues.ctr       = res.storeBenchmarks.ctr;
+      storeBenchmarkValues.margin    = res.storeBenchmarks.margin;
+      storeBenchmarkValues.inventory = res.storeBenchmarks.inventory;
+      storeBenchmarkDefaults.roas      = +res.effectiveBenchmarks.roas.toFixed(2);
+      storeBenchmarkDefaults.ctr       = +res.effectiveBenchmarks.ctr.toFixed(2);
+      storeBenchmarkDefaults.margin    = +res.effectiveBenchmarks.margin.toFixed(1);
+      storeBenchmarkDefaults.inventory = res.effectiveBenchmarks.inventory;
+    }
+  } catch { /* silent — store may not exist yet */ }
+  storeBenchmarkLoading.value = false;
+}
+
+async function saveStoreBenchmarks() {
+  const storeId = storeBenchmarkStoreId.value;
+  if (!storeId) return;
+  storeBenchmarkSaving.value  = true;
+  storeBenchmarkSuccess.value = false;
+  storeBenchmarkError.value   = '';
+  try {
+    await $fetch(`${apiBase}/v1/settings/store/${storeId}`, {
+      method: 'PATCH',
+      credentials: 'include',
+      body: {
+        roas:      storeBenchmarkValues.roas      ?? null,
+        ctr:       storeBenchmarkValues.ctr       ?? null,
+        margin:    storeBenchmarkValues.margin    ?? null,
+        inventory: storeBenchmarkValues.inventory ?? null,
+      }
+    });
+    storeBenchmarkSuccess.value = true;
+    setTimeout(() => { storeBenchmarkSuccess.value = false; }, 3000);
+  } catch (err: unknown) {
+    storeBenchmarkError.value = (err as { data?: { message?: string } })?.data?.message ?? 'Failed to save';
+    setTimeout(() => { storeBenchmarkError.value = ''; }, 5000);
+  } finally {
+    storeBenchmarkSaving.value = false;
+  }
+}
+
+async function resetStoreBenchmarks() {
+  const storeId = storeBenchmarkStoreId.value;
+  if (!storeId) return;
+  storeBenchmarkSaving.value  = true;
+  storeBenchmarkError.value   = '';
+  try {
+    await $fetch(`${apiBase}/v1/settings/store/${storeId}`, {
+      method: 'PATCH',
+      credentials: 'include',
+      body: { roas: null, ctr: null, margin: null, inventory: null }
+    });
+    storeBenchmarkValues.roas      = null;
+    storeBenchmarkValues.ctr       = null;
+    storeBenchmarkValues.margin    = null;
+    storeBenchmarkValues.inventory = null;
+    storeBenchmarkSuccess.value = true;
+    setTimeout(() => { storeBenchmarkSuccess.value = false; }, 3000);
+  } catch (err: unknown) {
+    storeBenchmarkError.value = (err as { data?: { message?: string } })?.data?.message ?? 'Failed to reset';
+    setTimeout(() => { storeBenchmarkError.value = ''; }, 5000);
+  } finally {
+    storeBenchmarkSaving.value = false;
+  }
+}
 
 // Danger zone modal
 const dangerModal = ref(false);

@@ -5,7 +5,6 @@ export default defineNuxtRouteMiddleware(async (to) => {
   // mf_session is httpOnly (unreadable by JS). mf_auth is the non-httpOnly
   // presence flag set by the frontend so the middleware can read it.
   const authFlag = useCookie("mf_auth", {
-    sameSite: "lax",
     path: "/",
     maxAge: 60 * 60 * 24 * 7
   });
@@ -37,14 +36,15 @@ export default defineNuxtRouteMiddleware(async (to) => {
     }
   }
 
-  // Protect /app/analytics routes — requires SCALE plan or ADMIN role
+  // Protect /app/analytics routes — requires SCALE or GRANDFATHERED plan, or ADMIN role
+  const ANALYTICS_PLANS = ["SCALE", "GRANDFATHERED"];
   if (to.path.startsWith("/app/analytics")) {
     const roleFlag = useCookie("mf_role");
     const planFlag = useCookie("mf_plan");
     // Fast-path: ADMIN can always access analytics
     if (isLoggedIn && roleFlag.value === "ADMIN") return;
-    // Fast-path: SCALE plan user can access analytics
-    if (isLoggedIn && planFlag.value === "SCALE") return;
+    // Fast-path: eligible plan
+    if (isLoggedIn && ANALYTICS_PLANS.includes(planFlag.value ?? "")) return;
     // Fallback: verify via /auth/me (handles stale cookies)
     try {
       const res = await $fetch<{ ok: boolean; user: { role: string; plan: string } }>(
@@ -52,11 +52,11 @@ export default defineNuxtRouteMiddleware(async (to) => {
         { credentials: "include" }
       );
       if (res?.ok) {
-        if (res.user?.role === "ADMIN" || res.user?.plan === "SCALE") {
+        if (res.user?.role === "ADMIN" || ANALYTICS_PLANS.includes(res.user?.plan)) {
           planFlag.value = res.user.plan;
           return;
         }
-        // Logged in but not SCALE — redirect to settings with upgrade notice
+        // Logged in but not on an eligible plan — redirect to settings with upgrade notice
         return navigateTo("/app/settings?upgrade=analytics");
       }
     } catch {

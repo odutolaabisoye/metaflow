@@ -277,6 +277,8 @@
                   <th class="text-right px-3 py-3 text-white/45 font-semibold whitespace-nowrap">Impr</th>
                   <th class="text-right px-3 py-3 text-white/45 font-semibold whitespace-nowrap">Clicks</th>
                   <th class="text-right px-3 py-3 text-white/45 font-semibold whitespace-nowrap">Conv</th>
+                  <th class="text-right px-3 py-3 text-amber-400/80 font-semibold whitespace-nowrap" title="omni_add_to_cart (omni top, site small)">ATC</th>
+                  <th class="text-right px-3 py-3 text-orange-400/80 font-semibold whitespace-nowrap" title="omni_initiated_checkout (omni top, site small)">Checkout</th>
                   <th class="text-right px-3 py-3 text-violet-400/80 font-semibold whitespace-nowrap" title="metaRevenue / spend">ROAS</th>
                   <th class="text-right px-3 py-3 text-blue-400/80 font-semibold whitespace-nowrap" title="storeRevenue / spend">Blend</th>
                   <th class="text-right px-3 py-3 text-white/45 font-semibold whitespace-nowrap">CTR</th>
@@ -316,6 +318,14 @@
                   <td class="px-3 py-2.5 text-right tabular-nums text-white/60">{{ item.rawSums.impressions.toLocaleString() }}</td>
                   <td class="px-3 py-2.5 text-right tabular-nums text-white/60">{{ item.rawSums.clicks.toLocaleString() }}</td>
                   <td class="px-3 py-2.5 text-right tabular-nums text-white/60">{{ item.rawSums.conversions.toLocaleString() }}</td>
+                  <td class="px-3 py-2.5 text-right tabular-nums text-amber-400/80">
+                    <span class="block">{{ (item.rawSums.addToCartOmni ?? 0).toLocaleString() }}</span>
+                    <span class="block text-[10px] text-white/30">{{ (item.rawSums.addToCart ?? 0).toLocaleString() }}s</span>
+                  </td>
+                  <td class="px-3 py-2.5 text-right tabular-nums text-orange-400/80">
+                    <span class="block">{{ (item.rawSums.checkoutInitiatedOmni ?? 0).toLocaleString() }}</span>
+                    <span class="block text-[10px] text-white/30">{{ (item.rawSums.checkoutInitiated ?? 0).toLocaleString() }}s</span>
+                  </td>
                   <td class="px-3 py-2.5 text-right tabular-nums font-semibold" :class="item.computed.roas > 0 ? 'text-violet-300' : 'text-white/20'">
                     {{ item.computed.roas > 0 ? item.computed.roas.toFixed(2) + 'x' : '—' }}
                   </td>
@@ -481,6 +491,16 @@
                 <p class="text-[10px] text-white/45 mb-1">Clicks / Conv</p>
                 <p class="text-sm font-bold text-white tabular-nums">{{ match.totals.clicks.toLocaleString() }} / {{ match.totals.conversions }}</p>
               </div>
+              <div class="rounded-xl bg-amber-500/[0.06] border border-amber-500/15 px-3 py-2.5">
+                <p class="text-[10px] text-amber-400/80 mb-1">ATC (Omni)</p>
+                <p class="text-sm font-bold text-amber-300 tabular-nums">{{ (match.totals.addToCartOmni ?? 0).toLocaleString() }}</p>
+                <p class="text-[10px] text-white/30 mt-0.5">{{ (match.totals.addToCart ?? 0).toLocaleString() }} site</p>
+              </div>
+              <div class="rounded-xl bg-orange-500/[0.06] border border-orange-500/15 px-3 py-2.5">
+                <p class="text-[10px] text-orange-400/80 mb-1">Checkout (Omni)</p>
+                <p class="text-sm font-bold text-orange-300 tabular-nums">{{ (match.totals.checkoutInitiatedOmni ?? 0).toLocaleString() }}</p>
+                <p class="text-[10px] text-white/30 mt-0.5">{{ (match.totals.checkoutInitiated ?? 0).toLocaleString() }} site</p>
+              </div>
             </div>
           </div>
 
@@ -513,6 +533,8 @@
                     <th class="text-right px-3 py-3 text-white/45 font-semibold whitespace-nowrap">Impr</th>
                     <th class="text-right px-3 py-3 text-white/45 font-semibold whitespace-nowrap">Clicks</th>
                     <th class="text-right px-3 py-3 text-white/45 font-semibold whitespace-nowrap">Conv</th>
+                    <th class="text-right px-3 py-3 text-amber-400/80 font-semibold whitespace-nowrap" title="omni_add_to_cart (omni) / site">ATC</th>
+                    <th class="text-right px-3 py-3 text-orange-400/80 font-semibold whitespace-nowrap" title="omni_initiated_checkout (omni) / site">Checkout</th>
                     <!-- Computed (violet) -->
                     <th class="text-right px-3 py-3 text-violet-400/80 font-semibold whitespace-nowrap" title="metaRevenue / spend for this row">ROAS ✦</th>
                     <th class="text-right px-3 py-3 text-blue-400/80 font-semibold whitespace-nowrap" title="storeRevenue / spend">Blend ✦</th>
@@ -541,6 +563,14 @@
                     <td class="px-3 py-2 text-right tabular-nums text-white/55">{{ row.impressions.toLocaleString() }}</td>
                     <td class="px-3 py-2 text-right tabular-nums text-white/55">{{ row.clicks.toLocaleString() }}</td>
                     <td class="px-3 py-2 text-right tabular-nums text-white/55">{{ row.conversions }}</td>
+                    <td class="px-3 py-2 text-right tabular-nums text-amber-400/80">
+                      <span>{{ (row.addToCartOmni ?? 0).toLocaleString() }}</span>
+                      <span class="block text-[10px] text-white/25">{{ (row.addToCart ?? 0).toLocaleString() }}s</span>
+                    </td>
+                    <td class="px-3 py-2 text-right tabular-nums text-orange-400/80">
+                      <span>{{ (row.checkoutInitiatedOmni ?? 0).toLocaleString() }}</span>
+                      <span class="block text-[10px] text-white/25">{{ (row.checkoutInitiated ?? 0).toLocaleString() }}s</span>
+                    </td>
                     <!-- Computed -->
                     <td class="px-3 py-2 text-right tabular-nums font-semibold" :class="row.computed.roas > 0 ? 'text-violet-300' : 'text-white/20'">
                       {{ row.computed.roas > 0 ? row.computed.roas.toFixed(2) + 'x' : '—' }}
@@ -580,6 +610,8 @@
                     <td class="px-3 py-2.5 text-right tabular-nums font-semibold text-white/80">{{ match.totals.impressions.toLocaleString() }}</td>
                     <td class="px-3 py-2.5 text-right tabular-nums font-semibold text-white/80">{{ match.totals.clicks.toLocaleString() }}</td>
                     <td class="px-3 py-2.5 text-right tabular-nums font-semibold text-white/80">{{ match.totals.conversions }}</td>
+                    <td class="px-3 py-2.5 text-right tabular-nums font-semibold text-amber-400">{{ (match.totals.addToCartOmni ?? 0).toLocaleString() }}</td>
+                    <td class="px-3 py-2.5 text-right tabular-nums font-semibold text-orange-400">{{ (match.totals.checkoutInitiatedOmni ?? 0).toLocaleString() }}</td>
                     <td class="px-3 py-2.5 text-right tabular-nums font-semibold text-violet-300">
                       {{ match.totals.computed.roas > 0 ? match.totals.computed.roas.toFixed(2) + 'x' : '—' }}
                     </td>
@@ -657,9 +689,23 @@ const pageEnd = computed(() =>
 );
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
+const CURRENCY_LOCALE: Record<string, string> = {
+  NGN: 'en-NG', GBP: 'en-GB', EUR: 'de-DE', JPY: 'ja-JP',
+  AUD: 'en-AU', CAD: 'en-CA', INR: 'en-IN', ZAR: 'en-ZA',
+  GHS: 'en-GH', KES: 'sw-KE', EGP: 'ar-EG', MAD: 'ar-MA',
+};
+
 function fmtMoney(v: number) {
-  if (v === 0) return '$0.00';
-  return '$' + v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const cur = (data.value as any)?.store?.currency ?? 'USD';
+  const locale = CURRENCY_LOCALE[cur] ?? 'en-US';
+  try {
+    return new Intl.NumberFormat(locale, {
+      style: 'currency', currency: cur,
+      minimumFractionDigits: 2, maximumFractionDigits: 2
+    }).format(v);
+  } catch {
+    return v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
 }
 
 function buildRangeParams() {

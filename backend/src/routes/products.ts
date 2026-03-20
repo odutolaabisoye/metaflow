@@ -1,4 +1,5 @@
 import type { FastifyInstance } from "fastify";
+import { storeLocalDayBounds, storeLocalDateStr } from "../jobs/dateUtils.js";
 
 // Fields sorted natively by the DB (indexed columns on ProductMeta)
 const DB_SORT_FIELDS = new Set(["score", "title", "updatedAt"]);
@@ -6,7 +7,36 @@ const DB_SORT_FIELDS = new Set(["score", "title", "updatedAt"]);
 // Fields that require in-memory aggregation over the selected date range
 const METRIC_SORT_FIELDS = new Set([
   "revenue", "roas", "ctr", "spend", "margin",
-  "velocity", "impressions", "clicks", "conversions", "conversionRate"
+  "velocity", "impressions", "clicks", "conversions", "conversionRate",
+  "addToCart", "checkoutInitiated",
+]);
+
+// Fields that can be sorted using pre-computed 30d columns on ProductMeta (DB sort — fast)
+const PRECOMPUTED_SORT_FIELDS = new Map([
+  ["spend",       "spend30d"],
+  ["revenue",     "revenue30d"],
+  ["metaRevenue", "metaRevenue30d"],
+  ["impressions", "impressions30d"],
+  ["clicks",      "clicks30d"],
+  ["conversions", "conversions30d"],
+  ["roas",        "roas30d"],
+  ["ctr",         "ctr30d"],
+  ["addToCart",          "addToCartOmni30d"],
+  ["checkoutInitiated",  "checkoutInitiatedOmni30d"],
+]);
+
+// Same map for 7d — used when resolvedRange === "7d"
+const PRECOMPUTED_SORT_FIELDS_7D = new Map([
+  ["spend",       "spend7d"],
+  ["revenue",     "revenue7d"],
+  ["metaRevenue", "metaRevenue7d"],
+  ["impressions", "impressions7d"],
+  ["clicks",      "clicks7d"],
+  ["conversions", "conversions7d"],
+  ["roas",        "roas7d"],
+  ["ctr",         "ctr7d"],
+  ["addToCart",          "addToCartOmni7d"],
+  ["checkoutInitiated",  "checkoutInitiatedOmni7d"],
 ]);
 
 function isValidDate(value?: string) {
@@ -14,37 +44,35 @@ function isValidDate(value?: string) {
   return !Number.isNaN(new Date(value).getTime());
 }
 
-function parseRange(range?: string, start?: string, end?: string) {
-  // Frontend always sends computed start/end — use them directly when valid
+function parseRange(range?: string, start?: string, end?: string, timezone = "Africa/Lagos") {
+  const now = new Date();
+
+  // Frontend always sends computed start/end as "YYYY-MM-DD" local date strings.
+  // Convert them to UTC timestamps using the store's actual timezone so that
+  // "2026-03-20" means midnight-to-midnight in the store's local time, not UTC.
   if (start && end && isValidDate(start) && isValidDate(end)) {
-    const s = new Date(start);
-    const e = new Date(end);
-    if (s <= e) {
-      s.setHours(0, 0, 0, 0);
-      e.setHours(23, 59, 59, 999);
-      return { start: s, end: e, range: range ?? "custom" };
+    const sDay = storeLocalDayBounds(timezone, new Date(`${start}T12:00:00Z`)); // noon avoids DST edge
+    const eDay = storeLocalDayBounds(timezone, new Date(`${end}T12:00:00Z`));
+    if (sDay.start <= eDay.end) {
+      return { start: sDay.start, end: eDay.end, range: range ?? "custom" };
     }
   }
 
-  // Fallback: derive from range string (used when start/end are absent)
-  const now = new Date();
-  const e = new Date(now);
-  e.setHours(23, 59, 59, 999);
+  // Fallback: derive from range string using the store's timezone
+  const { start: todayStart, end: todayEnd } = storeLocalDayBounds(timezone, now);
 
   if (range === "today") {
-    const s = new Date(now); s.setHours(0, 0, 0, 0);
-    return { start: s, end: e, range: "today" };
+    return { start: todayStart, end: todayEnd, range: "today" };
   }
   if (range === "yesterday") {
-    const s = new Date(now); s.setDate(s.getDate() - 1); s.setHours(0, 0, 0, 0);
-    const ye = new Date(s); ye.setHours(23, 59, 59, 999);
-    return { start: s, end: ye, range: "yesterday" };
+    const yest = new Date(now.getTime() - 86_400_000);
+    const { start: ys, end: ye } = storeLocalDayBounds(timezone, yest);
+    return { start: ys, end: ye, range: "yesterday" };
   }
   const days = range === "7d" ? 7 : range === "90d" ? 90 : 30;
-  const s = new Date(now);
-  s.setDate(s.getDate() - days + 1);
-  s.setHours(0, 0, 0, 0);
-  return { start: s, end: e, range: range ?? "30d" };
+  const pastDay = new Date(now.getTime() - (days - 1) * 86_400_000);
+  const { start: ps } = storeLocalDayBounds(timezone, pastDay);
+  return { start: ps, end: todayEnd, range: range ?? "30d" };
 }
 
 export async function productRoutes(app: FastifyInstance) {
@@ -92,33 +120,54 @@ export async function productRoutes(app: FastifyInstance) {
       // --- Resolve store ---
       let resolvedStoreId = storeId;
       let storeCurrency: string | null = null;
+      let storeTimezone = "Africa/Lagos";
+      let storeLastSyncAt: Date | null = null;
+      let storeLastSyncStatus = "IDLE";
+      let storeLastSyncError: string | null = null;
+
+      const STORE_SELECT = { id: true, currency: true, timezone: true, lastSyncAt: true, lastSyncStatus: true, lastSyncError: true } as const;
 
       if (!resolvedStoreId) {
         const store = await app.prisma.store.findFirst({
           where: { ownerId: payload.sub },
           orderBy: { createdAt: "asc" },
-          select: { id: true, currency: true }
+          select: STORE_SELECT,
         });
         if (!store) {
           return reply.send({ ok: true, items: [], total: 0, page: 0, totalPages: 0 });
         }
         resolvedStoreId = store.id;
         storeCurrency = store.currency ?? null;
+        storeTimezone = store.timezone ?? "Africa/Lagos";
+        storeLastSyncAt = store.lastSyncAt ?? null;
+        storeLastSyncStatus = store.lastSyncStatus ?? "IDLE";
+        storeLastSyncError = store.lastSyncError ?? null;
       } else {
         const store = await app.prisma.store.findFirst({
           where: { id: resolvedStoreId, ownerId: payload.sub },
-          select: { id: true, currency: true }
+          select: STORE_SELECT,
         });
         if (!store) return reply.code(403).send({ ok: false, message: "Forbidden" });
         storeCurrency = store.currency ?? null;
+        storeTimezone = store.timezone ?? "Africa/Lagos";
+        storeLastSyncAt = store.lastSyncAt ?? null;
+        storeLastSyncStatus = store.lastSyncStatus ?? "IDLE";
+        storeLastSyncError = store.lastSyncError ?? null;
       }
 
-      // --- Date range ---
-      const { start: since, end: until, range: resolvedRange } = parseRange(range, start, end);
+      // --- Date range (uses store's own timezone, not server OS timezone) ---
+      const { start: since, end: until, range: resolvedRange } = parseRange(range, start, end, storeTimezone);
 
       // --- Pagination params ---
       const take    = Math.min(parseInt(limit, 10) || 50, 200);
       const pageNum = Math.max(0, parseInt(page, 10) || 0);
+
+      // For 30d/7d ranges, use pre-computed ProductMeta columns instead of DailyMetric aggregation
+      const precomputedSortField =
+        resolvedRange === "30d" ? PRECOMPUTED_SORT_FIELDS.get(sortBy) :
+        resolvedRange === "7d"  ? PRECOMPUTED_SORT_FIELDS_7D.get(sortBy) :
+        undefined;
+      const use30dFastSort = !!precomputedSortField;
 
       // --- Category filter ---
       type CategoryEnum = "SCALE" | "TEST" | "RISK" | "KILL";
@@ -128,9 +177,16 @@ export async function productRoutes(app: FastifyInstance) {
           ? (category as CategoryEnum)
           : undefined;
 
+      // Stock filter — applied to ProductMeta.inventoryLevel (latest synced value)
+      const stockWhere =
+        stock === "inStock"    ? { inventoryLevel: { gt: 0 } } :
+        stock === "outOfStock" ? { OR: [{ inventoryLevel: { equals: 0 } }, { inventoryLevel: null }] } :
+        undefined;
+
       const whereClause = {
         storeId: resolvedStoreId,
         ...(categoryFilter && { category: categoryFilter }),
+        ...(stockWhere),
         ...(search?.trim() && {
           OR: [
             { title: { contains: search.trim(), mode: "insensitive" as const } },
@@ -145,8 +201,31 @@ export async function productRoutes(app: FastifyInstance) {
       let productIds: string[];
       let total: number;
 
-      if (isMetricSort) {
-        // ── Metric sort: fetch ALL matching IDs, aggregate, sort in-memory, paginate ──
+      if (isMetricSort && use30dFastSort) {
+        // ── Fast path: 30d/7d range — sort by pre-computed indexed column on ProductMeta ──
+        // This is an indexed DB-level sort, equivalent to the DB_SORT_FIELDS path.
+        const precomputedField = precomputedSortField!;
+        const orderBy = [
+          { [precomputedField]: direction as "asc" | "desc" },
+          { id: direction as "asc" | "desc" }
+        ];
+
+        const [dbProds, dbTotal] = await app.prisma.$transaction([
+          app.prisma.productMeta.findMany({
+            where: whereClause,
+            orderBy,
+            skip: pageNum * take,
+            take,
+            select: { id: true }
+          }),
+          app.prisma.productMeta.count({ where: whereClause })
+        ]);
+
+        total      = dbTotal;
+        productIds = dbProds.map(p => p.id);
+
+      } else if (isMetricSort) {
+        // ── Metric sort (non-30d): fetch ALL matching IDs, aggregate, sort in-memory, paginate ──
 
         // 1. Get all matching product IDs (no sort needed at DB level)
         const allProds = await app.prisma.productMeta.findMany({
@@ -167,7 +246,12 @@ export async function productRoutes(app: FastifyInstance) {
               productId: { in: allIds },
               date: { gte: since, lte: until }
             },
-            _sum: { revenue: true, metaRevenue: true, spend: true, impressions: true, clicks: true, conversions: true },
+            _sum: {
+              revenue: true, metaRevenue: true, spend: true,
+              impressions: true, clicks: true, conversions: true,
+              addToCart: true, addToCartOmni: true,
+              checkoutInitiated: true, checkoutInitiatedOmni: true,
+            },
             _avg: { margin: true, velocity: true }
           });
 
@@ -190,7 +274,9 @@ export async function productRoutes(app: FastifyInstance) {
               ctr:            imp > 0 ? clk / imp : 0,
               conversionRate: clk > 0 ? cvt / clk : 0,
               margin:         m._avg.margin   ?? 0,
-              velocity:       m._avg.velocity ?? 0
+              velocity:       m._avg.velocity ?? 0,
+              addToCart:      m._sum.addToCartOmni        ?? 0,
+              checkoutInitiated: m._sum.checkoutInitiatedOmni ?? 0,
             }];
           }));
 
@@ -275,7 +361,11 @@ export async function productRoutes(app: FastifyInstance) {
             spend:       true,
             impressions: true,
             clicks:      true,
-            conversions: true
+            conversions: true,
+            addToCart:             true,
+            addToCartOmni:         true,
+            checkoutInitiated:     true,
+            checkoutInitiatedOmni: true,
           },
           _avg: {
             margin:      true,
@@ -321,6 +411,7 @@ export async function productRoutes(app: FastifyInstance) {
           title:          p.title,
           imageUrl:       p.imageUrl ?? null,
           productUrl:     p.productUrl ?? null,
+          variantCount:   p.altIds?.length ?? 0,
           score:          p.score,
           category:       p.category,
           // Meta ROAS = Meta-attributed purchase value / Meta ad spend
@@ -338,9 +429,22 @@ export async function productRoutes(app: FastifyInstance) {
           clicks:         clk,
           conversions:    cvt,
           conversionRate: clk > 0 ? cvt / clk : 0,
+          // Use null (not 0) when the DailyMetric rows pre-date the ATC migration
+          // so the frontend can distinguish "no data yet" from a genuine zero
+          addToCart:             agg?._sum.addToCart             ?? null,
+          addToCartOmni:         agg?._sum.addToCartOmni         ?? null,
+          checkoutInitiated:     agg?._sum.checkoutInitiated     ?? null,
+          checkoutInitiatedOmni: agg?._sum.checkoutInitiatedOmni ?? null,
           inventoryLevel: snap?.inventoryLevel ?? null,
           updatedAt:      p.updatedAt
         }];
+      });
+
+      // Get latest metricsComputedAt across current page to show freshness indicator
+      const latestComputedAt = await app.prisma.productMeta.findFirst({
+        where: { id: { in: productIds } },
+        orderBy: { metricsComputedAt: "desc" },
+        select: { metricsComputedAt: true }
       });
 
       return reply.send({
@@ -354,7 +458,13 @@ export async function productRoutes(app: FastifyInstance) {
         total,
         page: pageNum,
         totalPages,
-        items: formatted
+        items: formatted,
+        store: {
+          lastSyncAt:     storeLastSyncAt?.toISOString() ?? null,
+          lastSyncStatus: storeLastSyncStatus,
+          lastSyncError:  storeLastSyncError,
+          lastScoredAt:   latestComputedAt?.metricsComputedAt?.toISOString() ?? null,
+        }
       });
 
     } catch (err) {

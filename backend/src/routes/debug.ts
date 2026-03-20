@@ -474,6 +474,8 @@ export async function debugRoutes(app: FastifyInstance) {
       _sum: {
         revenue: true, metaRevenue: true, spend: true,
         impressions: true, clicks: true, conversions: true,
+        addToCart: true, addToCartOmni: true,
+        checkoutInitiated: true, checkoutInitiatedOmni: true,
       },
       _avg: { margin: true, velocity: true },
       _count: { date: true },
@@ -501,7 +503,13 @@ export async function debugRoutes(app: FastifyInstance) {
         score:          p.score,
         metricRowCount: m?._count.date ?? 0,
         hasMetrics:     !!m,
-        rawSums: { revenue: rev, metaRevenue: metaRev, spend: spd, impressions: imp, clicks: clk, conversions: cvt },
+        rawSums: {
+          revenue: rev, metaRevenue: metaRev, spend: spd, impressions: imp, clicks: clk, conversions: cvt,
+          addToCart:             m?._sum.addToCart             ?? 0,
+          addToCartOmni:         m?._sum.addToCartOmni         ?? 0,
+          checkoutInitiated:     m?._sum.checkoutInitiated     ?? 0,
+          checkoutInitiatedOmni: m?._sum.checkoutInitiatedOmni ?? 0,
+        },
         rawAvgs: { margin: m?._avg.margin ?? null, velocity: m?._avg.velocity ?? null },
         computed: {
           roas:           spd > 0 ? metaRev / spd : 0,
@@ -647,7 +655,11 @@ export async function debugRoutes(app: FastifyInstance) {
         spend:          true,
         impressions:    true,
         clicks:         true,
-        conversions:    true,
+        conversions:           true,
+        addToCart:             true,
+        addToCartOmni:         true,
+        checkoutInitiated:     true,
+        checkoutInitiatedOmni: true,
         inventoryLevel: true,
         // Stored values written by syncMeta (campaign-level, often shared across products)
         roas:           true,
@@ -671,13 +683,18 @@ export async function debugRoutes(app: FastifyInstance) {
 
       // Aggregate totals from raw sums
       let totSpend = 0, totRev = 0, totMetaRev = 0, totImp = 0, totClk = 0, totCvt = 0;
+      let totAtc = 0, totAtcOmni = 0, totCo = 0, totCoOmni = 0;
       for (const r of rows) {
-        totSpend    += r.spend          ?? 0;
-        totRev      += r.revenue        ?? 0;
-        totMetaRev  += r.metaRevenue    ?? 0;
-        totImp      += r.impressions    ?? 0;
-        totClk      += r.clicks         ?? 0;
-        totCvt      += r.conversions    ?? 0;
+        totSpend    += r.spend                  ?? 0;
+        totRev      += r.revenue                ?? 0;
+        totMetaRev  += r.metaRevenue            ?? 0;
+        totImp      += r.impressions            ?? 0;
+        totClk      += r.clicks                 ?? 0;
+        totCvt      += r.conversions            ?? 0;
+        totAtc      += r.addToCart              ?? 0;
+        totAtcOmni  += r.addToCartOmni          ?? 0;
+        totCo       += r.checkoutInitiated      ?? 0;
+        totCoOmni   += r.checkoutInitiatedOmni  ?? 0;
       }
 
       return {
@@ -706,7 +723,11 @@ export async function debugRoutes(app: FastifyInstance) {
             metaRevenue:    metaRev,
             impressions:    imp,
             clicks:         clk,
-            conversions:    cvt,
+            conversions:           cvt,
+            addToCart:             r.addToCart             ?? 0,
+            addToCartOmni:         r.addToCartOmni         ?? 0,
+            checkoutInitiated:     r.checkoutInitiated     ?? 0,
+            checkoutInitiatedOmni: r.checkoutInitiatedOmni ?? 0,
             inventoryLevel: r.inventoryLevel ?? null,
             margin:         r.margin         ?? null,
             velocity:       r.velocity       ?? null,
@@ -727,12 +748,16 @@ export async function debugRoutes(app: FastifyInstance) {
           };
         }),
         totals: {
-          spend:       totSpend,
-          revenue:     totRev,
-          metaRevenue: totMetaRev,
-          impressions: totImp,
-          clicks:      totClk,
-          conversions: totCvt,
+          spend:                totSpend,
+          revenue:              totRev,
+          metaRevenue:          totMetaRev,
+          impressions:          totImp,
+          clicks:               totClk,
+          conversions:          totCvt,
+          addToCart:            totAtc,
+          addToCartOmni:        totAtcOmni,
+          checkoutInitiated:    totCo,
+          checkoutInitiatedOmni: totCoOmni,
           computed: {
             roas:           totSpend > 0 ? totMetaRev / totSpend : 0,
             blendedRoas:    totSpend > 0 && totRev > 0 ? totRev / totSpend : null,

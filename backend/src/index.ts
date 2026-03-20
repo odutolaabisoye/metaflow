@@ -43,9 +43,9 @@ await app.register(queuePlugin);
 
 await app.register(cors, {
   origin: (origin, cb) => {
-    // Allow configured origin + any localhost port (for dev flexibility)
-    const allowed = app.config.CORS_ORIGIN;
-    if (!origin || origin === allowed || /^http:\/\/localhost:\d+$/.test(origin)) {
+    // Allow all configured origins (comma-separated) + any localhost port for dev
+    const allowed = (app.config.CORS_ORIGIN ?? "").split(",").map(s => s.trim()).filter(Boolean);
+    if (!origin || /^https?:\/\/localhost(:\d+)?$/.test(origin) || allowed.includes(origin)) {
       cb(null, true);
     } else {
       cb(new Error("Not allowed by CORS"), false);
@@ -56,16 +56,22 @@ await app.register(cors, {
 
 await app.register(helmet);
 await app.register(rateLimit, {
-  max: 100,
+  // Generous global limit — supports rapid pagination, sort changes, search debounce, etc.
+  // Auth routes (login / signup / password reset) override this with a much tighter limit
+  // via config.rateLimit on each route to prevent brute-force attacks.
+  max: 600,
   timeWindow: "1 minute"
 });
+const isProd = process.env.NODE_ENV === "production";
 await app.register(csrfProtection, {
   sessionPlugin: "@fastify/cookie",
   cookieOpts: {
     path: "/",
-    sameSite: "lax",
+    // Cross-origin (Netlify frontend ↔ Hetzner API) requires SameSite=none + Secure in prod.
+    // Locally we use "lax" so dev works without HTTPS.
+    sameSite: isProd ? "none" : "lax",
     httpOnly: true,
-    secure: process.env.NODE_ENV === "production"
+    secure: isProd
   },
   secret: app.config.CSRF_SECRET
 });

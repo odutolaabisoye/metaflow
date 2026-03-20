@@ -1,4 +1,5 @@
 import type { FastifyInstance } from "fastify";
+import { invalidateAnalyticsCache } from "./analytics.js";
 
 const VALID_PLATFORMS = ["SHOPIFY", "WOOCOMMERCE", "API"] as const;
 type StorePlatform = (typeof VALID_PLATFORMS)[number];
@@ -322,6 +323,10 @@ export async function storeRoutes(app: FastifyInstance) {
           app.log.error({ err }, "Failed to send import-started email")
         );
       }
+
+      // Invalidate the analytics cache for this store so the next request
+      // fetches fresh data after the sync completes
+      invalidateAnalyticsCache(storeId);
 
       return reply.send({ ok: true, message: "Sync jobs enqueued" });
     } catch {

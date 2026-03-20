@@ -2,9 +2,16 @@ import type { FastifyInstance } from "fastify";
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
 
+// In production the frontend (Netlify) and API (Hetzner) are on different origins.
+// Cookies must use SameSite=none + Secure so the browser sends them cross-origin.
+// In development we use SameSite=lax so it works without HTTPS.
+const isProd = process.env.NODE_ENV === "production";
+const SAME_SITE = isProd ? ("none" as const) : ("lax" as const);
+
 const COOKIE_OPTIONS = {
   httpOnly: true,
-  sameSite: "lax" as const,
+  sameSite: SAME_SITE,
+  secure: isProd,
   path: "/"
 };
 
@@ -12,7 +19,8 @@ const COOKIE_OPTIONS = {
 // The actual JWT stays in mf_session (httpOnly) for security.
 const AUTH_FLAG_OPTIONS = {
   httpOnly: false,
-  sameSite: "lax" as const,
+  sameSite: SAME_SITE,
+  secure: isProd,
   path: "/"
 };
 
@@ -21,7 +29,7 @@ function generateToken() {
 }
 
 export async function authRoutes(app: FastifyInstance) {
-  app.post("/auth/signup", async (request, reply) => {
+  app.post("/auth/signup", { config: { rateLimit: { max: 20, timeWindow: '1 minute' } } }, async (request, reply) => {
     const body = request.body as { email?: string; password?: string; name?: string };
     const email = body?.email?.trim().toLowerCase();
     const password = body?.password?.trim();
@@ -51,27 +59,15 @@ export async function authRoutes(app: FastifyInstance) {
 
     const token = app.jwt.sign({ sub: user.id, email: user.email, role: user.role });
     const maxAge = 60 * 60 * 24 * 7;
-    reply.setCookie("mf_session", token, {
-      ...COOKIE_OPTIONS,
-      secure: process.env.NODE_ENV === "production",
-      maxAge
-    });
-    reply.setCookie("mf_auth", "1", {
-      ...AUTH_FLAG_OPTIONS,
-      secure: process.env.NODE_ENV === "production",
-      maxAge
-    });
+    reply.setCookie("mf_session", token, { ...COOKIE_OPTIONS, maxAge });
+    reply.setCookie("mf_auth", "1", { ...AUTH_FLAG_OPTIONS, maxAge });
     // Plan cookie — readable by JS/Nuxt middleware for feature gating
-    reply.setCookie("mf_plan", user.plan, {
-      ...AUTH_FLAG_OPTIONS,
-      secure: process.env.NODE_ENV === "production",
-      maxAge
-    });
+    reply.setCookie("mf_plan", user.plan, { ...AUTH_FLAG_OPTIONS, maxAge });
 
     return reply.send({ ok: true, user: { id: user.id, email: user.email, name: user.name, role: user.role, plan: user.plan } });
   });
 
-  app.post("/auth/login", async (request, reply) => {
+  app.post("/auth/login", { config: { rateLimit: { max: 20, timeWindow: '1 minute' } } }, async (request, reply) => {
     const body = request.body as { email?: string; password?: string };
     const email = body?.email?.trim().toLowerCase();
     const password = body?.password?.trim();
@@ -92,30 +88,14 @@ export async function authRoutes(app: FastifyInstance) {
 
     const token = app.jwt.sign({ sub: user.id, email: user.email, role: user.role });
     const maxAge = 60 * 60 * 24 * 7;
-    reply.setCookie("mf_session", token, {
-      ...COOKIE_OPTIONS,
-      secure: process.env.NODE_ENV === "production",
-      maxAge
-    });
-    reply.setCookie("mf_auth", "1", {
-      ...AUTH_FLAG_OPTIONS,
-      secure: process.env.NODE_ENV === "production",
-      maxAge
-    });
+    reply.setCookie("mf_session", token, { ...COOKIE_OPTIONS, maxAge });
+    reply.setCookie("mf_auth", "1", { ...AUTH_FLAG_OPTIONS, maxAge });
     // Set the non-httpOnly role flag so the frontend middleware can fast-path admin routes
     if (user.role === "ADMIN") {
-      reply.setCookie("mf_role", "ADMIN", {
-        ...AUTH_FLAG_OPTIONS,
-        secure: process.env.NODE_ENV === "production",
-        maxAge
-      });
+      reply.setCookie("mf_role", "ADMIN", { ...AUTH_FLAG_OPTIONS, maxAge });
     }
     // Plan cookie — readable by JS/Nuxt middleware for feature gating
-    reply.setCookie("mf_plan", user.plan, {
-      ...AUTH_FLAG_OPTIONS,
-      secure: process.env.NODE_ENV === "production",
-      maxAge
-    });
+    reply.setCookie("mf_plan", user.plan, { ...AUTH_FLAG_OPTIONS, maxAge });
 
     return reply.send({ ok: true, user: { id: user.id, email: user.email, name: user.name, role: user.role, plan: user.plan } });
   });
@@ -146,7 +126,7 @@ export async function authRoutes(app: FastifyInstance) {
     }
   });
 
-  app.post("/auth/forgot", async (request, reply) => {
+  app.post("/auth/forgot", { config: { rateLimit: { max: 10, timeWindow: '1 minute' } } }, async (request, reply) => {
     const body = request.body as { email?: string };
     const email = body?.email?.trim().toLowerCase();
 
@@ -175,7 +155,7 @@ export async function authRoutes(app: FastifyInstance) {
     return reply.send({ ok: true });
   });
 
-  app.post("/auth/reset", async (request, reply) => {
+  app.post("/auth/reset", { config: { rateLimit: { max: 10, timeWindow: '1 minute' } } }, async (request, reply) => {
     const body = request.body as { token?: string; password?: string };
     const token = body?.token?.trim();
     const password = body?.password?.trim();

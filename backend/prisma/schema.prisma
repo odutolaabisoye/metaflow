@@ -74,6 +74,11 @@ model UserSettings {
   thresholdScale    Int      @default(80)
   thresholdTest     Int      @default(50)
   thresholdKill     Int      @default(25)
+  // Scoring benchmarks — "full marks" targets for each metric
+  benchmarkRoas      Float    @default(5)     // ROAS = 5x → full 35pts
+  benchmarkCtr       Float    @default(0.03)  // CTR = 3% → full 20pts
+  benchmarkMargin    Float    @default(0.5)   // Margin = 50% → full 25pts
+  benchmarkInventory Int      @default(10)    // ≥10 units → full 20pts
   // Notification preferences
   notifEmailReports Boolean  @default(true)
   notifWhatsapp     Boolean  @default(false)
@@ -88,10 +93,15 @@ model Store {
   platform         StorePlatform
   storeUrl         String
   currency         String
+  timezone         String        @default("Africa/Lagos")  // IANA timezone, e.g. "America/New_York"
   lastSyncAt       DateTime?
   lastSyncStatus   String        @default("IDLE")  // IDLE | RUNNING | SUCCESS | ERROR
   lastSyncError    String?
   lastSyncProvider String?
+  benchmarkRoas      Float?   // overrides UserSettings.benchmarkRoas for this store
+  benchmarkCtr       Float?   // overrides UserSettings.benchmarkCtr for this store
+  benchmarkMargin    Float?   // overrides UserSettings.benchmarkMargin for this store
+  benchmarkInventory Int?     // overrides UserSettings.benchmarkInventory for this store
   createdAt        DateTime      @default(now())
   updatedAt        DateTime      @updatedAt
   ownerId          String
@@ -143,8 +153,49 @@ model ProductMeta {
   dailyMetrics DailyMetric[]
   scoreHistory ProductScoreHistory[]
 
+  /// Pre-computed 30-day aggregates — written by the scoring job after every sync.
+  /// Avoids per-request DailyMetric aggregation queries on the products page.
+  spend30d       Float    @default(0)
+  revenue30d     Float    @default(0)
+  metaRevenue30d Float    @default(0)
+  impressions30d Int      @default(0)
+  clicks30d      Int      @default(0)
+  conversions30d Int      @default(0)
+  roas30d        Float    @default(0)
+  ctr30d         Float    @default(0)
+  addToCart30d              Int   @default(0)
+  addToCartOmni30d          Int   @default(0)
+  checkoutInitiated30d      Int   @default(0)
+  checkoutInitiatedOmni30d  Int   @default(0)
+
+  /// Pre-computed 7-day aggregates — written by the scoring job after every sync.
+  spend7d        Float    @default(0)
+  revenue7d      Float    @default(0)
+  metaRevenue7d  Float    @default(0)
+  impressions7d  Int      @default(0)
+  clicks7d       Int      @default(0)
+  conversions7d  Int      @default(0)
+  roas7d         Float    @default(0)
+  ctr7d          Float    @default(0)
+  addToCart7d              Int   @default(0)
+  addToCartOmni7d          Int   @default(0)
+  checkoutInitiated7d      Int   @default(0)
+  checkoutInitiatedOmni7d  Int   @default(0)
+
+  margin         Float    @default(0.35)
+  inventoryLevel Float?
+  metricsComputedAt DateTime?
+
   @@unique([storeId, externalId])
   @@index([storeId, score])
+  @@index([storeId, spend30d])
+  @@index([storeId, roas30d])
+  @@index([storeId, impressions30d])
+  @@index([storeId, addToCartOmni30d])
+  @@index([storeId, spend7d])
+  @@index([storeId, roas7d])
+  @@index([storeId, impressions7d])
+  @@index([storeId, addToCartOmni7d])
 }
 
 model DailyMetric {
@@ -163,6 +214,10 @@ model DailyMetric {
   clicks          Int?
   conversions     Int?
   inventoryLevel  Int?
+  addToCart              Int?   // onsite (pixel) add_to_cart events
+  addToCartOmni          Int?   // omni_add_to_cart — all channels combined
+  checkoutInitiated      Int?   // onsite initiated_checkout events
+  checkoutInitiatedOmni  Int?   // omni_initiated_checkout — all channels combined
   storeId         String
   productId       String
   product         ProductMeta @relation(fields: [productId], references: [id])

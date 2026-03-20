@@ -1,4 +1,5 @@
 import type { PrismaClient } from "@prisma/client";
+import { storeLocalDayBounds } from "./dateUtils.js";
 
 const META_GRAPH_VERSION = "v19.0";
 const META_GRAPH_BASE = `https://graph.facebook.com/${META_GRAPH_VERSION}`;
@@ -48,12 +49,75 @@ type DateAccum = {
   purchases: number;
   purchaseRoas: number;
   ctr: number;
+  addToCart: number;
+  addToCartOmni: number;
+  checkoutInitiated: number;
+  checkoutInitiatedOmni: number;
 };
+
+/**
+ * Meta rate-limit error codes.
+ * When any of these are returned, we back off and retry rather than failing.
+ *   4  — Application request limit reached
+ *   17 — User request limit reached
+ *   32 — Page rate limit
+ *   613 — Custom audiences rate limit
+ *   80000–80003 — Business Use Case (BUC / Marketing API) rate limits
+ */
+const RATE_LIMIT_CODES = new Set([4, 17, 32, 613, 80000, 80001, 80002, 80003]);
+
+/**
+ * Meta auth / permission error codes.
+ * These require the user to reconnect — retrying will never help.
+ *   190 — Invalid OAuth 2.0 access token (expired or revoked)
+ *   102 — Session key invalid or no longer valid
+ *   10  — Application does not have permission for this action
+ *   200 — Permissions error
+ *   210 — User not visible
+ */
+const AUTH_ERROR_CODES = new Set([10, 102, 190, 200, 210]);
+
+/**
+ * Thrown when Meta returns an auth/permission error code.
+ * The worker catches this specifically and writes lastSyncStatus = "NEEDS_REAUTH"
+ * instead of "ERROR" so the frontend can prompt the user to reconnect.
+ */
+export class MetaAuthError extends Error {
+  code: number;
+  constructor(message: string, code: number) {
+    super(message);
+    this.name = "MetaAuthError";
+    this.code = code;
+  }
+}
+
+function parseMetaError(body: string): { code: number; message: string } {
+  try {
+    const parsed = JSON.parse(body);
+    return {
+      code:    parsed?.error?.code    ?? parsed?.code    ?? 0,
+      message: parsed?.error?.message ?? parsed?.message ?? body,
+    };
+  } catch {
+    return { code: 0, message: body };
+  }
+}
+
+function isRateLimit(errorBody: string): { limited: boolean; retryAfterMs: number } {
+  const { code, message } = parseMetaError(errorBody);
+  if (RATE_LIMIT_CODES.has(code)) {
+    const match = message.match(/retry[^0-9]*(\d+)\s*second/i);
+    const retryAfterMs = match ? parseInt(match[1], 10) * 1000 : 20_000;
+    return { limited: true, retryAfterMs };
+  }
+  return { limited: false, retryAfterMs: 0 };
+}
 
 async function graphFetch<T>(
   path: string,
   accessToken: string,
-  params: Record<string, string> = {}
+  params: Record<string, string> = {},
+  attempt = 0
 ): Promise<T> {
   const url = new URL(`${META_GRAPH_BASE}${path}`);
   url.searchParams.set("access_token", accessToken);
@@ -63,6 +127,24 @@ async function graphFetch<T>(
   const res = await fetch(url.toString());
   if (!res.ok) {
     const body = await res.text();
+    const { code, message } = parseMetaError(body);
+
+    // Auth/permission errors — no point retrying, user must reconnect
+    if (AUTH_ERROR_CODES.has(code)) {
+      throw new MetaAuthError(`Meta auth error (${code}): ${message}`, code);
+    }
+
+    // Retry on rate limit — up to 3 attempts with the delay Meta specifies
+    if (attempt < 3) {
+      const { limited, retryAfterMs } = isRateLimit(body);
+      if (limited) {
+        const wait = retryAfterMs + attempt * 5_000; // add 5s per attempt for safety
+        console.warn(`[syncMeta] Rate limited on ${path}, waiting ${wait}ms (attempt ${attempt + 1})`);
+        await new Promise(r => setTimeout(r, wait));
+        return graphFetch<T>(path, accessToken, params, attempt + 1);
+      }
+    }
+
     throw new Error(`Meta Graph API error ${res.status} on ${path}: ${body}`);
   }
   return res.json() as Promise<T>;
@@ -113,10 +195,24 @@ function toLocalDateStr(d: Date): string {
  *  4. purchase                              — generic fallback
  */
 function pickPurchaseCount(actions: Array<{ action_type: string; value: string }>): number {
+  // Priority order matters critically for DPA product-breakdown rows.
+  //
+  // omni_purchase is Meta's canonical, deduplicated, product-attributed metric.
+  // When a customer clicks an ad for product A but buys product B through Meta's
+  // onsite checkout, omni_purchase = 0 for product A's row while onsite_web_purchase = 1.
+  // Putting omni_purchase first ensures we only count purchases actually attributed
+  // to THIS specific product, not session-level purchases of a different product.
+  //
+  // offsite_conversion.fb_pixel_purchase covers traditional pixel-tracked purchases
+  // (standard WooCommerce/Shopify checkout with pixel firing).
+  //
+  // onsite_web_purchase is a session-level metric — it fires when ANY purchase
+  // happens in a session where this ad was shown, regardless of which product
+  // was bought. It must come LAST to avoid mis-attributing cross-product purchases.
   const priority = [
+    "omni_purchase",
     "offsite_conversion.fb_pixel_purchase",
     "onsite_web_purchase",
-    "omni_purchase",
     "purchase",
   ];
   for (const type of priority) {
@@ -132,16 +228,20 @@ function pickPurchaseCount(actions: Array<{ action_type: string; value: string }
 /**
  * Extract purchase revenue from Meta action_values array.
  *
- * Same double-counting problem as purchase counts — `includes("purchase")`
- * catches onsite_web_purchase + onsite_web_app_purchase + web_in_store_purchase
- * + web_app_in_store_purchase + purchase, all representing the same transaction.
- * Take the FIRST non-zero value from the priority list instead.
+ * Priority mirrors pickPurchaseCount — omni_purchase first so we only capture
+ * revenue genuinely attributed to THIS product, not the full order value of a
+ * different product bought in the same session after clicking this ad.
+ *
+ * Example: customer clicks Off-White Polo DPA ad, buys a different item for
+ * ₦111,500. Meta sets omni_purchase=0 and onsite_web_purchase=1 with
+ * action_values[onsite_web_purchase]=111500. Old order (onsite_web_purchase first)
+ * would store ₦111,500 as this product's metaRevenue — wrong. New order returns 0.
  */
 function pickPurchaseValue(actionValues: Array<{ action_type: string; value: string }>): number {
   const priority = [
+    "omni_purchase",
     "offsite_conversion.fb_pixel_purchase",
     "onsite_web_purchase",
-    "omni_purchase",
     "purchase",
   ];
   for (const type of priority) {
@@ -152,6 +252,15 @@ function pickPurchaseValue(actionValues: Array<{ action_type: string; value: str
     }
   }
   return 0;
+}
+
+/**
+ * Extract a single action count from Meta's actions array by exact action_type.
+ * Returns 0 if not found or value is non-numeric.
+ */
+function getActionCount(actions: Array<{ action_type: string; value: string }>, type: string): number {
+  const found = actions.find(a => a.action_type === type);
+  return found ? Math.round(parseFloat(found.value) || 0) : 0;
 }
 
 /**
@@ -237,9 +346,11 @@ export async function runMetaSync(
     metaCatalogId?: string | null;
     /** How many days back to sync. Defaults to 90 to cover the max frontend range. */
     sinceDays?: number;
+    /** IANA timezone for this store — used to align insight dates with WooCommerce/Shopify DailyMetric rows. */
+    timezone?: string;
   }
-): Promise<{ adAccounts: number; insightsMatched: number }> {
-  const { storeId, accessToken, metaAdAccountId, metaCatalogId, sinceDays = 90 } = data;
+): Promise<{ adAccounts: number; insightsMatched: number; unmatchedCatalogItems: number }> {
+  const { storeId, accessToken, metaAdAccountId, metaCatalogId, sinceDays = 90, timezone = "Africa/Lagos" } = data;
 
   // Use local date strings to avoid UTC off-by-one errors
   const sinceDate = new Date();
@@ -281,7 +392,7 @@ export async function runMetaSync(
   const adAccounts = (accountsRes.data ?? []).filter(
     (a) => !metaAdAccountId || a.id === metaAdAccountId
   );
-  if (adAccounts.length === 0) return { adAccounts: 0, insightsMatched: 0 };
+  if (adAccounts.length === 0) return { adAccounts: 0, insightsMatched: 0, unmatchedCatalogItems: 0 };
 
   // --- Build product lookup maps (SKU, externalId, and altIds) ---
   const productIndex = await prisma.productMeta.findMany({
@@ -336,6 +447,12 @@ export async function runMetaSync(
   }
 
   let totalMatched = 0;
+
+  // Accumulated across all ad accounts — maps retailer_id → { name, catalogItemId }
+  // for every Meta catalog product that could not be matched to a WooCommerce/Shopify product.
+  // Written to the audit log once, after all accounts are processed, so merchants
+  // can see exactly which catalog entries need to be cleaned up or corrected.
+  const unmatchedCatalogItems = new Map<string, { name: string; catalogItemId: string }>();
 
   // Fetch the store's operating currency so we can convert Meta spend values
   // when the ad account bills in a different currency (e.g. NGN vs USD).
@@ -407,11 +524,12 @@ export async function runMetaSync(
         catalogIds.add(metaCatalogId);
       }
 
-      // --- Step 3: Build catalog item → retailer_id and title-SKU maps ---
+      // --- Step 3: Build catalog item → retailer_id, title-SKU, and full name maps ---
       // retailer_id is the store's own identifier (often SKU or Shopify product ID).
       // Meta also stores product titles as "SKU, Product Name" — extract SKU as fallback.
       const catalogItemToRetailer = new Map<string, string>(); // catalogItemId → retailer_id
       const catalogItemToTitleSku = new Map<string, string>(); // catalogItemId → SKU from title
+      const catalogItemToName     = new Map<string, string>(); // catalogItemId → full product name
 
       for (const catalogId of catalogIds) {
         try {
@@ -421,10 +539,13 @@ export async function runMetaSync(
             if (item.retailer_id) {
               catalogItemToRetailer.set(item.id, item.retailer_id);
             }
-            // "25122, Men's Short-sleeved POLO Shirt..." → "25122"
-            const skuFromTitle = extractSkuFromMetaTitle(item.name);
-            if (skuFromTitle) {
-              catalogItemToTitleSku.set(item.id, skuFromTitle);
+            if (item.name) {
+              catalogItemToName.set(item.id, item.name);
+              // "25122, Men's Short-sleeved POLO Shirt..." → "25122"
+              const skuFromTitle = extractSkuFromMetaTitle(item.name);
+              if (skuFromTitle) {
+                catalogItemToTitleSku.set(item.id, skuFromTitle);
+              }
             }
           }
         } catch (err) {
@@ -433,8 +554,40 @@ export async function runMetaSync(
       }
 
       /**
+       * Title-similarity matching: compares the Meta product name against all
+       * WooCommerce product titles in the index using word overlap scoring.
+       * Used as a last-resort after all ID/SKU strategies fail.
+       * Requires ≥60% meaningful word overlap (words longer than 3 chars).
+       */
+      function matchByTitleSimilarity(metaName: string): string | null {
+        const normMeta = normalizeTitle(metaName);
+        if (!normMeta) return null;
+        const metaWords = normMeta.split(" ").filter(w => w.length > 3);
+        if (metaWords.length < 2) return null; // too short for reliable matching
+        const metaSet = new Set(metaWords);
+
+        let bestScore = 0;
+        let bestId: string | null = null;
+        for (const [normTitle, productId] of byTitle) {
+          const wcWords = normTitle.split(" ").filter(w => w.length > 3);
+          if (wcWords.length === 0) continue;
+          const matches = wcWords.filter(w => metaSet.has(w)).length;
+          const score = matches / Math.max(metaSet.size, wcWords.length);
+          if (score >= 0.6 && score > bestScore) {
+            bestScore = score;
+            bestId = productId;
+          }
+        }
+        return bestId;
+      }
+
+      /**
        * Look up a product using a Meta catalog item ID.
-       * Tries: retailer_id → title SKU prefix → raw catalog ID itself.
+       * Matching order (most → least reliable):
+       *  1. retailer_id exact match (SKU or WooCommerce/Shopify product/variant ID)
+       *  2. SKU prefix extracted from "SKU, Product Name" title format
+       *  3. Catalog item ID itself (as an externalId/SKU — rare but possible)
+       *  4. Title similarity (word overlap ≥60%) — last resort
        */
       function lookupByCatalogItem(catalogItemId: string): string | null {
         // 1. retailer_id (the store's own product identifier)
@@ -450,7 +603,20 @@ export async function runMetaSync(
           if (found) return found;
         }
         // 3. Treat the catalog item ID itself as an externalId/SKU (rare but possible)
-        return lookupProduct(catalogItemId);
+        const byId = lookupProduct(catalogItemId);
+        if (byId) return byId;
+
+        // 4. Title similarity fallback — handles slight name differences
+        const metaName = catalogItemToName.get(catalogItemId);
+        if (metaName) {
+          const found = matchByTitleSimilarity(metaName);
+          if (found) return found;
+
+          // Record as unmatched so it can be surfaced to the merchant
+          const retailerIdForLog = retailerId ?? catalogItemId;
+          unmatchedCatalogItems.set(retailerIdForLog, { name: metaName, catalogItemId });
+        }
+        return null;
       }
 
       // --- Step 4a: Product-level insights (DPA / Advantage+ Catalog campaigns) ---
@@ -546,6 +712,10 @@ export async function runMetaSync(
         clicks: number;
         purchases: number;
         purchaseRoas: number;
+        addToCart: number;
+        addToCartOmni: number;
+        checkoutInitiated: number;
+        checkoutInitiatedOmni: number;
         source: 'product' | 'regular';
       }>();
 
@@ -585,13 +755,19 @@ export async function runMetaSync(
             purchaseValue > 0 ? purchaseValue : purchaseRoas > 0 ? rawSpend * purchaseRoas : 0;
           const metaRevenue = rawMetaRevenue * spendMultiplier;
 
+          const addToCart           = getActionCount(insight.actions ?? [], 'add_to_cart');
+          const addToCartOmni       = getActionCount(insight.actions ?? [], 'omni_add_to_cart');
+          const checkoutInitiated    = getActionCount(insight.actions ?? [], 'initiated_checkout');
+          const checkoutInitiatedOmni = getActionCount(insight.actions ?? [], 'omni_initiated_checkout');
+
           if (spend === 0) continue;
 
-          // Parse YYYY-MM-DD as UTC midnight to avoid timezone off-by-one errors.
-          // Using new Date(y, m, d) creates LOCAL midnight; on a UTC+1 server that's
-          // stored in Postgres as 23:00 UTC the previous day, shifting all dates by 1 day.
-          const [iy, im, iday] = insight.date_start.split("-").map(Number);
-          const insightDate = new Date(Date.UTC(iy, im - 1, iday));
+          // Convert "YYYY-MM-DD" insight date to the store's local midnight in UTC.
+          // This MUST match how WooCommerce/Shopify syncs write their DailyMetric rows
+          // (both now use storeLocalDayBounds). Using UTC midnight here caused revenue
+          // and spend to land on DIFFERENT rows, breaking ROAS calculation.
+          // Using noon (T12:00:00Z) as the probe avoids DST-boundary edge cases.
+          const insightDate = storeLocalDayBounds(timezone, new Date(`${insight.date_start}T12:00:00Z`)).start;
 
           let productMetaId: string | null = null;
           let matchMethod = "none";
@@ -642,6 +818,7 @@ export async function runMetaSync(
             const acc = unmatchedAccum.get(dk) ?? {
               spend: 0, metaRevenue: 0, impressions: 0, clicks: 0,
               purchases: 0, purchaseRoas: 0, ctr: 0,
+              addToCart: 0, addToCartOmni: 0, checkoutInitiated: 0, checkoutInitiatedOmni: 0,
             };
             const ctr = parseFloat(insight.ctr) / 100;
             unmatchedAccum.set(dk, {
@@ -652,6 +829,10 @@ export async function runMetaSync(
               purchases: acc.purchases + purchases,
               purchaseRoas: purchaseRoas || acc.purchaseRoas,
               ctr: ctr || acc.ctr,
+              addToCart: acc.addToCart + addToCart,
+              addToCartOmni: acc.addToCartOmni + addToCartOmni,
+              checkoutInitiated: acc.checkoutInitiated + checkoutInitiated,
+              checkoutInitiatedOmni: acc.checkoutInitiatedOmni + checkoutInitiatedOmni,
             });
             continue;
           }
@@ -666,6 +847,7 @@ export async function runMetaSync(
             productDateAccum.set(key, {
               productMetaId, insightDate,
               spend, metaRevenue, impressions, clicks, purchases, purchaseRoas,
+              addToCart, addToCartOmni, checkoutInitiated, checkoutInitiatedOmni,
               source,
             });
           } else {
@@ -678,6 +860,10 @@ export async function runMetaSync(
               purchases: existing.purchases + purchases,
               // Keep the last non-zero ROAS value across campaigns
               purchaseRoas: purchaseRoas || existing.purchaseRoas,
+              addToCart: existing.addToCart + addToCart,
+              addToCartOmni: existing.addToCartOmni + addToCartOmni,
+              checkoutInitiated: existing.checkoutInitiated + checkoutInitiated,
+              checkoutInitiatedOmni: existing.checkoutInitiatedOmni + checkoutInitiatedOmni,
             });
           }
         }
@@ -691,6 +877,7 @@ export async function runMetaSync(
         const {
           productMetaId, insightDate,
           spend, metaRevenue, impressions, clicks, purchases, purchaseRoas,
+          addToCart, addToCartOmni, checkoutInitiated, checkoutInitiatedOmni,
         } = entry;
 
         const existingMetric = await prisma.dailyMetric.findUnique({
@@ -722,6 +909,10 @@ export async function runMetaSync(
             impressions,
             clicks,
             conversions: Math.round(purchases),
+            addToCart,
+            addToCartOmni,
+            checkoutInitiated,
+            checkoutInitiatedOmni,
             storeId,
             productId: productMetaId,
           },
@@ -735,6 +926,10 @@ export async function runMetaSync(
             clicks,
             conversions: Math.round(purchases),
             conversionRate,
+            addToCart,
+            addToCartOmni,
+            checkoutInitiated,
+            checkoutInitiatedOmni,
           },
         });
 
@@ -791,6 +986,10 @@ export async function runMetaSync(
               impressions: pImpressions,
               clicks: pClicks,
               conversions: Math.round(accum.purchases * share),
+              addToCart: 0,
+              addToCartOmni: 0,
+              checkoutInitiated: 0,
+              checkoutInitiatedOmni: 0,
               storeId,
               productId: product.id
             },
@@ -803,7 +1002,11 @@ export async function runMetaSync(
               impressions: pImpressions,
               clicks: pClicks,
               conversions: Math.round(accum.purchases * share),
-              conversionRate: pClicks > 0 ? (accum.purchases * share) / pClicks : 0
+              conversionRate: pClicks > 0 ? (accum.purchases * share) / pClicks : 0,
+              addToCart: 0,
+              addToCartOmni: 0,
+              checkoutInitiated: 0,
+              checkoutInitiatedOmni: 0,
             }
           });
 
@@ -817,5 +1020,46 @@ export async function runMetaSync(
     }
   }
 
-  return { adAccounts: adAccounts.length, insightsMatched: totalMatched };
+  // --- Post-sync: log unmatched catalog products ---
+  // If any Meta catalog items could not be matched to a WooCommerce/Shopify product
+  // after all matching strategies (retailer_id, SKU from title, title similarity),
+  // write a single audit log entry so the merchant can clean up their Meta catalog
+  // or fix the SKU field on the unmatched WooCommerce products.
+  if (unmatchedCatalogItems.size > 0) {
+    const items = [...unmatchedCatalogItems.entries()].map(([retailerId, { name, catalogItemId }]) => ({
+      retailerId,
+      name,
+      catalogItemId
+    }));
+
+    // Log up to 50 unmatched items to keep the audit entry readable.
+    // If there are more, the detail line mentions the total count.
+    const sample = items.slice(0, 50);
+    const detail =
+      `${items.length} Meta catalog product${items.length === 1 ? "" : "s"} could not be matched ` +
+      `to any store product. Check that the SKU in Meta's catalog matches the SKU in WooCommerce/Shopify. ` +
+      (items.length > 50 ? `Showing first 50 of ${items.length}. ` : "") +
+      `Products: ${sample.map(i => `"${i.name}" (retailer_id: ${i.retailerId})`).join("; ")}`;
+
+    try {
+      await prisma.auditLog.create({
+        data: {
+          action: "Meta Sync — Unmatched Catalog Products",
+          detail,
+          metadata: {
+            unmatchedCount: items.length,
+            items: sample,
+            tag: "Warning",
+            variant: "warning"
+          },
+          storeId
+        }
+      });
+      console.log(`[syncMeta] ${items.length} unmatched catalog item(s) logged to audit log`);
+    } catch (err) {
+      console.warn("[syncMeta] Failed to write unmatched catalog audit log:", err);
+    }
+  }
+
+  return { adAccounts: adAccounts.length, insightsMatched: totalMatched, unmatchedCatalogItems: unmatchedCatalogItems.size };
 }

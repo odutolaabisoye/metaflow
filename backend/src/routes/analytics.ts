@@ -1,5 +1,38 @@
 import type { FastifyInstance } from "fastify";
 
+// Simple in-memory analytics cache — avoids re-running expensive aggregation queries
+// when the same params are requested within the TTL window.
+// Key: `${storeId}:${range}:${sortBy}:${sortDir}:${page}:${startDate}:${endDate}`
+// Value: { data: any; expiresAt: number }
+const analyticsCache = new Map<string, { data: unknown; expiresAt: number }>();
+const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
+function getCached(key: string): unknown | null {
+  const entry = analyticsCache.get(key);
+  if (!entry) return null;
+  if (Date.now() > entry.expiresAt) { analyticsCache.delete(key); return null; }
+  return entry.data;
+}
+
+function setCache(key: string, data: unknown): void {
+  // Evict oldest entries when cache grows too large
+  if (analyticsCache.size > 500) {
+    const now = Date.now();
+    for (const [k, v] of analyticsCache) {
+      if (v.expiresAt < now) analyticsCache.delete(k);
+      if (analyticsCache.size <= 400) break;
+    }
+  }
+  analyticsCache.set(key, { data, expiresAt: Date.now() + CACHE_TTL_MS });
+}
+
+// Call this when a store syncs to invalidate its cache entries
+export function invalidateAnalyticsCache(storeId: string): void {
+  for (const key of analyticsCache.keys()) {
+    if (key.startsWith(`${storeId}:`)) analyticsCache.delete(key);
+  }
+}
+
 const META_GRAPH_VERSION = "v19.0";
 const META_GRAPH_BASE = `https://graph.facebook.com/${META_GRAPH_VERSION}`;
 
@@ -60,12 +93,15 @@ async function metaGet<T>(
   }
 }
 
+/** Plans that unlock Advanced Analytics (keep in sync with middleware/auth.global.ts). */
+const ANALYTICS_PLANS = new Set(["SCALE", "GRANDFATHERED"]);
+
 /**
- * Verify the request is from a SCALE plan user or an ADMIN, and that they own
- * the requested store. Returns { sub } on success, or sends a 401/403 and returns null.
+ * Verify the request is from a SCALE/GRANDFATHERED plan user or an ADMIN, and that
+ * they own the requested store. Returns { sub } on success, or sends a 401/403 and returns null.
  */
 async function verifyScaleAndOwnership(
-  app: FastifyInstance,
+  app: any,
   request: any,
   reply: any,
   storeId: string
@@ -87,11 +123,11 @@ async function verifyScaleAndOwnership(
       where: { id: sub },
       select: { plan: true }
     });
-    if (user?.plan !== "SCALE") {
+    if (!ANALYTICS_PLANS.has(user?.plan ?? "")) {
       reply.code(403).send({
         ok: false,
         code: "PLAN_REQUIRED",
-        message: "Advanced Analytics requires a Scale plan. Upgrade to unlock this feature."
+        message: "Advanced Analytics requires a Scale or Grandfathered plan. Upgrade to unlock this feature."
       });
       return null;
     }
@@ -112,7 +148,7 @@ async function verifyScaleAndOwnership(
   return { sub };
 }
 
-export async function analyticsRoutes(app: FastifyInstance) {
+export async function analyticsRoutes(app: FastifyInstance | any) {
   /**
    * GET /v1/analytics/products
    *
@@ -151,6 +187,110 @@ export async function analyticsRoutes(app: FastifyInstance) {
     const take    = Math.min(parseInt(limit, 10) || 50, 200);
     const pageNum = Math.max(0, parseInt(page, 10) || 0);
 
+    const cacheKey = `${storeId}:${resolvedRange}:${sortBy}:${sortDir}:${pageNum}:${since.toISOString()}:${until.toISOString()}`;
+    const cached = getCached(cacheKey);
+    if (cached) return reply.send(cached);
+
+    // --- Fast path: 30d/7d range reads pre-computed aggregates from ProductMeta ---
+    // The scoring job writes these after every sync — no DailyMetric aggregation needed.
+    const usePrecomputed = (resolvedRange === "30d" || resolvedRange === "7d") && !start && !end;
+    const sfx = resolvedRange === "7d" ? "7d" : "30d"; // field suffix
+
+    if (usePrecomputed) {
+      const sortField: Record<string, any> = {
+        spend:             { [`spend${sfx}`]:                 sortDir as "asc" | "desc" },
+        revenue:           { [`revenue${sfx}`]:               sortDir as "asc" | "desc" },
+        metaRevenue:       { [`metaRevenue${sfx}`]:           sortDir as "asc" | "desc" },
+        impressions:       { [`impressions${sfx}`]:           sortDir as "asc" | "desc" },
+        clicks:            { [`clicks${sfx}`]:                sortDir as "asc" | "desc" },
+        roas:              { [`roas${sfx}`]:                  sortDir as "asc" | "desc" },
+        score:             { score:                           sortDir as "asc" | "desc" },
+        addToCart:         { [`addToCartOmni${sfx}`]:         sortDir as "asc" | "desc" },
+        checkoutInitiated: { [`checkoutInitiatedOmni${sfx}`]: sortDir as "asc" | "desc" },
+      };
+
+      const totalProducts = await app.prisma.productMeta.count({ where: { storeId } });
+
+      const allProducts = await app.prisma.productMeta.findMany({
+        where: { storeId },
+        select: {
+          id: true, title: true, sku: true, category: true, score: true,
+          imageUrl: true, productUrl: true, altIds: true,
+          spend30d: true, revenue30d: true, metaRevenue30d: true,
+          impressions30d: true, clicks30d: true, conversions30d: true,
+          roas30d: true, ctr30d: true, margin: true, inventoryLevel: true,
+          metricsComputedAt: true,
+          addToCart30d: true, addToCartOmni30d: true,
+          checkoutInitiated30d: true, checkoutInitiatedOmni30d: true,
+          spend7d: true, revenue7d: true, metaRevenue7d: true,
+          impressions7d: true, clicks7d: true, conversions7d: true,
+          roas7d: true, ctr7d: true,
+          addToCart7d: true, addToCartOmni7d: true,
+          checkoutInitiated7d: true, checkoutInitiatedOmni7d: true,
+        },
+        orderBy: sortField[sortBy] ?? { [`spend${sfx}`]: "desc" },
+      });
+
+      const productsWithMetrics   = allProducts.filter((p: any) => (p[`spend${sfx}`] ?? 0) > 0 || (p[`revenue${sfx}`] ?? 0) > 0).length;
+      const productsWithNoMetrics = totalProducts - productsWithMetrics;
+
+      const paged      = allProducts.slice(pageNum * take, (pageNum + 1) * take);
+      const totalPages = Math.ceil(allProducts.length / take);
+
+      const items = paged.map((p: any) => ({
+        productId:    p.id,
+        title:        p.title,
+        sku:          p.sku ?? null,
+        category:     p.category,
+        score:        p.score,
+        imageUrl:     p.imageUrl ?? null,
+        productUrl:   p.productUrl ?? null,
+        variantCount: p.altIds?.length ?? 0,
+        hasMetrics:   (p[`spend${sfx}`] ?? 0) > 0 || (p[`revenue${sfx}`] ?? 0) > 0,
+        rawSums: {
+          spend:       p[`spend${sfx}`],
+          revenue:     p[`revenue${sfx}`],
+          metaRevenue: p[`metaRevenue${sfx}`],
+          impressions: p[`impressions${sfx}`],
+          clicks:      p[`clicks${sfx}`],
+          conversions: p[`conversions${sfx}`],
+          addToCart:            p[`addToCart${sfx}`],
+          addToCartOmni:        p[`addToCartOmni${sfx}`],
+          checkoutInitiated:    p[`checkoutInitiated${sfx}`],
+          checkoutInitiatedOmni: p[`checkoutInitiatedOmni${sfx}`],
+        },
+        rawAvgs: { margin: p.margin, velocity: null },
+        computed: {
+          roas:           p[`roas${sfx}`],
+          blendedRoas:    (p[`spend${sfx}`] ?? 0) > 0 && (p[`revenue${sfx}`] ?? 0) > 0 ? p[`revenue${sfx}`] / p[`spend${sfx}`] : null,
+          ctr:            p[`ctr${sfx}`],
+          conversionRate: (p[`clicks${sfx}`] ?? 0) > 0 ? p[`conversions${sfx}`] / p[`clicks${sfx}`] : 0,
+        },
+        snapshot: {
+          inventoryLevel:    p.inventoryLevel,
+          metricsComputedAt: p.metricsComputedAt,
+        },
+      }));
+
+      const precomputedResult = {
+        ok: true,
+        store:    { id: store.id, name: store.name, currency: store.currency },
+        params:   { range, start: null, end: null, sortBy, sortDir, page: pageNum, limit: take },
+        dateRange: {
+          resolved: resolvedRange,
+          since:    since.toISOString(), until: until.toISOString(),
+          sinceDate: since.toISOString().slice(0, 10),
+          untilDate: until.toISOString().slice(0, 10),
+        },
+        stats: { totalProducts, productsWithMetrics, productsWithNoMetrics, totalMetricRows: null },
+        page: pageNum, totalPages, total: allProducts.length,
+        items,
+      };
+      setCache(cacheKey, precomputedResult);
+      return reply.send(precomputedResult);
+    }
+
+    // --- Fallback path: custom / 7d / 90d ranges aggregate DailyMetric on the fly ---
     const [totalProducts, totalMetricRows] = await Promise.all([
       app.prisma.productMeta.count({ where: { storeId } }),
       app.prisma.dailyMetric.count({ where: { storeId, date: { gte: since, lte: until } } }),
@@ -158,7 +298,7 @@ export async function analyticsRoutes(app: FastifyInstance) {
 
     const allProductsMeta = await app.prisma.productMeta.findMany({
       where: { storeId },
-      select: { id: true, title: true, sku: true, category: true, score: true },
+      select: { id: true, title: true, sku: true, category: true, score: true, imageUrl: true, productUrl: true },
     });
 
     const metricsAgg = await app.prisma.dailyMetric.groupBy({
@@ -167,6 +307,10 @@ export async function analyticsRoutes(app: FastifyInstance) {
       _sum: {
         revenue: true, metaRevenue: true, spend: true,
         impressions: true, clicks: true, conversions: true,
+        addToCart: true,
+        addToCartOmni: true,
+        checkoutInitiated: true,
+        checkoutInitiatedOmni: true,
       },
       _avg: { margin: true, velocity: true },
       _count: { date: true },
@@ -174,16 +318,16 @@ export async function analyticsRoutes(app: FastifyInstance) {
 
     const productsWithMetrics   = metricsAgg.length;
     const productsWithNoMetrics = totalProducts - productsWithMetrics;
-    const metricMap             = new Map(metricsAgg.map(m => [m.productId, m]));
+    const metricMap             = new Map(metricsAgg.map((m: any) => [m.productId, m] as [string, typeof m]));
 
-    const allRows = allProductsMeta.map(p => {
-      const m       = metricMap.get(p.id);
-      const metaRev = m?._sum.metaRevenue ?? 0;
-      const rev     = m?._sum.revenue     ?? 0;
-      const spd     = m?._sum.spend       ?? 0;
-      const imp     = m?._sum.impressions ?? 0;
-      const clk     = m?._sum.clicks      ?? 0;
-      const cvt     = m?._sum.conversions ?? 0;
+    const allRows = allProductsMeta.map((p: any) => {
+      const m       = metricMap.get(p.id) as any;
+      const metaRev = m?._sum?.metaRevenue ?? 0;
+      const rev     = m?._sum?.revenue     ?? 0;
+      const spd     = m?._sum?.spend       ?? 0;
+      const imp     = m?._sum?.impressions ?? 0;
+      const clk     = m?._sum?.clicks      ?? 0;
+      const cvt     = m?._sum?.conversions ?? 0;
 
       return {
         productId:      p.id,
@@ -191,10 +335,18 @@ export async function analyticsRoutes(app: FastifyInstance) {
         sku:            p.sku ?? null,
         category:       p.category ?? null,
         score:          p.score,
-        metricRowCount: m?._count.date ?? 0,
+        imageUrl:       p.imageUrl ?? null,
+        productUrl:     p.productUrl ?? null,
+        metricRowCount: m?._count?.date ?? 0,
         hasMetrics:     !!m,
-        rawSums: { revenue: rev, metaRevenue: metaRev, spend: spd, impressions: imp, clicks: clk, conversions: cvt },
-        rawAvgs: { margin: m?._avg.margin ?? null, velocity: m?._avg.velocity ?? null },
+        rawSums: {
+          revenue: rev, metaRevenue: metaRev, spend: spd, impressions: imp, clicks: clk, conversions: cvt,
+          addToCart:           m?._sum?.addToCart        ?? 0,
+          addToCartOmni:       m?._sum?.addToCartOmni    ?? 0,
+          checkoutInitiated:   m?._sum?.checkoutInitiated    ?? 0,
+          checkoutInitiatedOmni: m?._sum?.checkoutInitiatedOmni ?? 0,
+        },
+        rawAvgs: { margin: m?._avg?.margin ?? null, velocity: m?._avg?.velocity ?? null },
         computed: {
           roas:           spd > 0 ? metaRev / spd : 0,
           blendedRoas:    spd > 0 && rev > 0 ? rev / spd : null,
@@ -214,6 +366,8 @@ export async function analyticsRoutes(app: FastifyInstance) {
       else if (sortBy === "roas")        { va = a.computed.roas;       vb = b.computed.roas; }
       else if (sortBy === "score")       { va = a.score;               vb = b.score; }
       else if (sortBy === "metricRows")  { va = a.metricRowCount;      vb = b.metricRowCount; }
+      else if (sortBy === "addToCart")         { va = a.rawSums.addToCartOmni;       vb = b.rawSums.addToCartOmni; }
+      else if (sortBy === "checkoutInitiated") { va = a.rawSums.checkoutInitiatedOmni; vb = b.rawSums.checkoutInitiatedOmni; }
       return sortDir === "asc" ? va - vb : vb - va;
     });
 
@@ -232,7 +386,7 @@ export async function analyticsRoutes(app: FastifyInstance) {
     const snapMap = new Map(latestSnapshots.map(s => [s.productId, s]));
     const items   = paged.map(r => ({ ...r, snapshot: snapMap.get(r.productId) ?? null }));
 
-    return reply.send({
+    const fallbackResult = {
       ok: true,
       store:    { id: store.id, name: store.name, currency: store.currency },
       params:   { range, start: start ?? null, end: end ?? null, sortBy, sortDir, page: pageNum, limit: take },
@@ -246,7 +400,9 @@ export async function analyticsRoutes(app: FastifyInstance) {
       stats: { totalProducts, productsWithMetrics, productsWithNoMetrics, totalMetricRows },
       page: pageNum, totalPages, total: allRows.length,
       items,
-    });
+    };
+    setCache(cacheKey, fallbackResult);
+    return reply.send(fallbackResult);
   });
 
   /**
@@ -303,6 +459,7 @@ export async function analyticsRoutes(app: FastifyInstance) {
         productId: true, date: true, revenue: true, metaRevenue: true, spend: true,
         impressions: true, clicks: true, conversions: true, inventoryLevel: true,
         roas: true, ctr: true, conversionRate: true, blendedRoas: true, margin: true, velocity: true,
+        addToCart: true, addToCartOmni: true, checkoutInitiated: true, checkoutInitiatedOmni: true,
       },
     });
 
@@ -315,6 +472,7 @@ export async function analyticsRoutes(app: FastifyInstance) {
     const matches = matchedProducts.map(p => {
       const rows = rowsByProduct.get(p.id) ?? [];
       let totSpend = 0, totRev = 0, totMetaRev = 0, totImp = 0, totClk = 0, totCvt = 0;
+      let totAddToCart = 0, totAddToCartOmni = 0, totCheckout = 0, totCheckoutOmni = 0;
       for (const r of rows) {
         totSpend   += r.spend       ?? 0;
         totRev     += r.revenue     ?? 0;
@@ -322,6 +480,10 @@ export async function analyticsRoutes(app: FastifyInstance) {
         totImp     += r.impressions ?? 0;
         totClk     += r.clicks      ?? 0;
         totCvt     += r.conversions ?? 0;
+        totAddToCart     += r.addToCart     ?? 0;
+        totAddToCartOmni += r.addToCartOmni ?? 0;
+        totCheckout      += r.checkoutInitiated    ?? 0;
+        totCheckoutOmni  += r.checkoutInitiatedOmni ?? 0;
       }
       return {
         product: { id: p.id, title: p.title, sku: p.sku ?? null, externalId: p.externalId ?? null,
@@ -336,6 +498,10 @@ export async function analyticsRoutes(app: FastifyInstance) {
             impressions: imp, clicks: clk, conversions: cvt,
             inventoryLevel: r.inventoryLevel ?? null,
             margin: r.margin ?? null, velocity: r.velocity ?? null,
+            addToCart: r.addToCart ?? 0,
+            addToCartOmni: r.addToCartOmni ?? 0,
+            checkoutInitiated: r.checkoutInitiated ?? 0,
+            checkoutInitiatedOmni: r.checkoutInitiatedOmni ?? 0,
             stored: { roas: r.roas ?? null, ctr: r.ctr ?? null,
                       conversionRate: r.conversionRate ?? null, blendedRoas: r.blendedRoas ?? null },
             computed: {
@@ -349,6 +515,10 @@ export async function analyticsRoutes(app: FastifyInstance) {
         totals: {
           spend: totSpend, revenue: totRev, metaRevenue: totMetaRev,
           impressions: totImp, clicks: totClk, conversions: totCvt,
+          addToCart: totAddToCart,
+          addToCartOmni: totAddToCartOmni,
+          checkoutInitiated: totCheckout,
+          checkoutInitiatedOmni: totCheckoutOmni,
           computed: {
             roas:           totSpend > 0 ? totMetaRev / totSpend : 0,
             blendedRoas:    totSpend > 0 && totRev > 0 ? totRev / totSpend : null,

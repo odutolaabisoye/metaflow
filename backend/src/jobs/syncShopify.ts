@@ -1,4 +1,5 @@
 import type { PrismaClient } from "@prisma/client";
+import { storeLocalDayBounds, storeLocalDateStr } from "./dateUtils.js";
 
 const SHOPIFY_API_VERSION = "2024-04";
 
@@ -87,6 +88,8 @@ interface SyncShopifyData {
   storeId: string;
   shop: string;          // e.g. "mystore.myshopify.com"
   accessToken: string;
+  /** IANA timezone string for this store, e.g. "America/New_York". Defaults to "Africa/Lagos". */
+  timezone?: string;
 }
 
 /**
@@ -101,7 +104,7 @@ export async function runShopifySync(
   prisma: PrismaClient,
   data: SyncShopifyData
 ): Promise<{ products: number; orders: number }> {
-  const { storeId, shop, accessToken } = data;
+  const { storeId, shop, accessToken, timezone = "Africa/Lagos" } = data;
 
   // --- Step 1: Fetch all products ---
   const products = await shopifyPaginate<{ products: ShopifyProduct[] }, ShopifyProduct>(
@@ -123,27 +126,36 @@ export async function runShopifySync(
     "orders"
   );
 
-  // --- Step 3: Aggregate revenue per product ID ---
-  const revenueMap = new Map<number, { revenue: number; orderCount: number }>();
+  // --- Step 3: Aggregate revenue per product ID, per day ---
+  //
+  // revenueMapByDate: productId → (localDateStr → {revenue, orderCount})
+  //
+  // This lets us write one correct DailyMetric row per day per product and
+  // naturally backfill the last 30 days on every sync run.
+  const revenueMapByDate = new Map<number, Map<string, { revenue: number; orderCount: number }>>();
+  const todayLocalStr = storeLocalDateStr(timezone); // e.g. "2026-03-20"
 
   for (const order of orders) {
+    const orderLocalDate = storeLocalDateStr(timezone, new Date(order.created_at));
     for (const item of order.line_items) {
-      // Always aggregate by product_id (parent) so all variants roll up to one ProductMeta row
       const productId = item.product_id;
       const itemRevenue = parseFloat(item.price) * item.quantity;
-
-      const existing = revenueMap.get(productId) ?? { revenue: 0, orderCount: 0 };
-      revenueMap.set(productId, {
-        revenue: existing.revenue + itemRevenue,
-        orderCount: existing.orderCount + 1
-      });
+      if (!revenueMapByDate.has(productId)) revenueMapByDate.set(productId, new Map());
+      const dateMap = revenueMapByDate.get(productId)!;
+      const existing = dateMap.get(orderLocalDate) ?? { revenue: 0, orderCount: 0 };
+      dateMap.set(orderLocalDate, { revenue: existing.revenue + itemRevenue, orderCount: existing.orderCount + 1 });
     }
   }
 
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
+  // Use the store's local timezone to determine "today" — not the server OS clock.
+  const today = storeLocalDayBounds(timezone).start;
 
   // --- Step 4: Upsert products and daily metrics ---
+  //
+  // For each product we write:
+  //   • One full DailyMetric row for TODAY  (revenue + velocity + inventory)
+  //   • One revenue-only update for each HISTORICAL date that has orders
+  //     (preserves Meta spend/ROAS data syncMeta already wrote for those dates)
   for (const product of products) {
     const firstVariant = product.variants[0];
     if (!firstVariant) continue;
@@ -152,16 +164,21 @@ export async function runShopifySync(
     const imageUrl = product.images[0]?.src ?? null;
     const sku = firstVariant.sku || `SHOPIFY-${firstVariant.id}`;
     const productUrl = product.handle ? `https://${shop}/products/${product.handle}` : null;
-    // All variant IDs for this product — Meta catalogs report at variant level.
-    // Storing these lets syncMeta match "variant_id" insights back to this product.
     const altIds = product.variants.map((v) => String(v.id));
     const inventoryLevel = product.variants.reduce(
       (sum, v) => sum + (v.inventory_quantity ?? 0),
       0
     );
 
-    const productRevenue = revenueMap.get(product.id)?.revenue ?? 0;
-    const productOrders = revenueMap.get(product.id)?.orderCount ?? 0;
+    const dateMap = revenueMapByDate.get(product.id);
+    const revenue30d = dateMap
+      ? [...dateMap.values()].reduce((sum, e) => sum + e.revenue, 0)
+      : 0;
+    const velocity = revenue30d / 30;
+
+    const todayEntry    = dateMap?.get(todayLocalStr) ?? { revenue: 0, orderCount: 0 };
+    const productRevenue = todayEntry.revenue;
+    const productOrders  = todayEntry.orderCount;
 
     // Upsert ProductMeta (never overwrite score/category — that's the scoring engine's job)
     const upserted = await prisma.productMeta.upsert({
@@ -182,14 +199,12 @@ export async function runShopifySync(
         imageUrl,
         sku,
         altIds,
-        productUrl
+        productUrl,
+        inventoryLevel
       }
     });
 
-    // Compute a basic velocity: avg daily revenue over 30 days
-    const velocity = productRevenue / 30;
-
-    // Use placeholder ad metrics (0 until Meta sync fills them)
+    // --- Today's row: full upsert (revenue + velocity + inventory) ---
     const existingMetric = await prisma.dailyMetric.findUnique({
       where: { storeId_productId_date: { storeId, productId: upserted.id, date: today } }
     });
@@ -202,7 +217,7 @@ export async function runShopifySync(
         blendedRoas: existingMetric?.blendedRoas ?? null,
         ctr: existingMetric?.ctr ?? 0,
         conversionRate: productOrders > 0 ? productOrders / Math.max(1, productOrders * 40) : 0,
-        margin: 0.35, // Default 35% margin until actual COGS data is available
+        margin: 0.35,
         velocity,
         spend: existingMetric?.spend ?? 0,
         revenue: productRevenue,
@@ -222,6 +237,43 @@ export async function runShopifySync(
       }
     });
 
+    // --- Historical rows: revenue-only upsert (preserve Meta spend/ROAS) ---
+    if (dateMap) {
+      for (const [localDateStr, entry] of dateMap) {
+        if (localDateStr === todayLocalStr) continue; // already written above
+
+        const historicalDate = storeLocalDayBounds(
+          timezone,
+          new Date(`${localDateStr}T12:00:00Z`)
+        ).start;
+
+        await prisma.dailyMetric.upsert({
+          where: { storeId_productId_date: { storeId, productId: upserted.id, date: historicalDate } },
+          create: {
+            date: historicalDate,
+            roas: 0,
+            blendedRoas: null,
+            ctr: 0,
+            conversionRate: 0,
+            margin: 0.35,
+            velocity,
+            spend: 0,
+            revenue: entry.revenue,
+            metaRevenue: null,
+            impressions: null,
+            clicks: null,
+            conversions: entry.orderCount,
+            inventoryLevel: null,
+            storeId,
+            productId: upserted.id
+          },
+          update: {
+            revenue: entry.revenue,
+            conversions: entry.orderCount,
+          }
+        });
+      }
+    }
   }
 
   return { products: products.length, orders: orders.length };

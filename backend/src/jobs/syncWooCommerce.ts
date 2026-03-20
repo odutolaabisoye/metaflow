@@ -1,4 +1,5 @@
 import type { PrismaClient } from "@prisma/client";
+import { storeLocalDayBounds, storeLocalDateStr } from "./dateUtils.js";
 
 const WC_API_VERSION = "wc/v3";
 
@@ -85,6 +86,8 @@ interface SyncWooCommerceData {
   storeUrl: string;
   /** Stored as "consumerKey:consumerSecret" in accessToken field */
   accessToken: string;
+  /** IANA timezone string for this store, e.g. "America/New_York". Defaults to "Africa/Lagos". */
+  timezone?: string;
 }
 
 /**
@@ -104,7 +107,7 @@ export async function runWooCommerceSync(
   prisma: PrismaClient,
   data: SyncWooCommerceData
 ): Promise<{ products: number; orders: number }> {
-  const { storeId, storeUrl, accessToken } = data;
+  const { storeId, storeUrl, accessToken, timezone = "Africa/Lagos" } = data;
 
   // accessToken is stored as "key:secret"
   const [consumerKey, consumerSecret] = accessToken.split(":");
@@ -127,42 +130,64 @@ export async function runWooCommerceSync(
     `/orders?status=completed,processing&after=${afterIso}`
   );
 
-  // --- Step 3: Aggregate revenue per PARENT product ---
-  // Always key by product_id (the parent), not variation_id.
-  // This keeps revenue attributed to the single ProductMeta record per product.
-  const revenueMap = new Map<number, { revenue: number; orderCount: number }>();
+  // --- Step 3: Aggregate revenue per PARENT product, per day ---
+  //
+  // revenueMapByDate: productId → (localDateStr → {revenue, orderCount})
+  //
+  // We store revenue broken down by the store-local date of each order.
+  // This lets us write ONE correct DailyMetric row per day per product —
+  // rather than a single "today" row containing the entire 30-day cumulative.
+  //
+  // Root-cause recap: the old approach wrote revenueMap30d.get(pid).revenue
+  // (a 30-day total) into today's DailyMetric.revenue on every sync run.
+  // That made every row look like a ₦23-30M day when the real monthly max was ₦60M.
+  const revenueMapByDate = new Map<number, Map<string, { revenue: number; orderCount: number }>>();
+  const todayLocalStr = storeLocalDateStr(timezone); // e.g. "2026-03-20"
 
   for (const order of orders) {
+    const orderLocalDate = storeLocalDateStr(timezone, new Date(order.date_created));
     for (const item of order.line_items) {
       const pid = item.product_id;
       const rev = parseFloat(item.total);
-      const existing = revenueMap.get(pid) ?? { revenue: 0, orderCount: 0 };
-      revenueMap.set(pid, {
-        revenue: existing.revenue + rev,
-        orderCount: existing.orderCount + 1
-      });
+      if (!revenueMapByDate.has(pid)) revenueMapByDate.set(pid, new Map());
+      const dateMap = revenueMapByDate.get(pid)!;
+      const existing = dateMap.get(orderLocalDate) ?? { revenue: 0, orderCount: 0 };
+      dateMap.set(orderLocalDate, { revenue: existing.revenue + rev, orderCount: existing.orderCount + 1 });
     }
   }
 
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
+  // Use the store's local timezone to determine "today" — not the server OS clock.
+  const today = storeLocalDayBounds(timezone).start;
 
   // --- Step 4: Upsert parent products + daily metrics ---
+  //
+  // For each product we write:
+  //   • One full DailyMetric row for TODAY  (revenue + velocity + inventory)
+  //   • One revenue-only update for each HISTORICAL date that has orders
+  //
+  // Historical rows only update `revenue` and `conversions` so we never
+  // overwrite Meta spend/ROAS data that syncMeta already wrote for those dates.
   for (const product of products) {
     const externalId = String(product.id);
     const imageUrl = product.images[0]?.src ?? null;
     const sku = product.sku || `WC-${product.id}`;
     const productUrl = product.permalink || null;
-    const inventoryLevel = product.stock_quantity;
 
-    const productRevenue = revenueMap.get(product.id)?.revenue ?? 0;
-    const productOrders = revenueMap.get(product.id)?.orderCount ?? 0;
-    const velocity = productRevenue / 30;
+    // Sum all days' revenue for this product → 30-day total → velocity
+    const dateMap = revenueMapByDate.get(product.id);
+    const revenue30d = dateMap
+      ? [...dateMap.values()].reduce((sum, e) => sum + e.revenue, 0)
+      : 0;
+    const velocity = revenue30d / 30; // avg daily revenue over last 30 days
+
+    const todayEntry  = dateMap?.get(todayLocalStr) ?? { revenue: 0, orderCount: 0 };
+    const productRevenue = todayEntry.revenue;
+    const productOrders  = todayEntry.orderCount;
 
     // For variable products, collect ALL variation IDs (in-stock and out-of-stock).
-    // These go into `altIds` so that when Meta reports spend for variation 34523,
-    // syncMeta can find this parent product (34520) via the altIds lookup map.
+    // Also sum variation stock quantities — parent stock_quantity is null for variable products.
     let altIds: string[] = [];
+    let inventoryLevel: number | null = product.stock_quantity;
     if (product.type === "variable") {
       try {
         const variations = await wcPaginate<WCVariation>(
@@ -170,9 +195,9 @@ export async function runWooCommerceSync(
           `/products/${product.id}/variations?status=any`
         );
         altIds = variations.map((v) => String(v.id));
+        inventoryLevel = variations.reduce((sum, v) => sum + (v.stock_quantity ?? 0), 0);
       } catch {
-        // Non-fatal: if variations can't be fetched, syncMeta falls back to
-        // matching by parent externalId or SKU
+        // Non-fatal: keep parent stock_quantity as fallback
       }
     }
 
@@ -195,10 +220,12 @@ export async function runWooCommerceSync(
         imageUrl,
         sku,
         altIds,
-        productUrl
+        productUrl,
+        ...(inventoryLevel !== null ? { inventoryLevel } : {})
       }
     });
 
+    // --- Today's row: full upsert (revenue + velocity + inventory) ---
     const existingMetric = await prisma.dailyMetric.findUnique({
       where: { storeId_productId_date: { storeId, productId: upserted.id, date: today } }
     });
@@ -230,6 +257,48 @@ export async function runWooCommerceSync(
         ...(inventoryLevel !== null ? { inventoryLevel } : {})
       }
     });
+
+    // --- Historical rows: revenue-only upsert (preserve Meta spend/ROAS) ---
+    if (dateMap) {
+      for (const [localDateStr, entry] of dateMap) {
+        if (localDateStr === todayLocalStr) continue; // already written above
+
+        // Convert the local date string back to the store's midnight in UTC
+        // by using noon of that day as a DST-safe probe.
+        const historicalDate = storeLocalDayBounds(
+          timezone,
+          new Date(`${localDateStr}T12:00:00Z`)
+        ).start;
+
+        await prisma.dailyMetric.upsert({
+          where: { storeId_productId_date: { storeId, productId: upserted.id, date: historicalDate } },
+          create: {
+            date: historicalDate,
+            roas: 0,
+            blendedRoas: null,
+            ctr: 0,
+            conversionRate: 0,
+            margin: 0.35,
+            velocity,
+            spend: 0,
+            revenue: entry.revenue,
+            metaRevenue: null,
+            impressions: null,
+            clicks: null,
+            conversions: entry.orderCount,
+            inventoryLevel: null,
+            storeId,
+            productId: upserted.id
+          },
+          // Only overwrite revenue + conversions — never touch spend/ROAS/Meta fields
+          // that syncMeta has already written for this historical date.
+          update: {
+            revenue: entry.revenue,
+            conversions: entry.orderCount,
+          }
+        });
+      }
+    }
   }
 
   return { products: products.length, orders: orders.length };
