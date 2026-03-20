@@ -167,7 +167,7 @@ export async function runScoringJob(
   // Load products without DailyMetric include — aggregates fetched below in one query
   const products = await prisma.productMeta.findMany({
     where: { storeId },
-    select: { id: true, title: true, category: true, score: true }
+    select: { id: true, title: true, category: true, score: true, isVariant: true, parentId: true }
   });
 
   if (products.length === 0) {
@@ -210,6 +210,80 @@ export async function runScoringJob(
   const metricMap7 = new Map(metrics7d.map(m => [m.productId, m]));
   const computedAt = new Date();
 
+  // Roll up variant metrics to their parent for 30d/7d aggregates.
+  type Rollup = {
+    spend: number;
+    revenue: number;
+    metaRevenue: number;
+    impressions: number;
+    clicks: number;
+    conversions: number;
+    addToCart: number;
+    addToCartOmni: number;
+    checkoutInitiated: number;
+    checkoutInitiatedOmni: number;
+    marginWeightedSum: number;
+    marginWeight: number;
+    inventorySum: number;
+  };
+
+  const productIndex = new Map(products.map(p => [p.id, p]));
+
+  const rollup30d = new Map<string, Rollup>();
+  for (const m of metrics30d) {
+    const p = productIndex.get(m.productId);
+    const rootId = p?.parentId ?? m.productId;
+    const rev = m._sum.revenue ?? 0;
+    const weight = rev > 0 ? rev : 1;
+    const margin = m._avg.margin ?? 0.35;
+    const inventory = m._max.inventoryLevel ?? 0;
+    const acc = rollup30d.get(rootId) ?? {
+      spend: 0, revenue: 0, metaRevenue: 0,
+      impressions: 0, clicks: 0, conversions: 0,
+      addToCart: 0, addToCartOmni: 0,
+      checkoutInitiated: 0, checkoutInitiatedOmni: 0,
+      marginWeightedSum: 0, marginWeight: 0,
+      inventorySum: 0,
+    };
+    acc.spend += m._sum.spend ?? 0;
+    acc.revenue += rev;
+    acc.metaRevenue += m._sum.metaRevenue ?? 0;
+    acc.impressions += m._sum.impressions ?? 0;
+    acc.clicks += m._sum.clicks ?? 0;
+    acc.conversions += m._sum.conversions ?? 0;
+    acc.addToCart += m._sum.addToCart ?? 0;
+    acc.addToCartOmni += m._sum.addToCartOmni ?? 0;
+    acc.checkoutInitiated += m._sum.checkoutInitiated ?? 0;
+    acc.checkoutInitiatedOmni += m._sum.checkoutInitiatedOmni ?? 0;
+    acc.marginWeightedSum += margin * weight;
+    acc.marginWeight += weight;
+    acc.inventorySum += inventory;
+    rollup30d.set(rootId, acc);
+  }
+
+  const rollup7d = new Map<string, Omit<Rollup, "marginWeightedSum" | "marginWeight" | "inventorySum"> & { inventorySum?: number }>();
+  for (const m of metrics7d) {
+    const p = productIndex.get(m.productId);
+    const rootId = p?.parentId ?? m.productId;
+    const acc = rollup7d.get(rootId) ?? {
+      spend: 0, revenue: 0, metaRevenue: 0,
+      impressions: 0, clicks: 0, conversions: 0,
+      addToCart: 0, addToCartOmni: 0,
+      checkoutInitiated: 0, checkoutInitiatedOmni: 0,
+    };
+    acc.spend += m._sum.spend ?? 0;
+    acc.revenue += m._sum.revenue ?? 0;
+    acc.metaRevenue += m._sum.metaRevenue ?? 0;
+    acc.impressions += m._sum.impressions ?? 0;
+    acc.clicks += m._sum.clicks ?? 0;
+    acc.conversions += m._sum.conversions ?? 0;
+    acc.addToCart += m._sum.addToCart ?? 0;
+    acc.addToCartOmni += m._sum.addToCartOmni ?? 0;
+    acc.checkoutInitiated += m._sum.checkoutInitiated ?? 0;
+    acc.checkoutInitiatedOmni += m._sum.checkoutInitiatedOmni ?? 0;
+    rollup7d.set(rootId, acc);
+  }
+
   let changed = 0;
   let scaled = 0;
   let killed = 0;
@@ -222,37 +296,44 @@ export async function runScoringJob(
 
     await Promise.all(
       batch.map(async (product) => {
-        const m  = metricMap.get(product.id);
-        const m7 = metricMap7.get(product.id);
+        const rootId = product.parentId ?? product.id;
+        const m  = product.isVariant ? metricMap.get(product.id) : undefined;
+        const m7 = product.isVariant ? metricMap7.get(product.id) : undefined;
+        const r  = product.isVariant ? undefined : rollup30d.get(rootId);
+        const r7 = product.isVariant ? undefined : rollup7d.get(rootId);
 
-        const spend30d       = m?._sum.spend        ?? 0;
-        const revenue30d     = m?._sum.revenue      ?? 0;
-        const metaRevenue30d = m?._sum.metaRevenue  ?? 0;
-        const impressions30d = m?._sum.impressions  ?? 0;
-        const clicks30d      = m?._sum.clicks       ?? 0;
-        const conversions30d = m?._sum.conversions  ?? 0;
-        const margin         = m?._avg.margin       ?? 0.35;
-        const inventoryLevel = m?._max.inventoryLevel ?? null;
+        const spend30d       = product.isVariant ? (m?._sum.spend        ?? 0) : (r?.spend ?? 0);
+        const revenue30d     = product.isVariant ? (m?._sum.revenue      ?? 0) : (r?.revenue ?? 0);
+        const metaRevenue30d = product.isVariant ? (m?._sum.metaRevenue  ?? 0) : (r?.metaRevenue ?? 0);
+        const impressions30d = product.isVariant ? (m?._sum.impressions  ?? 0) : (r?.impressions ?? 0);
+        const clicks30d      = product.isVariant ? (m?._sum.clicks       ?? 0) : (r?.clicks ?? 0);
+        const conversions30d = product.isVariant ? (m?._sum.conversions  ?? 0) : (r?.conversions ?? 0);
+        const margin         = product.isVariant
+          ? (m?._avg.margin ?? 0.35)
+          : ((r?.marginWeight ?? 0) > 0 ? (r!.marginWeightedSum / r!.marginWeight) : 0.35);
+        const inventoryLevel = product.isVariant
+          ? (m?._max.inventoryLevel ?? null)
+          : (r ? Math.max(0, r.inventorySum) : null);
         const roas30d        = spend30d > 0 && metaRevenue30d > 0 ? metaRevenue30d / spend30d : 0;
         const ctr30d         = impressions30d > 0 ? clicks30d / impressions30d : 0;
-        const addToCart30d           = m?._sum.addToCart        ?? 0;
-        const addToCartOmni30d       = m?._sum.addToCartOmni    ?? 0;
-        const checkoutInitiated30d   = m?._sum.checkoutInitiated    ?? 0;
-        const checkoutInitiatedOmni30d = m?._sum.checkoutInitiatedOmni ?? 0;
+        const addToCart30d           = product.isVariant ? (m?._sum.addToCart        ?? 0) : (r?.addToCart ?? 0);
+        const addToCartOmni30d       = product.isVariant ? (m?._sum.addToCartOmni    ?? 0) : (r?.addToCartOmni ?? 0);
+        const checkoutInitiated30d   = product.isVariant ? (m?._sum.checkoutInitiated    ?? 0) : (r?.checkoutInitiated ?? 0);
+        const checkoutInitiatedOmni30d = product.isVariant ? (m?._sum.checkoutInitiatedOmni ?? 0) : (r?.checkoutInitiatedOmni ?? 0);
 
         // 7-day aggregates
-        const spend7d       = m7?._sum.spend        ?? 0;
-        const revenue7d     = m7?._sum.revenue      ?? 0;
-        const metaRevenue7d = m7?._sum.metaRevenue  ?? 0;
-        const impressions7d = m7?._sum.impressions  ?? 0;
-        const clicks7d      = m7?._sum.clicks       ?? 0;
-        const conversions7d = m7?._sum.conversions  ?? 0;
+        const spend7d       = product.isVariant ? (m7?._sum.spend        ?? 0) : (r7?.spend ?? 0);
+        const revenue7d     = product.isVariant ? (m7?._sum.revenue      ?? 0) : (r7?.revenue ?? 0);
+        const metaRevenue7d = product.isVariant ? (m7?._sum.metaRevenue  ?? 0) : (r7?.metaRevenue ?? 0);
+        const impressions7d = product.isVariant ? (m7?._sum.impressions  ?? 0) : (r7?.impressions ?? 0);
+        const clicks7d      = product.isVariant ? (m7?._sum.clicks       ?? 0) : (r7?.clicks ?? 0);
+        const conversions7d = product.isVariant ? (m7?._sum.conversions  ?? 0) : (r7?.conversions ?? 0);
         const roas7d        = spend7d > 0 && metaRevenue7d > 0 ? metaRevenue7d / spend7d : 0;
         const ctr7d         = impressions7d > 0 ? clicks7d / impressions7d : 0;
-        const addToCart7d            = m7?._sum.addToCart        ?? 0;
-        const addToCartOmni7d        = m7?._sum.addToCartOmni    ?? 0;
-        const checkoutInitiated7d    = m7?._sum.checkoutInitiated    ?? 0;
-        const checkoutInitiatedOmni7d = m7?._sum.checkoutInitiatedOmni ?? 0;
+        const addToCart7d            = product.isVariant ? (m7?._sum.addToCart        ?? 0) : (r7?.addToCart ?? 0);
+        const addToCartOmni7d        = product.isVariant ? (m7?._sum.addToCartOmni    ?? 0) : (r7?.addToCartOmni ?? 0);
+        const checkoutInitiated7d    = product.isVariant ? (m7?._sum.checkoutInitiated    ?? 0) : (r7?.checkoutInitiated ?? 0);
+        const checkoutInitiatedOmni7d = product.isVariant ? (m7?._sum.checkoutInitiatedOmni ?? 0) : (r7?.checkoutInitiatedOmni ?? 0);
 
         const newScore = computeProductScore(
           { roas: roas30d, ctr: ctr30d, margin, inventoryLevel },

@@ -120,12 +120,12 @@ export async function dashboardRoutes(app: FastifyInstance) {
       // ── Top / risk products — read directly from ProductMeta pre-computed fields ──
       // No DailyMetric include needed — scoring job stores roas30d, spend30d etc.
       const [activeSKUs, riskCount, topProducts, riskProducts] = await Promise.all([
-        app.prisma.productMeta.count({ where: { storeId: store.id } }),
+        app.prisma.productMeta.count({ where: { storeId: store.id, isVariant: false } }),
         app.prisma.productMeta.count({
-          where: { storeId: store.id, category: { in: ["RISK", "KILL"] } }
+          where: { storeId: store.id, isVariant: false, category: { in: ["RISK", "KILL"] } }
         }),
         app.prisma.productMeta.findMany({
-          where: { storeId: store.id, category: "SCALE" },
+          where: { storeId: store.id, isVariant: false, category: "SCALE" },
           orderBy: { score: "desc" },
           take: 6,
           select: {
@@ -134,7 +134,7 @@ export async function dashboardRoutes(app: FastifyInstance) {
           }
         }),
         app.prisma.productMeta.findMany({
-          where: { storeId: store.id, category: { in: ["RISK", "KILL"] } },
+          where: { storeId: store.id, isVariant: false, category: { in: ["RISK", "KILL"] } },
           orderBy: { score: "asc" },
           take: 6,
           select: {
@@ -159,7 +159,7 @@ export async function dashboardRoutes(app: FastifyInstance) {
       if (usePrecomputed) {
         // ── Fast path: KPIs from pre-computed ProductMeta fields (no DailyMetric scan) ──
         const agg = await app.prisma.productMeta.aggregate({
-          where: { storeId: store.id },
+          where: { storeId: store.id, isVariant: false },
           _sum: {
             spend30d: true, revenue30d: true, metaRevenue30d: true,
             impressions30d: true, clicks30d: true, conversions30d: true,

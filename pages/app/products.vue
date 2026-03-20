@@ -218,6 +218,16 @@
         </button>
       </div>
 
+      <!-- Variants toggle -->
+      <label class="flex items-center gap-2 text-xs text-white/70">
+        <input
+          v-model="includeVariants"
+          type="checkbox"
+          class="h-4 w-4 rounded border-white/20 bg-white/10 text-glow-500 focus:ring-glow-500/40"
+        />
+        Show variants
+      </label>
+
       <!-- Spacer -->
       <div class="flex-1 hidden sm:block"></div>
 
@@ -356,6 +366,11 @@
                   <div class="min-w-0">
                     <div class="flex items-center gap-1.5">
                       <p class="font-medium truncate max-w-[180px]">{{ item.title }}</p>
+                      <span
+                        v-if="item.isVariant"
+                        class="flex-shrink-0 rounded-md bg-white/[0.07] border border-white/10 px-1.5 py-0.5 text-[10px] font-medium text-white/45"
+                        title="Variant"
+                      >Var</span>
                       <span
                         v-if="item.variantCount > 0"
                         class="flex-shrink-0 rounded-md bg-white/[0.07] border border-white/10 px-1.5 py-0.5 text-[10px] font-medium text-white/45"
@@ -573,6 +588,7 @@ const { public: { apiBase } } = useRuntimeConfig();
 const search      = ref("");
 const filter      = ref("all");
 const stockFilter = ref<'all' | 'inStock' | 'outOfStock'>("all");
+const includeVariants = ref(false);
 const sortBy      = ref("score");
 const sortDir     = ref("desc");
 const limit = ref(20);
@@ -602,7 +618,7 @@ const stockOptions: { value: 'all' | 'inStock' | 'outOfStock'; label: string; do
 ];
 
 // Reset to page 0 whenever any filter/sort/range changes
-watch([sortBy, sortDir, limit, filter, stockFilter, query], () => { page.value = 0; });
+watch([sortBy, sortDir, limit, filter, stockFilter, includeVariants, query], () => { page.value = 0; });
 watch(search, () => { page.value = 0; });
 
 const { data, pending, refresh } = await useFetch(`${apiBase}/v1/products`, {
@@ -613,6 +629,7 @@ const { data, pending, refresh } = await useFetch(`${apiBase}/v1/products`, {
     search: search.value || undefined,
     category: filter.value === "all" ? undefined : filter.value,
     stock: stockFilter.value === "all" ? undefined : stockFilter.value,
+    includeVariants: includeVariants.value ? "true" : undefined,
     sortBy: sortBy.value,
     sortDir: sortDir.value,
     limit: limit.value,
@@ -1057,6 +1074,7 @@ const exportCsv = async (mode: 'page' | 'all' = 'page') => {
           search:   search.value || undefined,
           category: filter.value === 'all' ? undefined : filter.value,
           stock:    stockFilter.value === 'all' ? undefined : stockFilter.value,
+          includeVariants: includeVariants.value ? 'true' : undefined,
           sortBy:   sortBy.value,
           sortDir:  sortDir.value,
           limit:    batchSize,

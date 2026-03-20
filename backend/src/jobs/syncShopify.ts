@@ -126,7 +126,7 @@ export async function runShopifySync(
     "orders"
   );
 
-  // --- Step 3: Aggregate revenue per product ID, per day ---
+  // --- Step 3: Aggregate revenue per ITEM ID (variant_id preferred), per day ---
   //
   // revenueMapByDate: productId → (localDateStr → {revenue, orderCount})
   //
@@ -138,10 +138,10 @@ export async function runShopifySync(
   for (const order of orders) {
     const orderLocalDate = storeLocalDateStr(timezone, new Date(order.created_at));
     for (const item of order.line_items) {
-      const productId = item.product_id;
+      const itemId = item.variant_id && item.variant_id > 0 ? item.variant_id : item.product_id;
       const itemRevenue = parseFloat(item.price) * item.quantity;
-      if (!revenueMapByDate.has(productId)) revenueMapByDate.set(productId, new Map());
-      const dateMap = revenueMapByDate.get(productId)!;
+      if (!revenueMapByDate.has(itemId)) revenueMapByDate.set(itemId, new Map());
+      const dateMap = revenueMapByDate.get(itemId)!;
       const existing = dateMap.get(orderLocalDate) ?? { revenue: 0, orderCount: 0 };
       dateMap.set(orderLocalDate, { revenue: existing.revenue + itemRevenue, orderCount: existing.orderCount + 1 });
     }
@@ -149,6 +149,11 @@ export async function runShopifySync(
 
   // Use the store's local timezone to determine "today" — not the server OS clock.
   const today = storeLocalDayBounds(timezone).start;
+
+  function buildVariantTitle(productTitle: string, variantTitle?: string) {
+    if (!variantTitle || variantTitle.toLowerCase() === "default title") return productTitle;
+    return `${productTitle} — ${variantTitle}`;
+  }
 
   // --- Step 4: Upsert products and daily metrics ---
   //
@@ -160,9 +165,9 @@ export async function runShopifySync(
     const firstVariant = product.variants[0];
     if (!firstVariant) continue;
 
-    const externalId = String(product.id);
+    const parentExternalId = String(product.id);
     const imageUrl = product.images[0]?.src ?? null;
-    const sku = firstVariant.sku || `SHOPIFY-${firstVariant.id}`;
+    const parentSku = firstVariant.sku || `SHOPIFY-${firstVariant.id}`;
     const productUrl = product.handle ? `https://${shop}/products/${product.handle}` : null;
     const altIds = product.variants.map((v) => String(v.id));
     const inventoryLevel = product.variants.reduce(
@@ -170,109 +175,182 @@ export async function runShopifySync(
       0
     );
 
-    const dateMap = revenueMapByDate.get(product.id);
-    const revenue30d = dateMap
-      ? [...dateMap.values()].reduce((sum, e) => sum + e.revenue, 0)
-      : 0;
-    const velocity = revenue30d / 30;
-
-    const todayEntry    = dateMap?.get(todayLocalStr) ?? { revenue: 0, orderCount: 0 };
-    const productRevenue = todayEntry.revenue;
-    const productOrders  = todayEntry.orderCount;
-
-    // Upsert ProductMeta (never overwrite score/category — that's the scoring engine's job)
-    const upserted = await prisma.productMeta.upsert({
-      where: { storeId_externalId: { storeId, externalId } },
+    // Upsert parent ProductMeta
+    const parent = await prisma.productMeta.upsert({
+      where: { storeId_externalId: { storeId, externalId: parentExternalId } },
       create: {
-        externalId,
-        sku,
+        externalId: parentExternalId,
+        sku: parentSku,
         altIds,
         title: product.title,
         imageUrl,
         productUrl,
         score: 0,
         category: "TEST",
-        storeId
+        storeId,
+        isVariant: false,
+        parentId: null
       },
       update: {
         title: product.title,
         imageUrl,
-        sku,
+        sku: parentSku,
         altIds,
         productUrl,
-        inventoryLevel
-      }
-    });
-
-    // --- Today's row: full upsert (revenue + velocity + inventory) ---
-    const existingMetric = await prisma.dailyMetric.findUnique({
-      where: { storeId_productId_date: { storeId, productId: upserted.id, date: today } }
-    });
-
-    await prisma.dailyMetric.upsert({
-      where: { storeId_productId_date: { storeId, productId: upserted.id, date: today } },
-      create: {
-        date: today,
-        roas: existingMetric?.roas ?? 0,
-        blendedRoas: existingMetric?.blendedRoas ?? null,
-        ctr: existingMetric?.ctr ?? 0,
-        conversionRate: productOrders > 0 ? productOrders / Math.max(1, productOrders * 40) : 0,
-        margin: 0.35,
-        velocity,
-        spend: existingMetric?.spend ?? 0,
-        revenue: productRevenue,
-        metaRevenue: existingMetric?.metaRevenue ?? null,
-        impressions: existingMetric?.impressions ?? null,
-        clicks: existingMetric?.clicks ?? null,
-        conversions: productOrders,
         inventoryLevel,
-        storeId,
-        productId: upserted.id
-      },
-      update: {
-        revenue: productRevenue,
-        conversions: productOrders,
-        velocity,
-        inventoryLevel
+        isVariant: false,
+        parentId: null
       }
     });
 
-    // --- Historical rows: revenue-only upsert (preserve Meta spend/ROAS) ---
-    if (dateMap) {
-      for (const [localDateStr, entry] of dateMap) {
-        if (localDateStr === todayLocalStr) continue; // already written above
+    // Upsert each variant as its own ProductMeta + DailyMetric rows
+    for (const variant of product.variants) {
+      const variantExternalId = String(variant.id);
+      const variantSku = variant.sku || `SHOPIFY-${variant.id}`;
+      const variantTitle = buildVariantTitle(product.title, variant.title);
+      const variantUrl = productUrl ? `${productUrl}?variant=${variant.id}` : null;
 
-        const historicalDate = storeLocalDayBounds(
-          timezone,
-          new Date(`${localDateStr}T12:00:00Z`)
-        ).start;
+      const variantMeta = await prisma.productMeta.upsert({
+        where: { storeId_externalId: { storeId, externalId: variantExternalId } },
+        create: {
+          externalId: variantExternalId,
+          sku: variantSku,
+          title: variantTitle,
+          imageUrl,
+          productUrl: variantUrl,
+          score: 0,
+          category: "TEST",
+          storeId,
+          isVariant: true,
+          parentId: parent.id
+        },
+        update: {
+          title: variantTitle,
+          imageUrl,
+          sku: variantSku,
+          productUrl: variantUrl,
+          inventoryLevel: variant.inventory_quantity ?? null,
+          isVariant: true,
+          parentId: parent.id
+        }
+      });
 
-        await prisma.dailyMetric.upsert({
-          where: { storeId_productId_date: { storeId, productId: upserted.id, date: historicalDate } },
-          create: {
-            date: historicalDate,
-            roas: 0,
-            blendedRoas: null,
-            ctr: 0,
-            conversionRate: 0,
-            margin: 0.35,
-            velocity,
-            spend: 0,
-            revenue: entry.revenue,
-            metaRevenue: null,
-            impressions: null,
-            clicks: null,
-            conversions: entry.orderCount,
-            inventoryLevel: null,
-            storeId,
-            productId: upserted.id
-          },
-          update: {
-            revenue: entry.revenue,
-            conversions: entry.orderCount,
-          }
-        });
+      const dateMap = revenueMapByDate.get(variant.id);
+      const revenue30d = dateMap
+        ? [...dateMap.values()].reduce((sum, e) => sum + e.revenue, 0)
+        : 0;
+      const velocity = revenue30d / 30;
+
+      const todayEntry     = dateMap?.get(todayLocalStr) ?? { revenue: 0, orderCount: 0 };
+      const variantRevenue = todayEntry.revenue;
+      const variantOrders  = todayEntry.orderCount;
+
+      const existingMetric = await prisma.dailyMetric.findUnique({
+        where: { storeId_productId_date: { storeId, productId: variantMeta.id, date: today } }
+      });
+
+      await prisma.dailyMetric.upsert({
+        where: { storeId_productId_date: { storeId, productId: variantMeta.id, date: today } },
+        create: {
+          date: today,
+          roas: existingMetric?.roas ?? 0,
+          blendedRoas: existingMetric?.blendedRoas ?? null,
+          ctr: existingMetric?.ctr ?? 0,
+          conversionRate: variantOrders > 0 ? variantOrders / Math.max(1, variantOrders * 40) : 0,
+          margin: 0.35,
+          velocity,
+          spend: existingMetric?.spend ?? 0,
+          revenue: variantRevenue,
+          metaRevenue: existingMetric?.metaRevenue ?? null,
+          impressions: existingMetric?.impressions ?? null,
+          clicks: existingMetric?.clicks ?? null,
+          conversions: variantOrders,
+          inventoryLevel: variant.inventory_quantity ?? null,
+          storeId,
+          productId: variantMeta.id
+        },
+        update: {
+          revenue: variantRevenue,
+          conversions: variantOrders,
+          velocity,
+          inventoryLevel: variant.inventory_quantity ?? null
+        }
+      });
+
+      if (dateMap) {
+        for (const [localDateStr, entry] of dateMap) {
+          if (localDateStr === todayLocalStr) continue;
+
+          const historicalDate = storeLocalDayBounds(
+            timezone,
+            new Date(`${localDateStr}T12:00:00Z`)
+          ).start;
+
+          await prisma.dailyMetric.upsert({
+            where: { storeId_productId_date: { storeId, productId: variantMeta.id, date: historicalDate } },
+            create: {
+              date: historicalDate,
+              roas: 0,
+              blendedRoas: null,
+              ctr: 0,
+              conversionRate: 0,
+              margin: 0.35,
+              velocity,
+              spend: 0,
+              revenue: entry.revenue,
+              metaRevenue: null,
+              impressions: null,
+              clicks: null,
+              conversions: entry.orderCount,
+              inventoryLevel: null,
+              storeId,
+              productId: variantMeta.id
+            },
+            update: {
+              revenue: entry.revenue,
+              conversions: entry.orderCount,
+            }
+          });
+        }
       }
+    }
+
+    // Optional: write parent daily metrics only when orders come in without variant_id
+    const parentDateMap = revenueMapByDate.get(product.id);
+    if (parentDateMap) {
+      const revenue30d = [...parentDateMap.values()].reduce((sum, e) => sum + e.revenue, 0);
+      const velocity = revenue30d / 30;
+      const todayEntry = parentDateMap.get(todayLocalStr) ?? { revenue: 0, orderCount: 0 };
+      const existingMetric = await prisma.dailyMetric.findUnique({
+        where: { storeId_productId_date: { storeId, productId: parent.id, date: today } }
+      });
+      await prisma.dailyMetric.upsert({
+        where: { storeId_productId_date: { storeId, productId: parent.id, date: today } },
+        create: {
+          date: today,
+          roas: existingMetric?.roas ?? 0,
+          blendedRoas: existingMetric?.blendedRoas ?? null,
+          ctr: existingMetric?.ctr ?? 0,
+          conversionRate: 0,
+          margin: 0.35,
+          velocity,
+          spend: existingMetric?.spend ?? 0,
+          revenue: todayEntry.revenue,
+          metaRevenue: existingMetric?.metaRevenue ?? null,
+          impressions: existingMetric?.impressions ?? null,
+          clicks: existingMetric?.clicks ?? null,
+          conversions: todayEntry.orderCount,
+          inventoryLevel,
+          storeId,
+          productId: parent.id
+        },
+        update: {
+          revenue: todayEntry.revenue,
+          conversions: todayEntry.orderCount,
+          velocity,
+          inventoryLevel
+        }
+      });
     }
   }
 

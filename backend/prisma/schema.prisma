@@ -137,6 +137,10 @@ model ProductMeta {
   id         String          @id @default(cuid())
   externalId String
   sku        String?
+  isVariant  Boolean         @default(false)
+  parentId   String?
+  parent     ProductMeta?    @relation("ProductVariant", fields: [parentId], references: [id])
+  variants   ProductMeta[]   @relation("ProductVariant")
   /// All variant / variation IDs for this product.
   /// Shopify: every variant ID. WooCommerce: every variation ID (in-stock + out-of-stock).
   /// Meta catalogs report spend at the variant level — this lets syncMeta map
@@ -196,6 +200,8 @@ model ProductMeta {
   @@index([storeId, roas7d])
   @@index([storeId, impressions7d])
   @@index([storeId, addToCartOmni7d])
+  @@index([storeId, isVariant])
+  @@index([storeId, parentId])
 }
 
 model DailyMetric {

@@ -43,6 +43,10 @@ export async function connectionRoutes(app: FastifyInstance) {
           id: true,
           name: true,
           platform: true,
+          lastSyncAt: true,
+          lastSyncStatus: true,
+          lastSyncError: true,
+          lastSyncProvider: true,
           connections: {
             select: {
               id: true,

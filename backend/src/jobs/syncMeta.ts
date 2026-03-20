@@ -419,9 +419,11 @@ export async function runMetaSync(
     // Meta catalogs report at the variant level, so their retailer_id or product_id
     // is often a variant ID rather than the parent product ID.
     for (const altId of p.altIds) {
-      byExternal.set(altId, p.id);
+      if (!byExternal.has(altId)) {
+        byExternal.set(altId, p.id);
+      }
       const norm = normalizeRetailerId(altId);
-      if (norm) byExternal.set(norm, p.id);
+      if (norm && !byExternal.has(norm)) byExternal.set(norm, p.id);
     }
 
     const normTitle = normalizeTitle(p.title);

@@ -171,6 +171,21 @@
         </Transition>
       </div>
 
+      <div v-if="metaSyncStatus === 'NEEDS_REAUTH'" class="mb-4 rounded-xl border border-amber-400/30 bg-amber-400/10 p-3">
+        <p class="text-xs text-amber-300 font-medium">Meta connection needs re‑authorization.</p>
+        <p class="text-[11px] text-white/60 mt-1">Reconnect to restore ad insights and automation.</p>
+        <button
+          @click="connectMeta()"
+          class="mt-2 text-xs font-semibold px-3 py-1.5 rounded-lg border border-amber-300/30 bg-amber-300/10 text-amber-200 hover:bg-amber-300/20 transition-all"
+        >
+          Reconnect Meta
+        </button>
+      </div>
+      <div v-else-if="metaSyncStatus === 'ERROR'" class="mb-4 rounded-xl border border-rose-400/30 bg-rose-400/10 p-3">
+        <p class="text-xs text-rose-300 font-medium">Meta sync error.</p>
+        <p class="text-[11px] text-white/60 mt-1">{{ metaSyncError || 'Check permissions and try again.' }}</p>
+      </div>
+
       <!-- Loading skeleton -->
       <div v-if="metaConfigLoading" class="space-y-3">
         <div class="h-12 rounded-xl bg-white/5 animate-pulse"></div>
@@ -1124,6 +1139,10 @@ interface StoreRecord {
   id: string;
   name: string;
   platform: string;
+  lastSyncAt?: string | null;
+  lastSyncStatus?: string | null;
+  lastSyncError?: string | null;
+  lastSyncProvider?: string | null;
   connections: ConnRecord[];
 }
 
@@ -1149,6 +1168,17 @@ const connectedMetaConn = computed<(ConnRecord & { storeId: string }) | null>(()
   if (!store) return null;
   const mc = store.connections.find((c: ConnRecord) => c.provider === 'META');
   return mc ? { ...mc, storeId: store.id } : null;
+});
+
+const metaSyncStatus = computed(() => {
+  if (!connectedStore.value) return null;
+  if (connectedStore.value.lastSyncProvider !== 'META') return null;
+  return connectedStore.value.lastSyncStatus ?? null;
+});
+const metaSyncError = computed(() => {
+  if (!connectedStore.value) return null;
+  if (connectedStore.value.lastSyncProvider !== 'META') return null;
+  return connectedStore.value.lastSyncError ?? null;
 });
 
 async function loadConnections() {
@@ -1354,18 +1384,28 @@ const storeIntegrations = computed(() =>
   }))
 );
 
-const adsIntegrations = computed(() => [
-  {
-    id: 'meta',
-    label: 'Meta Ads',
-    detail: 'Catalog performance · product sets · budget automation',
-    connected: !!connectedMetaConn.value,
-    lastSynced: connectedMetaConn.value?.updatedAt ?? null,
-    iconBg: 'rgba(24,119,242,0.12)',
-    iconColor: '#1877F2',
-    iconContent: '<path fill="#1877F2" d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>',
-  },
-]);
+const adsIntegrations = computed(() => {
+  const status = metaSyncStatus.value;
+  const error = metaSyncError.value;
+  let detail = 'Catalog performance · product sets · budget automation';
+  if (status === 'NEEDS_REAUTH') {
+    detail = 'Action required · reconnect Meta to resume sync';
+  } else if (status === 'ERROR') {
+    detail = `Sync error · ${error ?? 'check connection and retry'}`;
+  }
+  return [
+    {
+      id: 'meta',
+      label: 'Meta Ads',
+      detail,
+      connected: !!connectedMetaConn.value,
+      lastSynced: connectedMetaConn.value?.updatedAt ?? null,
+      iconBg: 'rgba(24,119,242,0.12)',
+      iconColor: '#1877F2',
+      iconContent: '<path fill="#1877F2" d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>',
+    },
+  ];
+});
 
 // ── Automation rules ──────────────────────────────────────────────────────────
 const loadingRules = ref(true);
