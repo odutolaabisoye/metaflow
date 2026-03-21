@@ -21,6 +21,7 @@ import { runWooCommerceSync } from "./jobs/syncWooCommerce.js";
 import { runMetaSync, MetaAuthError } from "./jobs/syncMeta.js";
 import { runProductRollupJob } from "./jobs/rollup.js";
 import { runRetentionJob } from "./jobs/retention.js";
+import { runWeeklyDigestJob } from "./jobs/weeklyDigest.js";
 import { decryptToken } from "./utils/crypto.js";
 import { storeLocalHour, storeLocalDateStr, storeLocalDayBounds } from "./jobs/dateUtils.js";
 
@@ -47,6 +48,7 @@ const prisma = new PrismaClient();
 const rollupQueue     = new Queue("rollup",     { connection });
 const retentionQueue  = new Queue("retention",  { connection });
 const scoringQueue    = new Queue("scoring",    { connection });
+const weeklyQueue     = new Queue("weekly",     { connection });
 
 // ─── Mail service (lightweight, for scoring alerts) ───────────────────────────
 const smtpTransport = process.env.SMTP_HOST
@@ -63,6 +65,31 @@ const workerMailService = {
     const from = process.env.SMTP_FROM ?? "no-reply@metaflow.app";
     const subject = `Score alert: ${productTitle} moved to ${newCategory}`;
     const html = `<p>Hey ${name || "there"}, <strong>${productTitle}</strong> changed from ${oldCategory} to ${newCategory} (score: ${score}/100).</p>`;
+    await smtpTransport.sendMail({ from, to: email, subject, html });
+  },
+
+  async sendWeeklyDigest(
+    email: string,
+    name: string,
+    storeName: string,
+    stats: { scaled: number; killed: number; tested: number; risked: number; totalProducts: number; topProduct?: string }
+  ) {
+    if (!smtpTransport) return;
+    const from = process.env.SMTP_FROM ?? "no-reply@metaflow.app";
+    const subject = `Your MetaFlow weekly digest — ${storeName}`;
+    const top = stats.topProduct ? `<p>Top performer: <strong>${stats.topProduct}</strong></p>` : "";
+    const html = `
+      <p>Hey ${name || "there"}, here's your weekly MetaFlow digest for <strong>${storeName}</strong>:</p>
+      <ul>
+        <li>🚀 Scale: <strong>${stats.scaled}</strong></li>
+        <li>⚠️ Risk: <strong>${stats.risked}</strong></li>
+        <li>🧪 Test: <strong>${stats.tested}</strong></li>
+        <li>☠️ Kill: <strong>${stats.killed}</strong></li>
+        <li>📦 Total: <strong>${stats.totalProducts}</strong></li>
+      </ul>
+      ${top}
+      <p><a href="${process.env.APP_URL ?? "https://app.metaflow.ai"}/app/products">View your products →</a></p>
+    `;
     await smtpTransport.sendMail({ from, to: email, subject, html });
   }
 };
@@ -330,6 +357,28 @@ const scoringWorker = new Worker(
   }
 );
 
+// ─── Weekly Digest Queue Worker ───────────────────────────────────────────────
+// Handles: run-weekly-digest (fires every Monday 8:00 AM UTC)
+const weeklyWorker = new Worker(
+  "weekly",
+  async (job) => {
+    console.log(`[weekly] Job ${job.id} — sending weekly digest emails`);
+    try {
+      const result = await runWeeklyDigestJob(prisma, workerMailService);
+      console.log(
+        `[weekly] Complete — ${result.emailsSent} sent, ${result.emailsFailed} failed ` +
+        `(${result.usersProcessed} users processed)`
+      );
+      return result;
+    } catch (err) {
+      console.error(`[weekly] Job ${job.id} failed:`, err);
+      Sentry.captureException(err, { extra: { jobId: job.id, queue: "weekly" } });
+      throw err;
+    }
+  },
+  { connection, concurrency: 1 }
+);
+
 // ─── Self-scheduling daily sync ───────────────────────────────────────────────
 //
 // DESIGN: Instead of an hourly polling loop that scans all stores, each store
@@ -484,9 +533,41 @@ export async function scheduleNextRetention(): Promise<void> {
   console.log(`[scheduler] Retention job scheduled for ${next3am.toISOString()} (in ${Math.round(delayMs / 60000)}min)`);
 }
 
-// Bootstrap: ensure retention is scheduled on worker startup
+/**
+ * Schedules the next weekly digest for Monday 8:00 AM UTC.
+ * One global job — not per-store. Deduped by stable jobId (ISO week string).
+ * Called once at worker startup and after each digest completes.
+ */
+export async function scheduleNextWeeklyDigest(): Promise<void> {
+  const now = new Date();
+  // Find next Monday
+  const daysUntilMonday = (8 - now.getUTCDay()) % 7 || 7; // 0=Sun → 7 days, 1=Mon → 7 days if today is Mon (fire next week)
+  const nextMonday = new Date(now);
+  nextMonday.setUTCDate(now.getUTCDate() + daysUntilMonday);
+  nextMonday.setUTCHours(8, 0, 0, 0);
+  const delayMs = nextMonday.getTime() - Date.now();
+
+  // ISO week identifier: "weekly-YYYY-Www" — deduped so only one job per week
+  const weekStr = nextMonday.toISOString().slice(0, 10); // e.g. "2026-03-23"
+  await weeklyQueue.add(
+    "run-weekly-digest",
+    {},
+    {
+      delay:    delayMs,
+      attempts: 2,
+      backoff:  { type: "exponential", delay: 60_000 },
+      jobId:    `weekly-digest-${weekStr}`
+    }
+  );
+  console.log(`[scheduler] Weekly digest scheduled for ${nextMonday.toISOString()} (in ${Math.round(delayMs / 60000)}min)`);
+}
+
+// Bootstrap: ensure retention and weekly digest are scheduled on worker startup
 scheduleNextRetention().catch((err) => {
   console.error("[scheduler] Failed to schedule retention:", err);
+});
+scheduleNextWeeklyDigest().catch((err) => {
+  console.error("[scheduler] Failed to schedule weekly digest:", err);
 });
 
 // ─── Graceful shutdown ────────────────────────────────────────────────────────
@@ -496,10 +577,12 @@ async function shutdown() {
   await scoringWorker.close();
   await rollupWorker.close();
   await retentionWorker.close();
+  await weeklyWorker.close();
   await syncQueue.close();
   await rollupQueue.close();
   await retentionQueue.close();
   await scoringQueue.close();
+  await weeklyQueue.close();
   await prisma.$disconnect();
   await connection.quit();
   process.exit(0);
@@ -547,5 +630,17 @@ retentionWorker.on("failed", (job, err) => {
   Sentry.captureException(err, { extra: { jobId: job?.id, queue: "retention" } });
 });
 
+weeklyWorker.on("completed", async (job) => {
+  console.log(`[weekly] Job ${job.id} completed`);
+  // Re-schedule for next Monday
+  await scheduleNextWeeklyDigest().catch(console.error);
+});
+
+weeklyWorker.on("failed", (job, err) => {
+  console.error(`[weekly] Job ${job?.id} failed:`, err.message);
+  Sentry.captureException(err, { extra: { jobId: job?.id, queue: "weekly" } });
+});
+
 console.log("[worker] MetaFlow worker started — listening for jobs...");
 console.log("[worker] Self-scheduling syncs active — each store chains its next 2am sync on completion");
+console.log("[worker] Weekly digest scheduler active — fires every Monday 8:00 AM UTC");

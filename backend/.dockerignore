@@ -1,0 +1,17 @@
+# Build artefacts — the builder stage recreates these from source
+dist/
+node_modules/
+
+# Test files — not needed in production
+src/__tests__/
+
+# Local environment files — secrets are injected at runtime via env vars,
+# never baked into the image
+.env
+.env.*
+!.env.example
+
+# Dev tooling
+*.log
+.DS_Store
+coverage/

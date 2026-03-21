@@ -207,6 +207,8 @@ export async function authRoutes(app: FastifyInstance) {
 
     const user = await app.prisma.user.findUnique({ where: { email } });
     if (!user) {
+      // Equalize response time to prevent user-enumeration via timing side-channel
+      await bcrypt.hash("__timing_equalization__", 10);
       return reply.send({ ok: true });
     }
 
