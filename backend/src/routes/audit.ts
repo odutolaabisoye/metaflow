@@ -89,6 +89,7 @@ export async function auditRoutes(app: FastifyInstance) {
   app.get("/audit", async (request, reply) => {
     try {
       const payload = await request.jwtVerify<{ sub: string }>();
+      if (!payload?.sub) return reply.code(401).send({ ok: false, message: "Unauthorized" });
       const { storeId, range = "30d", start, end, cursor, limit = "50" } =
         request.query as Record<string, string>;
 

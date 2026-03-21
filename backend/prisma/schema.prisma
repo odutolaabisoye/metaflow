@@ -98,6 +98,9 @@ model Store {
   lastSyncStatus   String        @default("IDLE")  // IDLE | RUNNING | SUCCESS | ERROR
   lastSyncError    String?
   lastSyncProvider String?
+  lastRollupAt     DateTime?
+  lastRollupStatus String        @default("IDLE")  // IDLE | RUNNING | SUCCESS | ERROR
+  lastRollupError  String?
   benchmarkRoas      Float?   // overrides UserSettings.benchmarkRoas for this store
   benchmarkCtr       Float?   // overrides UserSettings.benchmarkCtr for this store
   benchmarkMargin    Float?   // overrides UserSettings.benchmarkMargin for this store
@@ -113,6 +116,7 @@ model Store {
   teamInvites    TeamInvite[]
   teamMembers    TeamMember[]
   scoreHistory   ProductScoreHistory[]
+  rollups        ProductRollupDaily[]
 }
 
 model Connection {
@@ -125,6 +129,8 @@ model Connection {
   // Meta-specific: which ad account and catalog to sync for this store
   metaAdAccountId String?            // e.g. "act_123456789"
   metaCatalogId   String?            // e.g. "987654321"
+  // WooCommerce-specific: HMAC secret for verifying incoming webhook payloads
+  webhookSecret   String?            // stored encrypted via AES-256-GCM (same as accessToken)
   createdAt       DateTime           @default(now())
   updatedAt       DateTime           @updatedAt
   storeId         String
@@ -137,6 +143,8 @@ model ProductMeta {
   id         String          @id @default(cuid())
   externalId String
   sku        String?
+  isActive   Boolean         @default(true)
+  archivedAt DateTime?
   isVariant  Boolean         @default(false)
   parentId   String?
   parent     ProductMeta?    @relation("ProductVariant", fields: [parentId], references: [id])
@@ -156,6 +164,7 @@ model ProductMeta {
   store      Store           @relation(fields: [storeId], references: [id])
   dailyMetrics DailyMetric[]
   scoreHistory ProductScoreHistory[]
+  rollups      ProductRollupDaily[]
 
   /// Pre-computed 30-day aggregates — written by the scoring job after every sync.
   /// Avoids per-request DailyMetric aggregation queries on the products page.
@@ -187,6 +196,8 @@ model ProductMeta {
   checkoutInitiatedOmni7d  Int   @default(0)
 
   margin         Float    @default(0.35)
+  /// "synced" = came from real DailyMetric data; "default" = placeholder, never synced
+  marginSource   String   @default("default")
   inventoryLevel Float?
   metricsComputedAt DateTime?
 
@@ -202,6 +213,7 @@ model ProductMeta {
   @@index([storeId, addToCartOmni7d])
   @@index([storeId, isVariant])
   @@index([storeId, parentId])
+  @@index([storeId, isActive])
 }
 
 model DailyMetric {
@@ -231,6 +243,31 @@ model DailyMetric {
 
   @@unique([storeId, productId, date])
   @@index([storeId, date])
+}
+
+model ProductRollupDaily {
+  id                     String   @id @default(cuid())
+  date                   DateTime
+  spend                  Float    @default(0)
+  revenue                Float    @default(0)
+  metaRevenue            Float    @default(0)
+  impressions            Int      @default(0)
+  clicks                 Int      @default(0)
+  conversions            Int      @default(0)
+  addToCart              Int      @default(0)
+  addToCartOmni          Int      @default(0)
+  checkoutInitiated      Int      @default(0)
+  checkoutInitiatedOmni  Int      @default(0)
+  marginWeightedSum      Float    @default(0)
+  marginWeight           Float    @default(0)
+  storeId                String
+  productId              String
+  store                  Store       @relation(fields: [storeId], references: [id])
+  product                ProductMeta @relation(fields: [productId], references: [id])
+
+  @@unique([storeId, productId, date])
+  @@index([storeId, date])
+  @@index([storeId, productId, date])
 }
 
 model AuditLog {

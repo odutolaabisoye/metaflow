@@ -1,36 +1,37 @@
 import type { FastifyInstance } from "fastify";
+import { decryptToken } from "../utils/crypto.js";
+import { fetchWithRetry } from "../utils/http.js";
 
-// Simple in-memory analytics cache — avoids re-running expensive aggregation queries
-// when the same params are requested within the TTL window.
-// Key: `${storeId}:${range}:${sortBy}:${sortDir}:${page}:${startDate}:${endDate}`
-// Value: { data: any; expiresAt: number }
-const analyticsCache = new Map<string, { data: unknown; expiresAt: number }>();
-const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+// Redis-backed analytics cache — survives restarts, shared across instances
+const CACHE_TTL_SEC = 5 * 60; // 5 minutes
+const CACHE_PREFIX = "analytics:";
 
-function getCached(key: string): unknown | null {
-  const entry = analyticsCache.get(key);
-  if (!entry) return null;
-  if (Date.now() > entry.expiresAt) { analyticsCache.delete(key); return null; }
-  return entry.data;
+async function getCached(app: FastifyInstance, key: string): Promise<unknown | null> {
+  const raw = await app.redis.get(`${CACHE_PREFIX}${key}`);
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
 }
 
-function setCache(key: string, data: unknown): void {
-  // Evict oldest entries when cache grows too large
-  if (analyticsCache.size > 500) {
-    const now = Date.now();
-    for (const [k, v] of analyticsCache) {
-      if (v.expiresAt < now) analyticsCache.delete(k);
-      if (analyticsCache.size <= 400) break;
-    }
-  }
-  analyticsCache.set(key, { data, expiresAt: Date.now() + CACHE_TTL_MS });
+async function setCache(app: FastifyInstance, key: string, data: unknown): Promise<void> {
+  await app.redis.set(`${CACHE_PREFIX}${key}`, JSON.stringify(data), "EX", CACHE_TTL_SEC);
 }
 
-// Call this when a store syncs to invalidate its cache entries
-export function invalidateAnalyticsCache(storeId: string): void {
-  for (const key of analyticsCache.keys()) {
-    if (key.startsWith(`${storeId}:`)) analyticsCache.delete(key);
-  }
+// Call this when a store syncs to invalidate its cache entries.
+// Uses UNLINK instead of DEL so key removal is non-blocking (async reclaim).
+// SCAN iterates in batches of ≤500 keys; each batch is unlinked before
+// continuing so we never block Redis with a huge key list in a single call.
+export async function invalidateAnalyticsCache(app: FastifyInstance, storeId: string): Promise<void> {
+  let cursor = "0";
+  const pattern = `${CACHE_PREFIX}${storeId}:*`;
+  do {
+    const [next, keys] = await app.redis.scan(cursor, "MATCH", pattern, "COUNT", "500");
+    if (keys.length) await app.redis.unlink(...keys);
+    cursor = next;
+  } while (cursor !== "0");
 }
 
 const META_GRAPH_VERSION = "v19.0";
@@ -81,7 +82,7 @@ async function metaGet<T>(
     const url = new URL(`${META_GRAPH_BASE}${path}`);
     url.searchParams.set("access_token", token);
     for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
-    const res = await fetch(url.toString());
+    const res = await fetchWithRetry(url.toString());
     const body = await res.json() as any;
     if (!res.ok) {
       const msg = body?.error?.message ?? `HTTP ${res.status}`;
@@ -110,8 +111,12 @@ async function verifyScaleAndOwnership(
   let role: string;
   try {
     const payload = await request.jwtVerify<{ sub: string; role: string }>();
+    if (!payload?.sub) {
+      reply.code(401).send({ ok: false, message: "Unauthorized" });
+      return null;
+    }
     sub = payload.sub;
-    role = payload.role;
+    role = payload.role ?? "";
   } catch {
     reply.code(401).send({ ok: false, message: "Unauthorized" });
     return null;
@@ -156,7 +161,7 @@ export async function analyticsRoutes(app: FastifyInstance | any) {
    * Same data as /admin/products-debug but scoped to the authenticated user's store.
    * Query params: storeId, range, start, end, sortBy, sortDir, page, limit
    */
-  app.get("/analytics/products", async (request, reply) => {
+  app.get("/analytics/products", { config: { rateLimit: { max: 30, timeWindow: "1 minute" } } }, async (request, reply) => {
     const {
       storeId,
       range   = "30d",
@@ -188,7 +193,7 @@ export async function analyticsRoutes(app: FastifyInstance | any) {
     const pageNum = Math.max(0, parseInt(page, 10) || 0);
 
     const cacheKey = `${storeId}:${resolvedRange}:${sortBy}:${sortDir}:${pageNum}:${since.toISOString()}:${until.toISOString()}`;
-    const cached = getCached(cacheKey);
+    const cached = await getCached(app, cacheKey);
     if (cached) return reply.send(cached);
 
     // --- Fast path: 30d/7d range reads pre-computed aggregates from ProductMeta ---
@@ -209,10 +214,24 @@ export async function analyticsRoutes(app: FastifyInstance | any) {
         checkoutInitiated: { [`checkoutInitiatedOmni${sfx}`]: sortDir as "asc" | "desc" },
       };
 
-      const totalProducts = await app.prisma.productMeta.count({ where: { storeId } });
+      const totalProducts = await app.prisma.productMeta.count({ where: { storeId, isActive: true } });
 
-      const allProducts = await app.prisma.productMeta.findMany({
-        where: { storeId },
+      const spendKey = `spend${sfx}` as const;
+      const revenueKey = `revenue${sfx}` as const;
+      const metricFilter = {
+        OR: [
+          { [spendKey]: { gt: 0 } },
+          { [revenueKey]: { gt: 0 } }
+        ]
+      } as Record<string, unknown>;
+
+      const productsWithMetrics = await app.prisma.productMeta.count({
+        where: { storeId, isActive: true, ...metricFilter }
+      });
+      const productsWithNoMetrics = totalProducts - productsWithMetrics;
+
+      const pagedProducts = await app.prisma.productMeta.findMany({
+        where: { storeId, isActive: true },
         select: {
           id: true, title: true, sku: true, category: true, score: true,
           imageUrl: true, productUrl: true, altIds: true,
@@ -229,15 +248,13 @@ export async function analyticsRoutes(app: FastifyInstance | any) {
           checkoutInitiated7d: true, checkoutInitiatedOmni7d: true,
         },
         orderBy: sortField[sortBy] ?? { [`spend${sfx}`]: "desc" },
+        skip: pageNum * take,
+        take,
       });
 
-      const productsWithMetrics   = allProducts.filter((p: any) => (p[`spend${sfx}`] ?? 0) > 0 || (p[`revenue${sfx}`] ?? 0) > 0).length;
-      const productsWithNoMetrics = totalProducts - productsWithMetrics;
+      const totalPages = Math.ceil(totalProducts / take);
 
-      const paged      = allProducts.slice(pageNum * take, (pageNum + 1) * take);
-      const totalPages = Math.ceil(allProducts.length / take);
-
-      const items = paged.map((p: any) => ({
+      const items = pagedProducts.map((p: any) => ({
         productId:    p.id,
         title:        p.title,
         sku:          p.sku ?? null,
@@ -283,21 +300,21 @@ export async function analyticsRoutes(app: FastifyInstance | any) {
           untilDate: until.toISOString().slice(0, 10),
         },
         stats: { totalProducts, productsWithMetrics, productsWithNoMetrics, totalMetricRows: null },
-        page: pageNum, totalPages, total: allProducts.length,
+        page: pageNum, totalPages, total: totalProducts,
         items,
       };
-      setCache(cacheKey, precomputedResult);
+      await setCache(app, cacheKey, precomputedResult);
       return reply.send(precomputedResult);
     }
 
     // --- Fallback path: custom / 7d / 90d ranges aggregate DailyMetric on the fly ---
     const [totalProducts, totalMetricRows] = await Promise.all([
-      app.prisma.productMeta.count({ where: { storeId } }),
+      app.prisma.productMeta.count({ where: { storeId, isActive: true } }),
       app.prisma.dailyMetric.count({ where: { storeId, date: { gte: since, lte: until } } }),
     ]);
 
     const allProductsMeta = await app.prisma.productMeta.findMany({
-      where: { storeId },
+      where: { storeId, isActive: true },
       select: { id: true, title: true, sku: true, category: true, score: true, imageUrl: true, productUrl: true },
     });
 
@@ -316,9 +333,12 @@ export async function analyticsRoutes(app: FastifyInstance | any) {
       _count: { date: true },
     });
 
-    const productsWithMetrics   = metricsAgg.length;
+    const activeIds = new Set(allProductsMeta.map((p: any) => p.id));
+    const metricsAggActive = metricsAgg.filter((m: any) => activeIds.has(m.productId));
+
+    const productsWithMetrics   = metricsAggActive.length;
     const productsWithNoMetrics = totalProducts - productsWithMetrics;
-    const metricMap             = new Map(metricsAgg.map((m: any) => [m.productId, m] as [string, typeof m]));
+    const metricMap             = new Map(metricsAggActive.map((m: any) => [m.productId, m] as [string, typeof m]));
 
     const allRows = allProductsMeta.map((p: any) => {
       const m       = metricMap.get(p.id) as any;
@@ -378,7 +398,7 @@ export async function analyticsRoutes(app: FastifyInstance | any) {
     const latestSnapshots = pageProductIds.length > 0
       ? await app.prisma.dailyMetric.findMany({
           where:    { storeId, productId: { in: pageProductIds } },
-          orderBy:  { date: "desc" },
+          orderBy:  [{ date: "desc" }, { updatedAt: "desc" }],
           distinct: ["productId"],
           select:   { productId: true, inventoryLevel: true, blendedRoas: true, date: true },
         })
@@ -401,7 +421,7 @@ export async function analyticsRoutes(app: FastifyInstance | any) {
       page: pageNum, totalPages, total: allRows.length,
       items,
     };
-    setCache(cacheKey, fallbackResult);
+    await setCache(app, cacheKey, fallbackResult);
     return reply.send(fallbackResult);
   });
 
@@ -411,7 +431,7 @@ export async function analyticsRoutes(app: FastifyInstance | any) {
    * Products Analytics SKU lookup — SCALE plan (or ADMIN) only.
    * Same as /admin/products-debug/sku but ownership-gated.
    */
-  app.get("/analytics/products/sku", async (request, reply) => {
+  app.get("/analytics/products/sku", { config: { rateLimit: { max: 30, timeWindow: "1 minute" } } }, async (request, reply) => {
     const { storeId, sku, range = "30d", start, end } = request.query as Record<string, string>;
 
     if (!storeId) return reply.code(400).send({ ok: false, message: "storeId is required" });
@@ -545,7 +565,7 @@ export async function analyticsRoutes(app: FastifyInstance | any) {
    * Returns spend saved (KILL products), revenue protected (SCALE products)
    * and product counts per category for the active store.
    */
-  app.get("/analytics/roi", async (request, reply) => {
+  app.get("/analytics/roi", { config: { rateLimit: { max: 60, timeWindow: "1 minute" } } }, async (request, reply) => {
     try {
       const payload = await request.jwtVerify<{ sub: string }>();
       const { storeId, range = "30d", start, end } = request.query as Record<string, string>;
@@ -635,7 +655,7 @@ export async function analyticsRoutes(app: FastifyInstance | any) {
    * Returns last 30 days of score history for a product (used for sparklines).
    * Available to all authenticated users for their own products.
    */
-  app.get("/analytics/products/score-history/:productId", async (request, reply) => {
+  app.get("/analytics/products/score-history/:productId", { config: { rateLimit: { max: 60, timeWindow: "1 minute" } } }, async (request, reply) => {
     try {
       const payload = await request.jwtVerify<{ sub: string }>();
       const { productId } = request.params as { productId: string };
@@ -665,7 +685,7 @@ export async function analyticsRoutes(app: FastifyInstance | any) {
    * Meta Analytics — SCALE plan (or ADMIN) only.
    * Same diagnostic data as /admin/meta-debug but scoped to the authenticated user's store.
    */
-  app.get("/analytics/meta", async (request, reply) => {
+  app.get("/analytics/meta", { config: { rateLimit: { max: 20, timeWindow: "1 minute" } } }, async (request, reply) => {
     const { storeId, adAccountId: selectedAdAccountId } = request.query as { storeId?: string; adAccountId?: string };
     if (!storeId) return reply.code(400).send({ ok: false, message: "storeId is required" });
 
@@ -682,16 +702,17 @@ export async function analyticsRoutes(app: FastifyInstance | any) {
     }
 
     const { accessToken, ...connPublic } = connection;
+    const token = decryptToken(accessToken);
     const now = Date.now();
     const isExpired = connection.expiresAt ? connection.expiresAt.getTime() < now : false;
     const daysUntilExpiry = connection.expiresAt
       ? Math.ceil((connection.expiresAt.getTime() - now) / 86_400_000)
       : null;
 
-    const meResult = await metaGet<{ id: string; name: string }>("/me", accessToken, { fields: "id,name" });
+    const meResult = await metaGet<{ id: string; name: string }>("/me", token, { fields: "id,name" });
 
     const adAccountsResult = await metaGet<{ data: Array<{ id: string; account_id: string; name: string; currency: string; timezone_name: string }> }>(
-      "/me/adaccounts", accessToken, { fields: "account_id,name,currency,timezone_name", limit: "50" }
+      "/me/adaccounts", token, { fields: "account_id,name,currency,timezone_name", limit: "50" }
     );
     const adAccounts = adAccountsResult.data?.data ?? [];
     const activeAccount = selectedAdAccountId
@@ -701,7 +722,7 @@ export async function analyticsRoutes(app: FastifyInstance | any) {
     let adSets: any[] = [];
     let adSetsError: string | null = null;
     if (activeAccount) {
-      const r = await metaGet<{ data: any[] }>(`/${activeAccount.id}/adsets`, accessToken,
+      const r = await metaGet<{ data: any[] }>(`/${activeAccount.id}/adsets`, token,
         { fields: "id,name,status,promoted_object", limit: "100" });
       adSets = r.data?.data ?? [];
       adSetsError = r.error;
@@ -713,20 +734,20 @@ export async function analyticsRoutes(app: FastifyInstance | any) {
       if (cid) catalogIds.add(cid);
     }
     if (catalogIds.size === 0 && activeAccount) {
-      const r = await metaGet<{ data: Array<{ id: string }> }>(`/${activeAccount.id}/product_catalogs`, accessToken, { fields: "id", limit: "50" });
+      const r = await metaGet<{ data: Array<{ id: string }> }>(`/${activeAccount.id}/product_catalogs`, token, { fields: "id", limit: "50" });
       for (const c of r.data?.data ?? []) if (c.id) catalogIds.add(c.id);
     }
     if (catalogIds.size === 0) {
-      const bizRes = await metaGet<{ data: Array<{ id: string }> }>("/me/businesses", accessToken, { fields: "id", limit: "20" });
+      const bizRes = await metaGet<{ data: Array<{ id: string }> }>("/me/businesses", token, { fields: "id", limit: "20" });
       await Promise.all((bizRes.data?.data ?? []).map(async (biz: any) => {
-        const catRes = await metaGet<{ data: Array<{ id: string }> }>(`/${biz.id}/owned_product_catalogs`, accessToken, { fields: "id", limit: "50" });
+        const catRes = await metaGet<{ data: Array<{ id: string }> }>(`/${biz.id}/owned_product_catalogs`, token, { fields: "id", limit: "50" });
         for (const c of catRes.data?.data ?? []) if (c.id) catalogIds.add(c.id);
       }));
     }
 
     const dbProductIndex = await app.prisma.productMeta.findMany({
       where: { storeId },
-      select: { id: true, title: true, sku: true, externalId: true },
+      select: { id: true, title: true, sku: true, externalId: true, altIds: true },
       take: 200
     });
 
@@ -735,11 +756,22 @@ export async function analyticsRoutes(app: FastifyInstance | any) {
     for (const p of dbProductIndex) {
       if (p.externalId) { byExternal.set(p.externalId, p); const n = norm(p.externalId); if (n) byExternal.set(n, p); }
       if (p.sku)        { bySku.set(p.sku, p);             const n = norm(p.sku);        if (n) bySku.set(n, p);        }
+      for (const altId of p.altIds ?? []) {
+        if (!byExternal.has(altId)) byExternal.set(altId, p);
+        const n = norm(altId);
+        if (n && !byExternal.has(n)) byExternal.set(n, p);
+      }
     }
     function norm(v?: string | null): string | null {
       if (!v) return null;
-      const digits = v.trim().match(/\d+/g)?.join("") ?? "";
-      return digits.length > 0 ? digits : v.trim();
+      const trimmed = v.trim();
+      if (!trimmed) return null;
+      if (trimmed.startsWith("gid://shopify/")) {
+        const digits = trimmed.match(/\d+/g)?.join("") ?? "";
+        return digits.length > 0 ? digits : trimmed;
+      }
+      if (/^\d+$/.test(trimmed)) return trimmed;
+      return trimmed;
     }
     function lookupProduct(id: string) {
       const n = norm(id);
@@ -754,7 +786,7 @@ export async function analyticsRoutes(app: FastifyInstance | any) {
     const catalogResults: any[] = [];
     for (const catalogId of catalogIds) {
       const r = await metaGet<{ data: Array<{ id: string; retailer_id?: string; name?: string }> }>(
-        `/${catalogId}/products`, accessToken, { fields: "id,retailer_id,name", limit: "30" }
+        `/${catalogId}/products`, token, { fields: "id,retailer_id,name", limit: "30" }
       );
       if (r.error) { catalogResults.push({ catalogId, products: [], error: r.error }); continue; }
 
@@ -780,19 +812,30 @@ export async function analyticsRoutes(app: FastifyInstance | any) {
     let sampleProductInsights: any[] = [], sampleProductInsightsError: string | null = null;
 
     if (activeAccount) {
-      const r = await metaGet<{ data: any[] }>(`/${activeAccount.id}/insights`, accessToken,
+      const r = await metaGet<{ data: any[] }>(`/${activeAccount.id}/insights`, token,
         { level: "ad", time_range: SAMPLE_RANGE, time_increment: "1", fields: SAMPLE_FIELDS, limit: "5" });
       sampleInsights = r.data?.data ?? []; sampleInsightsError = r.error;
     }
     if (activeAccount && catalogIds.size > 0) {
-      const r = await metaGet<{ data: any[] }>(`/${activeAccount.id}/insights`, accessToken,
+      const r = await metaGet<{ data: any[] }>(`/${activeAccount.id}/insights`, token,
         { level: "ad", time_range: SAMPLE_RANGE, time_increment: "1", breakdowns: "product_id", fields: SAMPLE_FIELDS, limit: "10" });
       sampleProductInsights = r.data?.data ?? []; sampleProductInsightsError = r.error;
     }
 
+    const latestSummary = await app.prisma.auditLog.findFirst({
+      where: { storeId, action: "Meta Sync — Summary" },
+      orderBy: { createdAt: "desc" },
+      select: { createdAt: true, detail: true, metadata: true }
+    });
+    const latestUnmatched = await app.prisma.auditLog.findFirst({
+      where: { storeId, action: "Meta Sync — Unmatched Catalog Products" },
+      orderBy: { createdAt: "desc" },
+      select: { createdAt: true, detail: true, metadata: true }
+    });
+
     return reply.send({
       ok: true, storeId,
-      connection: { ...connPublic, isExpired, daysUntilExpiry, tokenPreview: `${accessToken.slice(0, 12)}…${accessToken.slice(-6)}` },
+      connection: { ...connPublic, isExpired, daysUntilExpiry, tokenPreview: `••••••••••••${token.slice(-4)}` },
       meta: {
         me: meResult.data, meError: meResult.error,
         adAccounts, adAccountsError: adAccountsResult.error,
@@ -800,7 +843,9 @@ export async function analyticsRoutes(app: FastifyInstance | any) {
         adSets: adSets.slice(0, 50), adSetsError,
         catalogCount: catalogIds.size, catalogs: catalogResults,
         sampleInsights, sampleInsightsError,
-        sampleProductInsights, sampleProductInsightsError
+        sampleProductInsights, sampleProductInsightsError,
+        syncSummary: latestSummary,
+        unmatchedCatalog: latestUnmatched
       },
       dbProducts: dbProductIndex.slice(0, 50)
     });

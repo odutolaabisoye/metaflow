@@ -1,11 +1,13 @@
 import type { FastifyInstance } from "fastify";
 import crypto from "crypto";
+import { hashToken } from "../utils/crypto.js";
 
 export async function teamRoutes(app: FastifyInstance) {
   // GET /teams/:storeId/members — list team members and pending invites
   app.get("/teams/:storeId/members", async (request, reply) => {
     try {
       const payload = await request.jwtVerify<{ sub: string }>();
+      if (!payload?.sub) return reply.code(401).send({ ok: false, message: "Unauthorized" });
       const { storeId } = request.params as { storeId: string };
 
       // Check store ownership
@@ -36,11 +38,18 @@ export async function teamRoutes(app: FastifyInstance) {
   app.post("/teams/:storeId/invite", async (request, reply) => {
     try {
       const payload = await request.jwtVerify<{ sub: string }>();
+      if (!payload?.sub) return reply.code(401).send({ ok: false, message: "Unauthorized" });
       const { storeId } = request.params as { storeId: string };
       const { email } = (request.body ?? {}) as { email?: string };
 
       if (!email?.trim()) {
         return reply.code(400).send({ ok: false, message: "Email is required" });
+      }
+
+      // Basic email format guard — prevents inviting garbage strings
+      const normalizedEmail = email.trim().toLowerCase();
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
+        return reply.code(400).send({ ok: false, message: "Invalid email address" });
       }
 
       const store = await app.prisma.store.findFirst({
@@ -49,7 +58,7 @@ export async function teamRoutes(app: FastifyInstance) {
       if (!store) return reply.code(403).send({ ok: false, message: "Access denied" });
 
       // Check if already a member
-      const inviteeUser = await app.prisma.user.findUnique({ where: { email: email.trim().toLowerCase() } });
+      const inviteeUser = await app.prisma.user.findUnique({ where: { email: normalizedEmail } });
       if (inviteeUser) {
         const existingMember = await app.prisma.teamMember.findFirst({
           where: { storeId, userId: inviteeUser.id }
@@ -61,21 +70,22 @@ export async function teamRoutes(app: FastifyInstance) {
 
       // Check for existing pending invite
       const existingInvite = await app.prisma.teamInvite.findFirst({
-        where: { storeId, email: email.trim().toLowerCase(), acceptedAt: null, expiresAt: { gt: new Date() } }
+        where: { storeId, email: normalizedEmail, acceptedAt: null, expiresAt: { gt: new Date() } }
       });
       if (existingInvite) {
         return reply.code(409).send({ ok: false, message: "Invite already pending for this email" });
       }
 
-      const token = crypto.randomBytes(32).toString("hex");
+      const tokenPlain = crypto.randomBytes(32).toString("hex");
+      const tokenHash  = hashToken(tokenPlain);
       const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
 
       const invite = await app.prisma.teamInvite.create({
         data: {
-          email: email.trim().toLowerCase(),
+          email: normalizedEmail,
           storeId,
           invitedBy: payload.sub,
-          token,
+          token: tokenHash,
           expiresAt
         }
       });
@@ -87,10 +97,10 @@ export async function teamRoutes(app: FastifyInstance) {
       });
       if (inviter) {
         app.mail.sendTeamInvite(
-          email.trim().toLowerCase(),
+          normalizedEmail,
           inviter.name ?? inviter.email,
           store.name,
-          token
+          tokenPlain
         ).catch((err: any) => app.log.error({ err }, "Failed to send team invite email"));
       }
 
@@ -104,9 +114,21 @@ export async function teamRoutes(app: FastifyInstance) {
   app.post("/teams/accept/:token", async (request, reply) => {
     try {
       const payload = await request.jwtVerify<{ sub: string }>();
+      if (!payload?.sub) return reply.code(401).send({ ok: false, message: "Unauthorized" });
       const { token } = request.params as { token: string };
 
-      const invite = await app.prisma.teamInvite.findUnique({ where: { token } });
+      const tokenHash = hashToken(token);
+      let invite = await app.prisma.teamInvite.findUnique({ where: { token: tokenHash } });
+      // Legacy fallback: plaintext stored in DB — accept once and rotate to hashed
+      if (!invite) {
+        const legacy = await app.prisma.teamInvite.findUnique({ where: { token } });
+        if (legacy && !legacy.acceptedAt && legacy.expiresAt >= new Date()) {
+          invite = await app.prisma.teamInvite.update({
+            where: { token },
+            data:  { token: tokenHash }
+          });
+        }
+      }
       if (!invite || invite.acceptedAt || invite.expiresAt < new Date()) {
         return reply.code(400).send({ ok: false, message: "Invalid or expired invite" });
       }
@@ -116,10 +138,23 @@ export async function teamRoutes(app: FastifyInstance) {
         return reply.code(403).send({ ok: false, message: "This invite was sent to a different email address" });
       }
 
-      await app.prisma.$transaction([
-        app.prisma.teamInvite.update({ where: { token }, data: { acceptedAt: new Date() } }),
-        app.prisma.teamMember.create({ data: { userId: payload.sub, storeId: invite.storeId } })
-      ]);
+      // Atomic accept: updateMany with acceptedAt: null guard prevents double-accept
+      // race and uses the correct tokenHash (not the plaintext URL param).
+      try {
+        await app.prisma.$transaction(async (tx) => {
+          const updated = await tx.teamInvite.updateMany({
+            where: { token: tokenHash, acceptedAt: null, expiresAt: { gte: new Date() } },
+            data: { acceptedAt: new Date() }
+          });
+          if (updated.count === 0) throw new Error("ALREADY_ACCEPTED");
+          await tx.teamMember.create({ data: { userId: payload.sub, storeId: invite.storeId } });
+        });
+      } catch (txErr: any) {
+        if (txErr?.message === "ALREADY_ACCEPTED") {
+          return reply.code(409).send({ ok: false, message: "Invite has already been accepted" });
+        }
+        throw txErr;
+      }
 
       return reply.send({ ok: true, storeId: invite.storeId });
     } catch {
@@ -131,6 +166,7 @@ export async function teamRoutes(app: FastifyInstance) {
   app.delete("/teams/:storeId/members/:userId", async (request, reply) => {
     try {
       const payload = await request.jwtVerify<{ sub: string }>();
+      if (!payload?.sub) return reply.code(401).send({ ok: false, message: "Unauthorized" });
       const { storeId, userId } = request.params as { storeId: string; userId: string };
 
       const store = await app.prisma.store.findFirst({
@@ -149,6 +185,7 @@ export async function teamRoutes(app: FastifyInstance) {
   app.delete("/teams/:storeId/invites/:inviteId", async (request, reply) => {
     try {
       const payload = await request.jwtVerify<{ sub: string }>();
+      if (!payload?.sub) return reply.code(401).send({ ok: false, message: "Unauthorized" });
       const { storeId, inviteId } = request.params as { storeId: string; inviteId: string };
 
       const store = await app.prisma.store.findFirst({

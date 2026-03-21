@@ -5,8 +5,8 @@
     <div class="flex items-start justify-between gap-4">
       <div>
         <p class="text-[11px] uppercase tracking-widest text-white/65 mb-1">Analytics</p>
-        <h1 class="text-2xl font-semibold tracking-tight">Products Analytics</h1>
-        <p class="mt-1 text-sm text-white/75">Deep-dive into product metrics, revenue, and scoring data for your store.</p>
+        <h1 class="text-xl sm:text-2xl font-semibold tracking-tight">Products Analytics</h1>
+        <p class="mt-1 text-xs sm:text-sm text-white/75">Deep-dive into product metrics, revenue, and scoring data for your store.</p>
       </div>
       <button
         v-if="storeId"
@@ -22,7 +22,7 @@
     </div>
 
     <!-- Controls -->
-    <div class="glass rounded-2xl p-5 space-y-4">
+    <div class="glass rounded-2xl p-4 sm:p-5 space-y-4">
 
       <!-- Mode tabs -->
       <div class="flex gap-1 p-1 rounded-xl bg-white/[0.04] border border-white/8 w-fit">
@@ -145,6 +145,11 @@
       </div>
 
       <template v-if="apiData && !loading">
+        <div v-if="(apiData.stats?.totalProducts ?? 0) === 0" class="rounded-2xl border border-white/10 bg-white/[0.03] p-6 text-center">
+          <p class="text-sm font-medium">No product analytics yet.</p>
+          <p class="mt-1 text-xs text-white/75">Run a sync or wait for your first catalog import.</p>
+        </div>
+
         <!-- Summary stats -->
         <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
           <div class="glass rounded-2xl p-4">
@@ -517,7 +522,7 @@ const CURRENCY_LOCALE: Record<string, string> = {
 
 function fmt(v?: number | null) {
   if (v == null || v === 0) return '—';
-  const cur = (apiData.value as any)?.store?.currency ?? 'NGN';
+  const cur = (apiData.value as any)?.store?.currency ?? 'USD';
   const locale = CURRENCY_LOCALE[cur] ?? 'en-US';
   try {
     return new Intl.NumberFormat(locale, {
@@ -531,7 +536,7 @@ function fmt(v?: number | null) {
 
 function fmtSku(v?: number | null) {
   if (v == null || v === 0) return '—';
-  const cur = (skuData.value as any)?.store?.currency ?? 'NGN';
+  const cur = (skuData.value as any)?.store?.currency ?? 'USD';
   const locale = CURRENCY_LOCALE[cur] ?? 'en-US';
   try {
     return new Intl.NumberFormat(locale, {

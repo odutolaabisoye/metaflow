@@ -1,6 +1,28 @@
 import type { FastifyInstance } from "fastify";
 import type { ProductMeta } from "@prisma/client";
 import { storeLocalDayBounds, storeLocalDateStr } from "../jobs/dateUtils.js";
+import { computeScoreBreakdown, DEFAULT_BENCHMARKS } from "../jobs/scoring.js";
+
+// ── Per-user export rate limit ─────────────────────────────────────────────────
+// Prevents repeated full-catalog exports from hammering the DB.
+// Keyed by userId → timestamp of last export start. 30-second cooldown.
+const exportCooldown = new Map<string, number>();
+const EXPORT_COOLDOWN_MS = 30_000;
+
+function checkExportCooldown(userId: string): { allowed: boolean; retryAfterMs: number } {
+  const last = exportCooldown.get(userId) ?? 0;
+  const elapsed = Date.now() - last;
+  if (elapsed < EXPORT_COOLDOWN_MS) {
+    return { allowed: false, retryAfterMs: EXPORT_COOLDOWN_MS - elapsed };
+  }
+  exportCooldown.set(userId, Date.now());
+  // Evict old entries to prevent unbounded growth
+  if (exportCooldown.size > 10_000) {
+    const cutoff = Date.now() - EXPORT_COOLDOWN_MS * 2;
+    for (const [k, t] of exportCooldown) { if (t < cutoff) exportCooldown.delete(k); }
+  }
+  return { allowed: true, retryAfterMs: 0 };
+}
 
 // Fields sorted natively by the DB (indexed columns on ProductMeta)
 const DB_SORT_FIELDS = new Set(["score", "title", "updatedAt"]);
@@ -102,6 +124,7 @@ export async function productRoutes(app: FastifyInstance) {
   app.get("/products", async (request, reply) => {
     try {
       const payload = await request.jwtVerify<{ sub: string }>();
+      if (!payload?.sub) return reply.code(401).send({ ok: false, message: "Unauthorized" });
 
       const {
         storeId,
@@ -115,8 +138,23 @@ export async function productRoutes(app: FastifyInstance) {
         stock,
         page = "0",
         limit = "50",
-        includeVariants
+        includeVariants,
+        __export,
       } = request.query as Record<string, string>;
+
+      // --- Export rate limit: max 1 full export per user per 30 seconds ---
+      // Applied on every page — not just page 0 — so splitting into multiple
+      // requests doesn't bypass the cooldown.
+      if (__export === "1") {
+        const { allowed, retryAfterMs } = checkExportCooldown(payload.sub);
+        if (!allowed) {
+          return reply.code(429).send({
+            ok: false,
+            message: `Export rate limit — please wait ${Math.ceil(retryAfterMs / 1000)}s before exporting again.`,
+            retryAfterMs,
+          });
+        }
+      }
 
       // --- Resolve store ---
       let resolvedStoreId = storeId;
@@ -125,8 +163,11 @@ export async function productRoutes(app: FastifyInstance) {
       let storeLastSyncAt: Date | null = null;
       let storeLastSyncStatus = "IDLE";
       let storeLastSyncError: string | null = null;
+      let storeLastRollupAt: Date | null = null;
+      let storeLastRollupStatus = "IDLE";
+      let storeLastRollupError: string | null = null;
 
-      const STORE_SELECT = { id: true, currency: true, timezone: true, lastSyncAt: true, lastSyncStatus: true, lastSyncError: true } as const;
+      const STORE_SELECT = { id: true, currency: true, timezone: true, lastSyncAt: true, lastSyncStatus: true, lastSyncError: true, lastRollupAt: true, lastRollupStatus: true, lastRollupError: true } as const;
 
       if (!resolvedStoreId) {
         const store = await app.prisma.store.findFirst({
@@ -143,6 +184,9 @@ export async function productRoutes(app: FastifyInstance) {
         storeLastSyncAt = store.lastSyncAt ?? null;
         storeLastSyncStatus = store.lastSyncStatus ?? "IDLE";
         storeLastSyncError = store.lastSyncError ?? null;
+        storeLastRollupAt = store.lastRollupAt ?? null;
+        storeLastRollupStatus = store.lastRollupStatus ?? "IDLE";
+        storeLastRollupError = store.lastRollupError ?? null;
       } else {
         const store = await app.prisma.store.findFirst({
           where: { id: resolvedStoreId, ownerId: payload.sub },
@@ -154,10 +198,17 @@ export async function productRoutes(app: FastifyInstance) {
         storeLastSyncAt = store.lastSyncAt ?? null;
         storeLastSyncStatus = store.lastSyncStatus ?? "IDLE";
         storeLastSyncError = store.lastSyncError ?? null;
+        storeLastRollupAt = store.lastRollupAt ?? null;
+        storeLastRollupStatus = store.lastRollupStatus ?? "IDLE";
+        storeLastRollupError = store.lastRollupError ?? null;
       }
 
       // --- Date range (uses store's own timezone, not server OS timezone) ---
       const { start: since, end: until, range: resolvedRange } = parseRange(range, start, end, storeTimezone);
+      const rangeDays = Math.max(
+        1,
+        Math.floor((until.getTime() - since.getTime()) / (1000 * 60 * 60 * 24)) + 1
+      );
 
       // --- Pagination params ---
       const take    = Math.min(parseInt(limit, 10) || 50, 200);
@@ -189,6 +240,7 @@ export async function productRoutes(app: FastifyInstance) {
 
       const whereClause = {
         storeId: resolvedStoreId,
+        isActive: true,
         ...(includeVariantsBool ? {} : { isVariant: false }),
         ...(categoryFilter && { category: categoryFilter }),
         ...(stockWhere),
@@ -243,35 +295,38 @@ export async function productRoutes(app: FastifyInstance) {
         if (allIds.length === 0) {
           productIds = [];
         } else {
-          const childMap = new Map<string, string>();
-          let idsForAgg = allIds;
-          if (!includeVariantsBool) {
-            const children = await app.prisma.productMeta.findMany({
-              where: { storeId: resolvedStoreId, parentId: { in: allIds } },
-              select: { id: true, parentId: true }
-            });
-            for (const c of children) {
-              if (c.parentId) childMap.set(c.id, c.parentId);
-            }
-            idsForAgg = [...allIds, ...children.map((c: { id: string; parentId: string | null }) => c.id)];
-          }
-
           // 2. Aggregate ALL metrics for all matching products in the date range
-          const aggAll = await app.prisma.dailyMetric.groupBy({
-            by: ["productId"],
-            where: {
-              storeId: resolvedStoreId,
-              productId: { in: idsForAgg },
-              date: { gte: since, lte: until }
-            },
-            _sum: {
-              revenue: true, metaRevenue: true, spend: true,
-              impressions: true, clicks: true, conversions: true,
-              addToCart: true, addToCartOmni: true,
-              checkoutInitiated: true, checkoutInitiatedOmni: true,
-            },
-            _avg: { margin: true, velocity: true }
-          });
+          const aggAll = includeVariantsBool
+            ? await app.prisma.dailyMetric.groupBy({
+                by: ["productId"],
+                where: {
+                  storeId: resolvedStoreId,
+                  productId: { in: allIds },
+                  date: { gte: since, lte: until }
+                },
+                _sum: {
+                  revenue: true, metaRevenue: true, spend: true,
+                  impressions: true, clicks: true, conversions: true,
+                  addToCart: true, addToCartOmni: true,
+                  checkoutInitiated: true, checkoutInitiatedOmni: true,
+                },
+                _avg: { margin: true, velocity: true }
+              })
+            : await app.prisma.productRollupDaily.groupBy({
+                by: ["productId"],
+                where: {
+                  storeId: resolvedStoreId,
+                  productId: { in: allIds },
+                  date: { gte: since, lte: until }
+                },
+                _sum: {
+                  revenue: true, metaRevenue: true, spend: true,
+                  impressions: true, clicks: true, conversions: true,
+                  addToCart: true, addToCartOmni: true,
+                  checkoutInitiated: true, checkoutInitiatedOmni: true,
+                  marginWeightedSum: true, marginWeight: true
+                }
+              });
 
           const metricMap = new Map<string, {
             revenue: number;
@@ -296,6 +351,8 @@ export async function productRoutes(app: FastifyInstance) {
             const imp = m._sum.impressions ?? 0;
             const clk = m._sum.clicks     ?? 0;
             const cvt = m._sum.conversions ?? 0;
+            const marginWeighted = (m as any)._sum?.marginWeightedSum ?? 0;
+            const marginWeight = (m as any)._sum?.marginWeight ?? 0;
             return {
               revenue:        rev,
               metaRevenue:    metaRev,
@@ -306,50 +363,15 @@ export async function productRoutes(app: FastifyInstance) {
               roas:           spd > 0 ? metaRev / spd : 0,
               ctr:            imp > 0 ? clk / imp : 0,
               conversionRate: clk > 0 ? cvt / clk : 0,
-              margin:         m._avg.margin   ?? 0,
-              velocity:       m._avg.velocity ?? 0,
+              margin:         marginWeight > 0 ? marginWeighted / marginWeight : (m as any)._avg?.margin ?? 0,
+              velocity:       rev > 0 ? rev / rangeDays : (m as any)._avg?.velocity ?? 0,
               addToCart:      m._sum.addToCartOmni        ?? 0,
               checkoutInitiated: m._sum.checkoutInitiatedOmni ?? 0,
             };
           };
 
-          if (includeVariantsBool) {
-            for (const m of aggAll) {
-              metricMap.set(m.productId, buildMetric(m));
-            }
-          } else {
-            for (const m of aggAll) {
-              const rootId = childMap.get(m.productId) ?? m.productId;
-              const existing = metricMap.get(rootId);
-              const next = buildMetric(m);
-              if (!existing) {
-                metricMap.set(rootId, next);
-              } else {
-                const spend = existing.spend + next.spend;
-                const metaRevenue = existing.metaRevenue + next.metaRevenue;
-                const impressions = existing.impressions + next.impressions;
-                const clicks = existing.clicks + next.clicks;
-                const conversions = existing.conversions + next.conversions;
-                const revenue = existing.revenue + next.revenue;
-                const addToCart = existing.addToCart + next.addToCart;
-                const checkoutInitiated = existing.checkoutInitiated + next.checkoutInitiated;
-                metricMap.set(rootId, {
-                  revenue,
-                  metaRevenue,
-                  spend,
-                  impressions,
-                  clicks,
-                  conversions,
-                  roas: spend > 0 ? metaRevenue / spend : 0,
-                  ctr: impressions > 0 ? clicks / impressions : 0,
-                  conversionRate: clicks > 0 ? conversions / clicks : 0,
-                  margin: existing.margin || next.margin,
-                  velocity: existing.velocity || next.velocity,
-                  addToCart,
-                  checkoutInitiated,
-                });
-              }
-            }
+          for (const m of aggAll) {
+            metricMap.set(m.productId, buildMetric(m));
           }
 
           // 3. Sort all IDs in-memory by the requested metric
@@ -450,53 +472,65 @@ export async function productRoutes(app: FastifyInstance) {
 
       let latestSnapshots: Array<{ productId: string; inventoryLevel: number | null; blendedRoas: number | null }> = [];
 
-      const childMap = new Map<string, string>();
-
       if (!usePrecomputedMetrics) {
-        let idsForAgg = productIds;
-        if (!includeVariantsBool) {
-          const children = await app.prisma.productMeta.findMany({
-            where: { storeId: resolvedStoreId, parentId: { in: productIds } },
-            select: { id: true, parentId: true }
+        if (includeVariantsBool) {
+          metricsAgg = await app.prisma.dailyMetric.groupBy({
+            by: ["productId"],
+            where: {
+              storeId: resolvedStoreId,
+              productId: { in: productIds },
+              date: { gte: since, lte: until }
+            },
+            _sum: {
+              revenue:     true,
+              metaRevenue: true,
+              spend:       true,
+              impressions: true,
+              clicks:      true,
+              conversions: true,
+              addToCart:             true,
+              addToCartOmni:         true,
+              checkoutInitiated:     true,
+              checkoutInitiatedOmni: true,
+            },
+            _avg: {
+              margin:      true,
+              velocity:    true,
+              blendedRoas: true
+            }
           });
-          for (const c of children) {
-            if (c.parentId) childMap.set(c.id, c.parentId);
-          }
-          idsForAgg = [...productIds, ...children.map((c: { id: string; parentId: string | null }) => c.id)];
+
+          latestSnapshots = await app.prisma.dailyMetric.findMany({
+            where: { storeId: resolvedStoreId, productId: { in: productIds } },
+            orderBy: [{ date: "desc" }, { updatedAt: "desc" }],
+            distinct: ["productId"],
+            select: { productId: true, inventoryLevel: true, blendedRoas: true }
+          });
+        } else {
+          metricsAgg = await app.prisma.productRollupDaily.groupBy({
+            by: ["productId"],
+            where: {
+              storeId: resolvedStoreId,
+              productId: { in: productIds },
+              date: { gte: since, lte: until }
+            },
+            _sum: {
+              revenue:     true,
+              metaRevenue: true,
+              spend:       true,
+              impressions: true,
+              clicks:      true,
+              conversions: true,
+              addToCart:             true,
+              addToCartOmni:         true,
+              checkoutInitiated:     true,
+              checkoutInitiatedOmni: true,
+              marginWeightedSum:     true,
+              marginWeight:          true,
+            }
+          });
+          latestSnapshots = [];
         }
-
-        metricsAgg = await app.prisma.dailyMetric.groupBy({
-          by: ["productId"],
-          where: {
-            storeId: resolvedStoreId,
-            productId: { in: idsForAgg },
-            date: { gte: since, lte: until }
-          },
-          _sum: {
-            revenue:     true,
-            metaRevenue: true,
-            spend:       true,
-            impressions: true,
-            clicks:      true,
-            conversions: true,
-            addToCart:             true,
-            addToCartOmni:         true,
-            checkoutInitiated:     true,
-            checkoutInitiatedOmni: true,
-          },
-          _avg: {
-            margin:      true,
-            velocity:    true,
-            blendedRoas: true
-          }
-        });
-
-        latestSnapshots = await app.prisma.dailyMetric.findMany({
-          where: { storeId: resolvedStoreId, productId: { in: productIds } },
-          orderBy: { date: "desc" },
-          distinct: ["productId"],
-          select: { productId: true, inventoryLevel: true, blendedRoas: true }
-        });
       }
 
       const productMap = new Map<string, ProductMeta>(pageProducts.map((p: ProductMeta) => [p.id, p]));
@@ -505,34 +539,9 @@ export async function productRoutes(app: FastifyInstance) {
       const variantCountMap = new Map(variantCounts.map((v: { parentId: string | null; _count: { _all: number } }) => [v.parentId ?? "", v._count._all]));
 
       const aggRootMap = new Map<string, typeof metricsAgg[number]>();
-      if (!includeVariantsBool && !usePrecomputedMetrics) {
+      if (!usePrecomputedMetrics && !includeVariantsBool) {
         for (const m of metricsAgg) {
-          const rootId = childMap.get(m.productId) ?? m.productId;
-          const existing = aggRootMap.get(rootId);
-          if (!existing) {
-            aggRootMap.set(rootId, m);
-          } else {
-            aggRootMap.set(rootId, {
-              productId: rootId,
-              _sum: {
-                revenue: (existing._sum.revenue ?? 0) + (m._sum.revenue ?? 0),
-                metaRevenue: (existing._sum.metaRevenue ?? 0) + (m._sum.metaRevenue ?? 0),
-                spend: (existing._sum.spend ?? 0) + (m._sum.spend ?? 0),
-                impressions: (existing._sum.impressions ?? 0) + (m._sum.impressions ?? 0),
-                clicks: (existing._sum.clicks ?? 0) + (m._sum.clicks ?? 0),
-                conversions: (existing._sum.conversions ?? 0) + (m._sum.conversions ?? 0),
-                addToCart: (existing._sum.addToCart ?? 0) + (m._sum.addToCart ?? 0),
-                addToCartOmni: (existing._sum.addToCartOmni ?? 0) + (m._sum.addToCartOmni ?? 0),
-                checkoutInitiated: (existing._sum.checkoutInitiated ?? 0) + (m._sum.checkoutInitiated ?? 0),
-                checkoutInitiatedOmni: (existing._sum.checkoutInitiatedOmni ?? 0) + (m._sum.checkoutInitiatedOmni ?? 0),
-              },
-              _avg: {
-                margin: existing._avg.margin ?? m._avg.margin ?? 0,
-                velocity: existing._avg.velocity ?? m._avg.velocity ?? 0,
-                blendedRoas: existing._avg.blendedRoas ?? m._avg.blendedRoas ?? 0,
-              }
-            });
-          }
+          aggRootMap.set(m.productId, m);
         }
       }
 
@@ -563,12 +572,19 @@ export async function productRoutes(app: FastifyInstance) {
         const spd     = usePrecomputedMetrics
           ? (resolvedRange === "7d" ? p.spend7d : p.spend30d)
           : (agg?._sum.spend        ?? 0);
-        const marginSum = usePrecomputedMetrics ? p.margin : (agg?._avg.margin ?? 0);
-        const marginCount = usePrecomputedMetrics ? 1 : (agg?._avg.margin ? 1 : 0);
-        const velocitySum = usePrecomputedMetrics
+        const hasAvg = !!(agg && (agg as any)._avg);
+        const marginWeightedSum = (agg as any)?._sum?.marginWeightedSum ?? 0;
+        const marginWeight = (agg as any)?._sum?.marginWeight ?? 0;
+        const marginValue = usePrecomputedMetrics
+          ? p.margin
+          : marginWeight > 0
+            ? marginWeightedSum / marginWeight
+            : hasAvg
+              ? ((agg as any)._avg.margin ?? 0)
+              : p.margin;
+        const velocityValue = usePrecomputedMetrics
           ? (resolvedRange === "7d" ? (p.revenue7d / 7) : (p.revenue30d / 30))
-          : (agg?._avg.velocity ?? 0);
-        const velocityCount = usePrecomputedMetrics ? 1 : (agg?._avg.velocity ? 1 : 0);
+          : (rev > 0 ? rev / rangeDays : 0);
 
         return [{
           id:             p.id,
@@ -591,8 +607,8 @@ export async function productRoutes(app: FastifyInstance) {
           revenue:        rev,
           metaRevenue:    metaRev,
           spend:          spd,
-          margin:         marginCount > 0 ? marginSum / marginCount : 0,
-          velocity:       velocityCount > 0 ? velocitySum / velocityCount : 0,
+          margin:         marginValue,
+          velocity:       velocityValue,
           impressions:    imp,
           clicks:         clk,
           conversions:    cvt,
@@ -639,6 +655,9 @@ export async function productRoutes(app: FastifyInstance) {
           lastSyncAt:     storeLastSyncAt?.toISOString() ?? null,
           lastSyncStatus: storeLastSyncStatus,
           lastSyncError:  storeLastSyncError,
+          lastRollupAt:   storeLastRollupAt?.toISOString() ?? null,
+          lastRollupStatus: storeLastRollupStatus,
+          lastRollupError:  storeLastRollupError,
           lastScoredAt:   latestComputedAt?.metricsComputedAt?.toISOString() ?? null,
         }
       });
@@ -656,10 +675,11 @@ export async function productRoutes(app: FastifyInstance) {
   app.get("/products/:productId", async (request, reply) => {
     try {
       const payload = await request.jwtVerify<{ sub: string }>();
+      if (!payload?.sub) return reply.code(401).send({ ok: false, message: "Unauthorized" });
       const { productId } = request.params as { productId: string };
 
       const product = await app.prisma.productMeta.findFirst({
-        where: { id: productId },
+        where: { id: productId, isActive: true },
         include: { store: { select: { ownerId: true, currency: true } } }
       });
 
@@ -676,39 +696,20 @@ export async function productRoutes(app: FastifyInstance) {
           take: 90
         });
       } else {
-        const children = await app.prisma.productMeta.findMany({
-          where: { storeId: product.storeId, parentId: productId },
-          select: { id: true }
-        });
-        const ids = [productId, ...children.map((c: { id: string }) => c.id)];
-
-        const agg = await app.prisma.dailyMetric.groupBy({
-          by: ["date"],
-          where: { storeId: product.storeId, productId: { in: ids } },
-          _sum: {
-            revenue: true,
-            metaRevenue: true,
-            spend: true,
-            impressions: true,
-            clicks: true,
-            conversions: true,
-            addToCart: true,
-            addToCartOmni: true,
-            checkoutInitiated: true,
-            checkoutInitiatedOmni: true,
-          },
-          _avg: { margin: true, velocity: true },
+        const rollups = await app.prisma.productRollupDaily.findMany({
+          where: { storeId: product.storeId, productId },
           orderBy: { date: "desc" },
           take: 90
         });
 
-        dailyMetrics = agg.map((m: typeof agg[number]) => {
-          const spend = m._sum.spend ?? 0;
-          const metaRevenue = m._sum.metaRevenue ?? 0;
-          const revenue = m._sum.revenue ?? 0;
-          const impressions = m._sum.impressions ?? 0;
-          const clicks = m._sum.clicks ?? 0;
-          const conversions = m._sum.conversions ?? 0;
+        dailyMetrics = rollups.map((m: { date: Date; spend: number; revenue: number; metaRevenue: number; impressions: number; clicks: number; conversions: number; addToCart: number; addToCartOmni: number; checkoutInitiated: number; checkoutInitiatedOmni: number; marginWeightedSum: number; marginWeight: number; }) => {
+          const spend = m.spend ?? 0;
+          const metaRevenue = m.metaRevenue ?? 0;
+          const revenue = m.revenue ?? 0;
+          const impressions = m.impressions ?? 0;
+          const clicks = m.clicks ?? 0;
+          const conversions = m.conversions ?? 0;
+          const margin = m.marginWeight > 0 ? m.marginWeightedSum / m.marginWeight : (product.margin ?? 0.35);
           return {
             date: m.date,
             revenue,
@@ -721,17 +722,119 @@ export async function productRoutes(app: FastifyInstance) {
             blendedRoas: spend > 0 ? revenue / spend : null,
             ctr: impressions > 0 ? clicks / impressions : 0,
             conversionRate: clicks > 0 ? conversions / clicks : 0,
-            margin: m._avg.margin ?? 0.35,
-            velocity: m._avg.velocity ?? 0,
-            addToCart: m._sum.addToCart ?? null,
-            addToCartOmni: m._sum.addToCartOmni ?? null,
-            checkoutInitiated: m._sum.checkoutInitiated ?? null,
-            checkoutInitiatedOmni: m._sum.checkoutInitiatedOmni ?? null,
+            margin,
+            velocity: revenue,
+            addToCart: m.addToCart ?? null,
+            addToCartOmni: m.addToCartOmni ?? null,
+            checkoutInitiated: m.checkoutInitiated ?? null,
+            checkoutInitiatedOmni: m.checkoutInitiatedOmni ?? null,
           };
         });
       }
 
       return reply.send({ ok: true, product: { ...product, dailyMetrics } });
+    } catch {
+      return reply.code(401).send({ ok: false, message: "Unauthorized" });
+    }
+  });
+
+  /**
+   * GET /products/:productId/explain
+   * Returns score breakdown using store/user benchmarks and the selected date range.
+   */
+  app.get("/products/:productId/explain", async (request, reply) => {
+    try {
+      const payload = await request.jwtVerify<{ sub: string }>();
+      if (!payload?.sub) return reply.code(401).send({ ok: false, message: "Unauthorized" });
+      const { productId } = request.params as { productId: string };
+      const { range = "30d", start, end } = request.query as Record<string, string>;
+
+      const product = await app.prisma.productMeta.findFirst({
+        where: { id: productId, isActive: true },
+        include: { store: { select: { ownerId: true, timezone: true } } }
+      });
+
+      if (!product || product.store.ownerId !== payload.sub) {
+        return reply.code(404).send({ ok: false, message: "Product not found" });
+      }
+
+      const storeTimezone = product.store.timezone ?? "Africa/Lagos";
+      const { start: since, end: until, range: resolvedRange } = parseRange(range, start, end, storeTimezone);
+
+      const userSettings = await app.prisma.userSettings.findUnique({
+        where: { userId: product.store.ownerId },
+        select: {
+          benchmarkRoas: true, benchmarkCtr: true,
+          benchmarkMargin: true, benchmarkInventory: true,
+        },
+      });
+
+      const storeBench = await app.prisma.store.findUnique({
+        where: { id: product.storeId },
+        select: {
+          benchmarkRoas: true, benchmarkCtr: true,
+          benchmarkMargin: true, benchmarkInventory: true,
+        }
+      });
+
+      const benchmarks = {
+        roasBenchmark:      storeBench?.benchmarkRoas      ?? userSettings?.benchmarkRoas      ?? DEFAULT_BENCHMARKS.roasBenchmark,
+        ctrBenchmark:       storeBench?.benchmarkCtr       ?? userSettings?.benchmarkCtr       ?? DEFAULT_BENCHMARKS.ctrBenchmark,
+        marginBenchmark:    storeBench?.benchmarkMargin    ?? userSettings?.benchmarkMargin    ?? DEFAULT_BENCHMARKS.marginBenchmark,
+        inventoryBenchmark: storeBench?.benchmarkInventory ?? userSettings?.benchmarkInventory ?? DEFAULT_BENCHMARKS.inventoryBenchmark,
+      };
+
+      let roas = 0;
+      let ctr = 0;
+      let margin = product.margin ?? 0.35;
+      const inventoryLevel = product.inventoryLevel ?? null;
+
+      const usePrecomputed = (resolvedRange === "30d" || resolvedRange === "7d") && !start && !end;
+      if (usePrecomputed) {
+        if (resolvedRange === "7d") {
+          roas = product.roas7d ?? 0;
+          ctr = product.ctr7d ?? 0;
+        } else {
+          roas = product.roas30d ?? 0;
+          ctr = product.ctr30d ?? 0;
+        }
+      } else {
+        if (product.isVariant) {
+          const agg = await app.prisma.dailyMetric.aggregate({
+            where: { storeId: product.storeId, productId: product.id, date: { gte: since, lte: until } },
+            _sum: { spend: true, metaRevenue: true, impressions: true, clicks: true },
+            _avg: { margin: true }
+          });
+          const spend = agg._sum.spend ?? 0;
+          const metaRevenue = agg._sum.metaRevenue ?? 0;
+          const impressions = agg._sum.impressions ?? 0;
+          const clicks = agg._sum.clicks ?? 0;
+          roas = spend > 0 ? metaRevenue / spend : 0;
+          ctr = impressions > 0 ? clicks / impressions : 0;
+          margin = agg._avg.margin ?? margin;
+        } else {
+          const agg = await app.prisma.productRollupDaily.aggregate({
+            where: { storeId: product.storeId, productId: product.id, date: { gte: since, lte: until } },
+            _sum: { spend: true, metaRevenue: true, impressions: true, clicks: true, marginWeightedSum: true, marginWeight: true }
+          });
+          const spend = agg._sum.spend ?? 0;
+          const metaRevenue = agg._sum.metaRevenue ?? 0;
+          const impressions = agg._sum.impressions ?? 0;
+          const clicks = agg._sum.clicks ?? 0;
+          roas = spend > 0 ? metaRevenue / spend : 0;
+          ctr = impressions > 0 ? clicks / impressions : 0;
+          const mw = agg._sum.marginWeightedSum ?? 0;
+          const mwc = agg._sum.marginWeight ?? 0;
+          if (mwc > 0) margin = mw / mwc;
+        }
+      }
+
+      const factors = computeScoreBreakdown(
+        { roas, ctr, margin, inventoryLevel },
+        benchmarks
+      );
+
+      return reply.send({ ok: true, factors });
     } catch {
       return reply.code(401).send({ ok: false, message: "Unauthorized" });
     }
@@ -751,6 +854,7 @@ export async function productRoutes(app: FastifyInstance) {
     } catch {
       return reply.code(401).send({ ok: false, message: "Unauthorized" });
     }
+    if (!payload?.sub) return reply.code(401).send({ ok: false, message: "Unauthorized" });
 
     const { productCount = 0 } = (request.body as { productCount?: number }) ?? {};
 

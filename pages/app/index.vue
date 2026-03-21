@@ -5,8 +5,8 @@
     <div class="flex flex-wrap items-start justify-between gap-3 mb-1">
       <div>
         <p class="text-[11px] uppercase tracking-widest text-white/80 mb-1">Meta Catalog Command</p>
-        <h1 class="text-2xl font-semibold tracking-tight">Performance Overview</h1>
-        <p class="mt-1 text-sm text-white/85">Catalog-level signals, Meta performance, and AI guidance.</p>
+        <h1 class="text-xl sm:text-2xl font-semibold tracking-tight">Performance Overview</h1>
+        <p class="mt-1 text-xs sm:text-sm text-white/85">Catalog-level signals, Meta performance, and AI guidance.</p>
       </div>
       <div class="hidden md:flex items-center gap-2">
         <span class="text-xs text-white/75">{{ new Date().toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }) }}</span>
@@ -21,7 +21,7 @@
       <div
         v-for="stat in statCards"
         :key="stat.label"
-        class="rounded-2xl border border-white/10 bg-white/[0.04] p-5 hover:bg-white/[0.06] transition-colors cursor-default"
+        class="rounded-2xl border border-white/10 bg-white/[0.04] p-4 sm:p-5 hover:bg-white/[0.06] transition-colors cursor-default"
       >
         <div class="flex items-start justify-between mb-3">
           <p class="text-xs text-white/80 font-medium">
@@ -53,6 +53,15 @@
       </div>
     </div>
 
+    <!-- Empty state -->
+    <div v-if="!pending && !hasData" class="rounded-2xl border border-white/10 bg-white/[0.03] p-6 text-center">
+      <p class="text-sm font-medium">No performance data yet.</p>
+      <p class="mt-1 text-xs text-white/75">Run a sync to pull your first 30 days of catalog metrics.</p>
+      <NuxtLink to="/app/products" class="mt-3 inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.06] px-3 py-1.5 text-xs text-white/80 hover:text-white hover:bg-white/10 transition-colors">
+        Go to Products
+      </NuxtLink>
+    </div>
+
     <!-- Main grid -->
     <div class="grid gap-5 xl:grid-cols-[1fr_340px]">
 
@@ -60,7 +69,7 @@
       <div class="space-y-5">
 
         <!-- Revenue chart -->
-        <div class="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
+        <div class="rounded-2xl border border-white/10 bg-white/[0.03] p-4 sm:p-5">
           <div class="flex items-center justify-between mb-5">
             <div>
               <p class="text-xs text-white/85 uppercase tracking-widest mb-1">Revenue Flight</p>
@@ -101,7 +110,7 @@
         </div>
 
         <!-- AI Guidance -->
-        <div class="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
+        <div class="rounded-2xl border border-white/10 bg-white/[0.03] p-4 sm:p-5">
           <div class="flex items-center justify-between mb-4">
             <div>
               <p class="text-xs text-white/85 uppercase tracking-widest mb-1">AI Guidance</p>
@@ -156,6 +165,40 @@
 
       <!-- Right column -->
       <div class="space-y-5">
+
+        <!-- Sync health -->
+        <div class="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
+          <div class="flex items-center justify-between mb-3">
+            <div>
+              <p class="text-xs text-white/85 uppercase tracking-widest mb-1">Sync Health</p>
+              <h3 class="text-base font-semibold">Meta sync status</h3>
+            </div>
+            <NuxtLink to="/app/audit" class="text-xs text-white/70 hover:text-glow-400 transition-colors">Audit log →</NuxtLink>
+          </div>
+          <div v-if="pending" class="h-16 rounded-xl bg-white/5 animate-pulse"></div>
+          <div v-else class="space-y-2">
+            <p class="text-sm text-white/80 font-medium">
+              {{ syncSummaryDate }}
+            </p>
+            <p class="text-xs text-white/65" v-if="syncHealth?.metaSummary?.detail">
+              {{ syncHealth.metaSummary.detail }}
+            </p>
+            <p v-else class="text-xs text-white/50">No sync summary yet. Run a sync to capture matching diagnostics.</p>
+            <div v-if="syncHealth?.metaSummary?.metadata" class="grid grid-cols-2 gap-2 text-xs mt-2">
+              <div class="rounded-lg border border-white/8 bg-white/[0.03] px-3 py-2">
+                <p class="text-white/45">Matched</p>
+                <p class="text-white/80 font-mono">{{ syncHealth.metaSummary.metadata.matched ?? '—' }}</p>
+              </div>
+              <div class="rounded-lg border border-white/8 bg-white/[0.03] px-3 py-2">
+                <p class="text-white/45">Unmatched spend</p>
+                <p class="text-white/80 font-mono">{{ fmtCurrency(syncHealth.metaSummary.metadata.unmatchedSpend, syncHealth.metaSummary.metadata.currency) }}</p>
+              </div>
+            </div>
+            <div v-if="syncHealth?.metaUnmatched?.metadata?.unmatchedCount" class="text-xs text-ember-300 mt-2">
+              {{ syncHealth.metaUnmatched.metadata.unmatchedCount }} catalog items unmatched.
+            </div>
+          </div>
+        </div>
 
         <!-- Automation status -->
         <div class="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
@@ -337,6 +380,17 @@ function formatCurrency(val: number): string {
   }
 }
 
+function fmtCurrency(val?: number, currency?: string): string {
+  if (val == null) return '—';
+  const cur = (currency ?? (data.value as any)?.currency ?? 'USD').toUpperCase();
+  const locale = CURRENCY_LOCALE[cur] ?? 'en-US';
+  try {
+    return new Intl.NumberFormat(locale, { style: 'currency', currency: cur, maximumFractionDigits: 2 }).format(val);
+  } catch {
+    return `${val.toFixed(2)} ${cur}`;
+  }
+}
+
 async function fetchRoi() {
   roiLoading.value = true;
   try {
@@ -365,6 +419,13 @@ onMounted(async () => {
 watch(selectedRange, () => fetchRoi());
 
 const dashboard = computed(() => data.value ?? {});
+const hasData = computed(() => {
+  const s: any = dashboard.value?.stats ?? {};
+  const roas = s.roas?.value ?? '--';
+  const blended = s.blendedRoas?.value ?? '--';
+  const active = typeof s.activeSKUs?.value === 'number' ? s.activeSKUs.value : s.activeProducts?.value ?? 0;
+  return roas !== '--' || blended !== '--' || (active ?? 0) > 0;
+});
 
 const stats = computed(() => {
   const s: any = dashboard.value?.stats ?? {};
@@ -387,6 +448,12 @@ const attribution = computed(() => {
 
 const aiGuidance = computed(() => dashboard.value?.aiGuidance ?? []);
 const automation = computed(() => dashboard.value?.automation ?? { liveRules: [], recentActivity: [] });
+const syncHealth = computed(() => dashboard.value?.syncHealth ?? null);
+const syncSummaryDate = computed(() => {
+  const dt = syncHealth.value?.metaSummary?.createdAt;
+  if (!dt) return syncHealth.value?.lastSyncAt ? `Last sync: ${new Date(syncHealth.value.lastSyncAt).toLocaleString()}` : 'No sync yet';
+  return `Meta sync: ${new Date(dt).toLocaleString()}`;
+});
 
 const statCards = computed(() => [
   { metric: 'roas', label: 'Meta ROAS', value: stats.value.roas.value, trend: stats.value.roas.delta || '+0%', trendLabel: 'vs last period', trendUp: true, icon: '<path stroke-linecap="round" stroke-linejoin="round" d="M2.25 18L9 11.25l4.306 4.307a11.95 11.95 0 015.814-5.519l2.74-1.22m0 0l-5.94-2.28m5.94 2.28l-2.28 5.941"/>', iconBg: 'rgba(34,211,238,0.1)', iconColor: '#22d3ee' },

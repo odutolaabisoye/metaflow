@@ -153,6 +153,44 @@
           </div>
         </div>
 
+        <!-- Last Meta sync summary -->
+        <div class="rounded-2xl border border-white/8 bg-white/[0.03] p-5">
+          <div class="flex items-start justify-between gap-3">
+            <div>
+              <p class="text-xs font-semibold uppercase tracking-wider text-white/50 mb-1">Last Meta Sync</p>
+              <p class="text-sm text-white/80 font-medium">
+                {{ data.meta?.syncSummary?.createdAt ? formatDateTime(data.meta.syncSummary.createdAt) : 'No sync summary yet' }}
+              </p>
+              <p v-if="data.meta?.syncSummary?.detail" class="text-xs text-white/60 mt-1">
+                {{ data.meta.syncSummary.detail }}
+              </p>
+              <p v-else class="text-xs text-white/45 mt-1">Run a sync to capture matching diagnostics.</p>
+            </div>
+            <NuxtLink to="/admin/activity" class="text-xs text-white/70 hover:text-white transition-colors">Audit log →</NuxtLink>
+          </div>
+          <div v-if="data.meta?.syncSummary?.metadata" class="mt-3 grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+            <div class="rounded-lg border border-white/8 bg-white/[0.03] px-3 py-2">
+              <p class="text-white/45">Matched rows</p>
+              <p class="text-white/80 font-mono">{{ data.meta.syncSummary.metadata.matched ?? '—' }}</p>
+            </div>
+            <div class="rounded-lg border border-white/8 bg-white/[0.03] px-3 py-2">
+              <p class="text-white/45">Unmatched spend</p>
+              <p class="text-white/80 font-mono">{{ fmtCurrency(data.meta.syncSummary.metadata.unmatchedSpend, data.meta.syncSummary.metadata.currency) }}</p>
+            </div>
+            <div class="rounded-lg border border-white/8 bg-white/[0.03] px-3 py-2">
+              <p class="text-white/45">Breakdown</p>
+              <p class="text-white/80 font-mono">{{ data.meta.syncSummary.metadata.productBreakdownSucceeded ? 'OK' : 'Skipped' }}</p>
+            </div>
+            <div class="rounded-lg border border-white/8 bg-white/[0.03] px-3 py-2">
+              <p class="text-white/45">Accounts</p>
+              <p class="text-white/80 font-mono">{{ data.meta.syncSummary.metadata.adAccounts ?? '—' }}</p>
+            </div>
+          </div>
+          <div v-if="data.meta?.unmatchedCatalog?.metadata?.unmatchedCount" class="mt-3 text-xs text-red-300">
+            {{ data.meta.unmatchedCatalog.metadata.unmatchedCount }} catalog items unmatched. Review catalog SKUs or product titles.
+          </div>
+        </div>
+
         <!-- ── Adsets ─────────────────────────────────────────────────────── -->
         <div class="rounded-2xl border border-white/8 bg-white/[0.03]">
           <button @click="showAdsets = !showAdsets" class="w-full flex items-center justify-between p-5 text-left">
@@ -482,6 +520,20 @@ const matchedCount = computed(() =>
 
 function formatDate(d: string) {
   return new Date(d).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+function formatDateTime(d: string) {
+  return new Date(d).toLocaleString(undefined, { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+}
+
+function fmtCurrency(value?: number, currency?: string) {
+  if (value == null) return '—';
+  const cur = (currency ?? 'USD').toUpperCase();
+  try {
+    return new Intl.NumberFormat(undefined, { style: 'currency', currency: cur, maximumFractionDigits: 2 }).format(value);
+  } catch {
+    return `${value.toFixed(2)} ${cur}`;
+  }
 }
 
 async function loadStores() {

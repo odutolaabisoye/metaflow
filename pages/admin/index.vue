@@ -7,11 +7,11 @@
     </div>
 
     <!-- Stat cards -->
-    <div v-if="loading" class="grid grid-cols-2 lg:grid-cols-4 gap-4">
-      <div v-for="i in 4" :key="i" class="h-28 rounded-2xl bg-white/4 animate-pulse border border-white/6"></div>
+    <div v-if="loading" class="grid grid-cols-2 lg:grid-cols-5 gap-4">
+      <div v-for="i in 5" :key="i" class="h-28 rounded-2xl bg-white/4 animate-pulse border border-white/6"></div>
     </div>
 
-    <div v-else class="grid grid-cols-2 lg:grid-cols-4 gap-4">
+    <div v-else class="grid grid-cols-2 lg:grid-cols-5 gap-4">
       <div
         v-for="stat in statCards"
         :key="stat.label"
@@ -146,6 +146,7 @@ interface Stats {
   platformBreakdown: PlatformBreakdown[];
   recentUsers: RecentUser[];
   recentActivity: ActivityLog[];
+  rollup?: { lastAt: string | null; rows: number | null; durationMs: number | null; staleStores: number };
 }
 
 const loading = ref(true);
@@ -192,6 +193,16 @@ const statCards = computed(() => [
     iconBg: 'bg-emerald-500/10',
     iconColor: 'text-emerald-400',
   },
+  {
+    label: 'Rollup Health',
+    value: stats.value?.rollup?.rows ?? '—',
+    sub: stats.value?.rollup?.lastAt
+      ? `Last ${timeAgo(stats.value.rollup.lastAt)} · ${formatDuration(stats.value.rollup.durationMs)} · ${stats.value.rollup.staleStores} stale`
+      : `${stats.value?.rollup?.staleStores ?? 0} stale`,
+    icon: 'M4.5 12.75l3 3 6-6m9-1.5a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z',
+    iconBg: 'bg-amber-500/10',
+    iconColor: 'text-amber-400',
+  },
 ]);
 
 function platformDot(platform: string) {
@@ -230,6 +241,13 @@ function timeAgo(iso: string) {
   const d = Math.floor(h / 24);
   if (d < 30) return `${d}d ago`;
   return new Date(iso).toLocaleDateString();
+}
+
+function formatDuration(ms?: number | null) {
+  if (!ms || ms <= 0) return '—';
+  if (ms < 1000) return `${ms}ms`;
+  if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`;
+  return `${Math.round(ms / 1000)}s`;
 }
 
 onMounted(async () => {

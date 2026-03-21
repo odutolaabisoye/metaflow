@@ -1,5 +1,8 @@
 import type { FastifyInstance } from "fastify";
 import crypto from "crypto";
+import { encryptToken, decryptToken } from "../utils/crypto.js";
+import { fetchWithRetry } from "../utils/http.js";
+import { SHOPIFY_API_VERSION, SHOPIFY_DOMAIN_RE } from "../utils/constants.js";
 
 // ─── Meta OAuth constants ─────────────────────────────────────────────────────
 const META_GRAPH_VERSION = "v19.0";
@@ -16,6 +19,34 @@ interface OAuthState {
   storeId: string;
 }
 
+const META_STATE_TTL_SEC = 10 * 60; // 10 minutes
+
+function signMetaState(payload: { dataB64: string; ts: number; nonce: string }, secret: string): string {
+  const msg = `${payload.ts}.${payload.nonce}.${payload.dataB64}`;
+  return crypto.createHmac("sha256", secret).update(msg).digest("hex");
+}
+
+function encodeMetaState(data: OAuthState, secret: string): string {
+  const dataB64 = Buffer.from(JSON.stringify(data)).toString("base64url");
+  const ts = Date.now();
+  const nonce = crypto.randomBytes(12).toString("hex");
+  const sig = signMetaState({ dataB64, ts, nonce }, secret);
+  return Buffer.from(JSON.stringify({ dataB64, ts, nonce, sig })).toString("base64url");
+}
+
+function decodeMetaState(state: string): { data: OAuthState; ts: number; nonce: string; sig: string } | null {
+  try {
+    const parsed = JSON.parse(Buffer.from(state, "base64url").toString("utf8")) as {
+      dataB64: string; ts: number; nonce: string; sig: string;
+    };
+    const data = JSON.parse(Buffer.from(parsed.dataB64, "base64url").toString("utf8")) as OAuthState;
+    return { data, ts: parsed.ts, nonce: parsed.nonce, sig: parsed.sig };
+  } catch {
+    return null;
+  }
+}
+
+// Shopify state is validated by Shopify HMAC on callback; base64 JSON is sufficient.
 function encodeState(data: OAuthState): string {
   return Buffer.from(JSON.stringify(data)).toString("base64url");
 }
@@ -36,6 +67,7 @@ export async function connectionRoutes(app: FastifyInstance) {
   app.get("/connections", async (request, reply) => {
     try {
       const payload = await request.jwtVerify<{ sub: string }>();
+      if (!payload?.sub) return reply.code(401).send({ ok: false, message: "Unauthorized" });
 
       const stores = await app.prisma.store.findMany({
         where: { ownerId: payload.sub },
@@ -47,6 +79,9 @@ export async function connectionRoutes(app: FastifyInstance) {
           lastSyncStatus: true,
           lastSyncError: true,
           lastSyncProvider: true,
+          lastRollupAt: true,
+          lastRollupStatus: true,
+          lastRollupError: true,
           connections: {
             select: {
               id: true,
@@ -60,7 +95,21 @@ export async function connectionRoutes(app: FastifyInstance) {
         }
       });
 
-      return reply.send({ ok: true, stores });
+      const now = new Date();
+      // 7-day lookahead so the frontend can show a "token expires soon" warning
+      // before syncs start failing silently.
+      const warnThreshold = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+
+      const storesWithTokenStatus = stores.map((store) => ({
+        ...store,
+        connections: store.connections.map((conn) => ({
+          ...conn,
+          isExpired:     conn.expiresAt ? conn.expiresAt < now          : false,
+          isExpiringSoon: conn.expiresAt ? conn.expiresAt < warnThreshold : false,
+        })),
+      }));
+
+      return reply.send({ ok: true, stores: storesWithTokenStatus });
     } catch {
       return reply.code(401).send({ ok: false, message: "Unauthorized" });
     }
@@ -73,6 +122,7 @@ export async function connectionRoutes(app: FastifyInstance) {
   app.delete("/connections/:connectionId", async (request, reply) => {
     try {
       const payload = await request.jwtVerify<{ sub: string }>();
+      if (!payload?.sub) return reply.code(401).send({ ok: false, message: "Unauthorized" });
       const { connectionId } = request.params as { connectionId: string };
 
       const connection = await app.prisma.connection.findFirst({
@@ -100,14 +150,19 @@ export async function connectionRoutes(app: FastifyInstance) {
    * GET /connections/meta/auth?storeId=xxx
    * Redirects browser to Meta's OAuth authorization page.
    */
-  app.get("/connections/meta/auth", async (request, reply) => {
+  app.get("/connections/meta/auth", { config: { rateLimit: { max: 20, timeWindow: "1 minute" } } }, async (request, reply) => {
     try {
       const payload = await request.jwtVerify<{ sub: string }>();
+      if (!payload?.sub) return reply.code(401).send({ ok: false, message: "Unauthorized" });
       const query = request.query as { storeId?: string };
       const storeId = query.storeId?.trim();
 
       if (!storeId) {
         return reply.code(400).send({ ok: false, message: "storeId is required" });
+      }
+
+      if (!app.redis) {
+        return reply.code(503).send({ ok: false, message: "OAuth temporarily unavailable" });
       }
 
       const store = await app.prisma.store.findFirst({
@@ -123,7 +178,12 @@ export async function connectionRoutes(app: FastifyInstance) {
       }
 
       const redirectUri = `${app.config.APP_URL}/v1/connections/meta/callback`;
-      const state = encodeState({ userId: payload.sub, storeId });
+      const state = encodeMetaState({ userId: payload.sub, storeId }, app.config.CSRF_SECRET);
+      const decoded = decodeMetaState(state);
+      if (decoded) {
+        const key = `oauth:meta:${decoded.nonce}`;
+        await app.redis.set(key, JSON.stringify({ userId: payload.sub, storeId }), "EX", META_STATE_TTL_SEC);
+      }
 
       const authUrl = new URL(META_OAUTH_URL);
       authUrl.searchParams.set("client_id", appId);
@@ -142,7 +202,7 @@ export async function connectionRoutes(app: FastifyInstance) {
    * GET /connections/meta/callback?code=xxx&state=xxx
    * Exchanges authorization code for a long-lived token and persists the connection.
    */
-  app.get("/connections/meta/callback", async (request, reply) => {
+  app.get("/connections/meta/callback", { config: { rateLimit: { max: 30, timeWindow: "1 minute" } } }, async (request, reply) => {
     const query = request.query as {
       code?: string;
       state?: string;
@@ -165,10 +225,42 @@ export async function connectionRoutes(app: FastifyInstance) {
       return reply.redirect(`${frontendBase}/app/settings?meta_error=missing_params`);
     }
 
-    const state = decodeState(rawState);
-    if (!state) {
+    const decoded = decodeMetaState(rawState);
+    if (!decoded) {
       return reply.redirect(`${frontendBase}/app/settings?meta_error=invalid_state`);
     }
+
+    // Verify HMAC + TTL
+    const expectedSig = signMetaState(
+      {
+        dataB64: Buffer.from(JSON.stringify(decoded.data)).toString("base64url"),
+        ts: decoded.ts,
+        nonce: decoded.nonce
+      },
+      app.config.CSRF_SECRET
+    );
+    if (expectedSig !== decoded.sig) {
+      return reply.redirect(`${frontendBase}/app/settings?meta_error=invalid_state`);
+    }
+    if (Date.now() - decoded.ts > META_STATE_TTL_SEC * 1000) {
+      return reply.redirect(`${frontendBase}/app/settings?meta_error=state_expired`);
+    }
+
+    if (!app.redis) {
+      return reply.redirect(`${frontendBase}/app/settings?meta_error=state_store_unavailable`);
+    }
+    const key = `oauth:meta:${decoded.nonce}`;
+    const stored = await app.redis.get(key);
+    if (!stored) {
+      return reply.redirect(`${frontendBase}/app/settings?meta_error=state_missing`);
+    }
+    await app.redis.del(key);
+    const parsedStored = JSON.parse(stored) as { userId: string; storeId: string };
+    if (parsedStored.userId !== decoded.data.userId || parsedStored.storeId !== decoded.data.storeId) {
+      return reply.redirect(`${frontendBase}/app/settings?meta_error=invalid_state`);
+    }
+
+    const state = decoded.data;
 
     const appId = app.config.META_APP_ID;
     const appSecret = app.config.META_APP_SECRET;
@@ -176,7 +268,7 @@ export async function connectionRoutes(app: FastifyInstance) {
 
     try {
       // Exchange short-lived code for access token
-      const tokenRes = await fetch(
+      const tokenRes = await fetchWithRetry(
         `${META_TOKEN_URL}?client_id=${appId}&client_secret=${appSecret}&redirect_uri=${encodeURIComponent(redirectUri)}&code=${code}`
       );
 
@@ -193,7 +285,7 @@ export async function connectionRoutes(app: FastifyInstance) {
       const shortToken = tokenData.access_token;
 
       // Exchange for a long-lived token (valid ~60 days)
-      const longTokenRes = await fetch(
+      const longTokenRes = await fetchWithRetry(
         `https://graph.facebook.com/${META_GRAPH_VERSION}/oauth/access_token?grant_type=fb_exchange_token&client_id=${appId}&client_secret=${appSecret}&fb_exchange_token=${shortToken}`
       );
 
@@ -216,13 +308,13 @@ export async function connectionRoutes(app: FastifyInstance) {
         where: { storeId_provider: { storeId: state.storeId, provider: "META" } },
         create: {
           provider: "META",
-          accessToken,
+          accessToken: encryptToken(accessToken),
           expiresAt,
           scopes: META_SCOPES,
           storeId: state.storeId
         },
         update: {
-          accessToken,
+          accessToken: encryptToken(accessToken),
           expiresAt,
           scopes: META_SCOPES,
           refreshToken: null
@@ -272,7 +364,7 @@ export async function connectionRoutes(app: FastifyInstance) {
       url.searchParams.set("access_token", accessToken);
       for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
       try {
-        const res = await fetch(url.toString());
+        const res = await fetchWithRetry(url.toString());
         if (!res.ok) return null;
         return await res.json() as any;
       } catch { return null; }
@@ -319,6 +411,7 @@ export async function connectionRoutes(app: FastifyInstance) {
   app.get("/connections/meta/config", async (request, reply) => {
     try {
       const payload = await request.jwtVerify<{ sub: string }>();
+      if (!payload?.sub) return reply.code(401).send({ ok: false, message: "Unauthorized" });
       const { storeId } = request.query as { storeId?: string };
       if (!storeId) return reply.code(400).send({ ok: false, message: "storeId required" });
 
@@ -328,14 +421,14 @@ export async function connectionRoutes(app: FastifyInstance) {
       });
       if (!connection) return reply.code(404).send({ ok: false, message: "Meta not connected" });
 
-      const token = connection.accessToken;
+      const token = decryptToken(connection.accessToken);
       const graphBase = `https://graph.facebook.com/v19.0`;
 
       async function metaGet(path: string, params: Record<string, string> = {}) {
         const url = new URL(`${graphBase}${path}`);
         url.searchParams.set("access_token", token);
         for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
-        const res = await fetch(url.toString());
+        const res = await fetchWithRetry(url.toString());
         return res.ok ? (await res.json() as any) : null;
       }
 
@@ -381,6 +474,7 @@ export async function connectionRoutes(app: FastifyInstance) {
   app.get("/connections/meta/catalogs", async (request, reply) => {
     try {
       const payload = await request.jwtVerify<{ sub: string }>();
+      if (!payload?.sub) return reply.code(401).send({ ok: false, message: "Unauthorized" });
       const { storeId, adAccountId } = request.query as { storeId?: string; adAccountId?: string };
       if (!storeId || !adAccountId) return reply.code(400).send({ ok: false, message: "storeId and adAccountId required" });
 
@@ -390,7 +484,7 @@ export async function connectionRoutes(app: FastifyInstance) {
       });
       if (!connection) return reply.code(404).send({ ok: false, message: "Meta not connected" });
 
-      const catalogs = await discoverCatalogs(adAccountId, connection.accessToken);
+      const catalogs = await discoverCatalogs(adAccountId, decryptToken(connection.accessToken));
       return reply.send({ ok: true, catalogs });
     } catch {
       return reply.send({ ok: true, catalogs: [] });
@@ -405,6 +499,7 @@ export async function connectionRoutes(app: FastifyInstance) {
   app.patch("/connections/meta/config", async (request, reply) => {
     try {
       const payload = await request.jwtVerify<{ sub: string }>();
+      if (!payload?.sub) return reply.code(401).send({ ok: false, message: "Unauthorized" });
       const { storeId, adAccountId, catalogId } = request.body as {
         storeId?: string;
         adAccountId?: string;
@@ -416,6 +511,18 @@ export async function connectionRoutes(app: FastifyInstance) {
         where: { storeId, provider: "META", store: { ownerId: payload.sub } }
       });
       if (!connection) return reply.code(404).send({ ok: false, message: "Meta not connected" });
+
+      // C4: Verify the adAccountId is accessible with this token before persisting
+      if (adAccountId) {
+        const token = decryptToken(connection.accessToken);
+        const verifyRes = await fetchWithRetry(
+          `https://graph.facebook.com/${META_GRAPH_VERSION}/${adAccountId}?fields=id,name&access_token=${token}`
+        ).catch(() => null);
+        if (!verifyRes || !verifyRes.ok) {
+          app.log.warn({ storeId, adAccountId }, "[meta-config] adAccountId verification failed");
+          return reply.code(400).send({ ok: false, message: "Invalid or inaccessible ad account — check your Meta permissions" });
+        }
+      }
 
       await app.prisma.connection.update({
         where: { id: connection.id },
@@ -440,9 +547,10 @@ export async function connectionRoutes(app: FastifyInstance) {
    * GET /connections/shopify/auth?storeId=xxx&shop=mystore.myshopify.com
    * Redirects browser to Shopify's OAuth authorization page.
    */
-  app.get("/connections/shopify/auth", async (request, reply) => {
+  app.get("/connections/shopify/auth", { config: { rateLimit: { max: 20, timeWindow: "1 minute" } } }, async (request, reply) => {
     try {
       const payload = await request.jwtVerify<{ sub: string }>();
+      if (!payload?.sub) return reply.code(401).send({ ok: false, message: "Unauthorized" });
       const { storeId, shop: rawShop } = request.query as { storeId?: string; shop?: string };
 
       if (!storeId || !rawShop) {
@@ -482,7 +590,7 @@ export async function connectionRoutes(app: FastifyInstance) {
    * GET /connections/shopify/callback?code=xxx&hmac=xxx&shop=xxx&state=xxx
    * Verifies HMAC signature, exchanges code for permanent token, registers webhooks.
    */
-  app.get("/connections/shopify/callback", async (request, reply) => {
+  app.get("/connections/shopify/callback", { config: { rateLimit: { max: 30, timeWindow: "1 minute" } } }, async (request, reply) => {
     const frontendBase = app.config.CORS_ORIGIN;
     const query = request.query as Record<string, string>;
 
@@ -525,9 +633,15 @@ export async function connectionRoutes(app: FastifyInstance) {
     const shop = query.shop;
     const code = query.code;
 
+    // Guard: shop must be a valid myshopify.com domain
+    if (!shop || !SHOPIFY_DOMAIN_RE.test(shop)) {
+      app.log.warn({ shop }, "[shopify-callback] Invalid shop domain");
+      return reply.redirect(`${frontendBase}/app/settings?shopify_error=invalid_shop`);
+    }
+
     try {
       // Exchange authorization code for permanent access token
-      const tokenRes = await fetch(`https://${shop}/admin/oauth/access_token`, {
+      const tokenRes = await fetchWithRetry(`https://${shop}/admin/oauth/access_token`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -547,25 +661,29 @@ export async function connectionRoutes(app: FastifyInstance) {
         scope: string;
       };
 
-      // Upsert the Shopify connection
-      await app.prisma.connection.upsert({
-        where: { storeId_provider: { storeId: state.storeId, provider: "SHOPIFY" } },
-        create: {
-          provider: "SHOPIFY",
-          accessToken: tokenData.access_token,
-          scopes: tokenData.scope,
-          storeId: state.storeId
-        },
-        update: {
-          accessToken: tokenData.access_token,
-          scopes: tokenData.scope
-        }
-      });
+      // Atomically upsert the Shopify connection + sync the store URL.
+      // Both writes must succeed together — a partial update (token saved but
+      // storeUrl not updated, or vice-versa) would leave the store in a broken state.
+      const encryptedShopifyToken = encryptToken(tokenData.access_token);
+      await app.prisma.$transaction(async (tx) => {
+        await tx.connection.upsert({
+          where: { storeId_provider: { storeId: state.storeId, provider: "SHOPIFY" } },
+          create: {
+            provider: "SHOPIFY",
+            accessToken: encryptedShopifyToken,
+            scopes: tokenData.scope,
+            storeId: state.storeId
+          },
+          update: {
+            accessToken: encryptedShopifyToken,
+            scopes: tokenData.scope
+          }
+        });
 
-      // Update store URL with the actual Shopify domain
-      await app.prisma.store.update({
-        where: { id: state.storeId },
-        data: { storeUrl: `https://${shop}` }
+        await tx.store.update({
+          where: { id: state.storeId },
+          data: { storeUrl: `https://${shop}` }
+        });
       });
 
       // Register webhooks (non-fatal if they fail)
@@ -621,9 +739,10 @@ export async function connectionRoutes(app: FastifyInstance) {
    *
    * Body: { storeId, consumerKey, consumerSecret }
    */
-  app.post("/connections/woocommerce", async (request, reply) => {
+  app.post("/connections/woocommerce", { config: { rateLimit: { max: 10, timeWindow: "1 minute" } } }, async (request, reply) => {
     try {
       const payload = await request.jwtVerify<{ sub: string }>();
+      if (!payload?.sub) return reply.code(401).send({ ok: false, message: "Unauthorized" });
       const body = request.body as {
         storeId?: string;
         consumerKey?: string;
@@ -651,7 +770,7 @@ export async function connectionRoutes(app: FastifyInstance) {
       const testUrl = `${store.storeUrl.replace(/\/$/, "")}/wp-json/wc/v3/system_status`;
       const credentials = Buffer.from(`${consumerKey}:${consumerSecret}`).toString("base64");
 
-      const testRes = await fetch(testUrl, {
+      const testRes = await fetchWithRetry(testUrl, {
         headers: { Authorization: `Basic ${credentials}` }
       });
 
@@ -664,20 +783,34 @@ export async function connectionRoutes(app: FastifyInstance) {
 
       // Store credentials as "key:secret" (parsed by sync job)
       const accessToken = `${consumerKey}:${consumerSecret}`;
+      const encryptedAccessToken = encryptToken(accessToken);
+
+      // Generate a random webhook secret for HMAC verification of incoming payloads.
+      // WooCommerce signs each webhook request with this secret — we verify the
+      // X-WC-Webhook-Signature header to reject forged / replayed requests.
+      const webhookSecret          = crypto.randomBytes(32).toString("hex");
+      const encryptedWebhookSecret = encryptToken(webhookSecret);
 
       await app.prisma.connection.upsert({
         where: { storeId_provider: { storeId, provider: "WOOCOMMERCE" } },
         create: {
-          provider: "WOOCOMMERCE",
-          accessToken,
-          scopes: "read_write",
+          provider:      "WOOCOMMERCE",
+          accessToken:   encryptedAccessToken,
+          webhookSecret: encryptedWebhookSecret,
+          scopes:        "read_write",
           storeId
         },
         update: {
-          accessToken,
-          scopes: "read_write"
+          accessToken:   encryptedAccessToken,
+          webhookSecret: encryptedWebhookSecret,
+          scopes:        "read_write"
         }
       });
+
+      // Register WooCommerce webhooks (fire-and-forget — don't fail the connect if this errors)
+      registerWooCommerceWebhooks(store.storeUrl, credentials, webhookSecret, app).catch((err) =>
+        app.log.warn({ err, storeId }, "[woo-connect] Webhook registration failed — webhooks may need manual setup")
+      );
 
       await app.prisma.auditLog.create({
         data: {
@@ -709,6 +842,58 @@ export async function connectionRoutes(app: FastifyInstance) {
   });
 }
 
+// ─── WooCommerce webhook registration ────────────────────────────────────────
+// Registers all required WooCommerce webhook topics pointing at our handlers.
+// Called once after a successful connection; errors are non-fatal.
+
+const WOO_WEBHOOK_TOPICS = [
+  { topic: "product.created",  deliveryUrl: "/webhooks/woocommerce/products/created" },
+  { topic: "product.updated",  deliveryUrl: "/webhooks/woocommerce/products/updated" },
+  { topic: "product.deleted",  deliveryUrl: "/webhooks/woocommerce/products/deleted" },
+  { topic: "order.created",    deliveryUrl: "/webhooks/woocommerce/orders/created"   },
+] as const;
+
+async function registerWooCommerceWebhooks(
+  storeUrl: string,
+  credentials: string,       // base64("key:secret") for Basic Auth
+  webhookSecret: string,     // plain-text secret (not yet encrypted)
+  app: FastifyInstance
+): Promise<void> {
+  const baseUrl = storeUrl.replace(/\/$/, "");
+  const apiBase = process.env.API_BASE_URL ?? process.env.CORS_ORIGIN?.split(",")[0] ?? "";
+
+  for (const { topic, deliveryUrl } of WOO_WEBHOOK_TOPICS) {
+    try {
+      const res = await fetchWithRetry(`${baseUrl}/wp-json/wc/v3/webhooks`, {
+        method:  "POST",
+        headers: {
+          Authorization:  `Basic ${credentials}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          name:         `MetaFlow — ${topic}`,
+          topic,
+          delivery_url: `${apiBase}${deliveryUrl}`,
+          secret:       webhookSecret,
+          status:       "active",
+        }),
+      });
+
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        app.log.warn(
+          { topic, status: res.status, body: text },
+          "[woo-connect] Failed to register webhook topic"
+        );
+      } else {
+        app.log.info({ topic }, "[woo-connect] Webhook registered");
+      }
+    } catch (err) {
+      app.log.warn({ err, topic }, "[woo-connect] Webhook registration request failed");
+    }
+  }
+}
+
 // ─── Shopify Webhook Registration ─────────────────────────────────────────────
 
 const SHOPIFY_WEBHOOKS = [
@@ -725,7 +910,7 @@ export async function registerShopifyWebhooks(
 ): Promise<void> {
   for (const webhook of SHOPIFY_WEBHOOKS) {
     try {
-      await fetch(`https://${shop}/admin/api/2024-04/webhooks.json`, {
+      await fetchWithRetry(`https://${shop}/admin/api/${SHOPIFY_API_VERSION}/webhooks.json`, {
         method: "POST",
         headers: {
           "X-Shopify-Access-Token": accessToken,

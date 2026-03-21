@@ -56,11 +56,17 @@ export default defineNuxtRouteMiddleware(async (to) => {
           planFlag.value = res.user.plan;
           return;
         }
-        // Logged in but not on an eligible plan — redirect to settings with upgrade notice
+        // Logged in but not on an eligible plan → send to upgrade page
         return navigateTo("/app/settings?upgrade=analytics");
       }
+      // /auth/me returned ok: false (session invalid) → login
+      return navigateTo("/auth/login");
     } catch {
-      // fall through to general /app check below
+      // Network error or timeout — don't allow fallthrough to the general /app guard
+      // because that guard only checks isLoggedIn (cookie), not plan. A STARTER user
+      // with the mf_auth cookie set would otherwise access /app/analytics freely.
+      if (isLoggedIn) return navigateTo("/app/settings?upgrade=analytics");
+      return navigateTo("/auth/login");
     }
   }
 

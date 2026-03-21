@@ -3,7 +3,7 @@ import env from "@fastify/env";
 
 const schema = {
   type: "object",
-  required: ["PORT", "DATABASE_URL", "JWT_SECRET", "CSRF_SECRET"],
+  required: ["PORT", "DATABASE_URL", "JWT_SECRET", "CSRF_SECRET", "ENCRYPTION_KEY"],
   properties: {
     NODE_ENV: { type: "string", default: "development" },
     PORT: { type: "string", default: "4000" },
@@ -25,7 +25,13 @@ const schema = {
     STRIPE_SECRET_KEY: { type: "string", default: "" },
     STRIPE_WEBHOOK_SECRET: { type: "string", default: "" },
     STRIPE_PRICE_GROWTH: { type: "string", default: "" },
-    STRIPE_PRICE_SCALE: { type: "string", default: "" }
+    STRIPE_PRICE_SCALE: { type: "string", default: "" },
+    ENCRYPTION_KEY: { type: "string" },
+    // Optional — HMAC secret for signing OAuth state params (Meta).
+    // Falls back to CSRF_SECRET if not set. Set explicitly in production.
+    STATE_SECRET: { type: "string", default: "" },
+    // Optional — Sentry DSN for error monitoring. Leave empty to disable.
+    SENTRY_DSN: { type: "string", default: "" },
   }
 };
 

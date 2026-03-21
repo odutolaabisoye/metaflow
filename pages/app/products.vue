@@ -6,14 +6,15 @@
       <div>
         <p class="text-[11px] uppercase tracking-widest text-white/65 mb-1">Catalog Intelligence</p>
         <div class="flex items-center gap-3">
-          <h1 class="text-2xl font-semibold tracking-tight">Products</h1>
+          <h1 class="text-xl sm:text-2xl font-semibold tracking-tight">Products</h1>
           <span v-if="!pending" class="rounded-full bg-white/[0.08] border border-white/10 px-2.5 py-0.5 text-xs font-medium text-white/80">
             {{ total.toLocaleString() }} SKUs
           </span>
         </div>
-        <p class="mt-1 text-sm text-white/75">{{ rangeLabel }} · scored daily by ROAS, CTR, margin &amp; inventory</p>
+        <p class="mt-1 text-xs sm:text-sm text-white/75">{{ rangeLabel }} · scored daily by ROAS, CTR, margin &amp; inventory</p>
+        <p class="mt-1 text-[11px] text-white/50">Tip: click a row to open Sidekick details.</p>
       </div>
-      <div class="flex items-center gap-2.5">
+      <div class="flex flex-wrap items-center gap-2.5 w-full sm:w-auto sm:justify-end">
         <button
           @click="triggerSync"
           :disabled="syncDisabled"
@@ -91,6 +92,10 @@
         <span class="text-white/25 mr-1">Last synced</span>
         <span class="text-white/55">{{ timeAgo(lastSyncAt) }}</span>
       </span>
+      <span v-if="lastRollupAt">
+        <span class="text-white/25 mr-1">Rollup</span>
+        <span class="text-white/55">{{ timeAgo(lastRollupAt) }}</span>
+      </span>
       <span v-if="lastScoredAt">
         <span class="text-white/25 mr-1">Scores refreshed</span>
         <span class="text-white/55">{{ timeAgo(lastScoredAt) }}</span>
@@ -137,7 +142,7 @@
         </svg>
         <div class="flex-1 min-w-0">
           <p class="text-sm font-medium text-amber-300">Last sync failed</p>
-          <p class="text-xs text-amber-400/70 mt-0.5 truncate">{{ storeSyncError ?? 'An error occurred during the last sync. Try syncing again.' }}</p>
+          <p class="text-xs text-amber-400/70 mt-0.5 truncate">{{ sanitizeError(storeSyncError, 'An error occurred during the last sync. Try syncing again.') }}</p>
         </div>
         <button @click="triggerSync" :disabled="syncDisabled"
           class="flex-shrink-0 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/25 px-3 py-1.5 text-xs font-semibold text-amber-300 transition-colors disabled:opacity-50 whitespace-nowrap">
@@ -148,15 +153,15 @@
 
     <!-- Sync error banner (manual sync attempt) -->
     <Transition name="fade-up">
-      <div v-if="syncError" class="flex items-center justify-between gap-3 rounded-2xl border border-ember-500/25 bg-ember-500/8 px-5 py-3">
+      <div v-if="syncError" role="alert" class="flex items-center justify-between gap-3 rounded-2xl border border-ember-500/25 bg-ember-500/8 px-5 py-3">
         <div class="flex items-center gap-2.5">
-          <svg class="w-4 h-4 text-ember-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+          <svg class="w-4 h-4 text-ember-400 flex-shrink-0" aria-hidden="true" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
             <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z"/>
           </svg>
-          <p class="text-sm text-ember-400">{{ syncError }}</p>
+          <p class="text-sm text-ember-400">{{ sanitizeError(syncError, 'Sync failed. Please try again.') }}</p>
         </div>
-        <button @click="syncError = ''" class="text-ember-400/60 hover:text-ember-400 transition-colors">
-          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+        <button @click="syncError = ''" aria-label="Dismiss error" class="text-ember-400/60 hover:text-ember-400 transition-colors">
+          <svg class="w-4 h-4" aria-hidden="true" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
         </button>
       </div>
     </Transition>
@@ -172,6 +177,7 @@
           v-model="search"
           type="search"
           placeholder="Search product or SKU…"
+          maxlength="100"
           class="w-full rounded-xl border border-white/10 bg-white/[0.06] pl-9 pr-4 py-2.5 text-sm text-white placeholder:text-white/55 outline-none focus:border-glow-500/40 focus:ring-2 focus:ring-glow-500/15 transition-all"
         />
       </div>
@@ -185,6 +191,7 @@
           v-for="cat in categories"
           :key="cat.value"
           @click="filter = cat.value"
+          :aria-pressed="filter === cat.value"
           class="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-all"
           :class="filter === cat.value
             ? 'bg-white/15 text-white border border-white/20'
@@ -204,6 +211,7 @@
           v-for="opt in stockOptions"
           :key="opt.value"
           @click="stockFilter = opt.value"
+          :aria-pressed="stockFilter === opt.value"
           class="flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-medium transition-all"
           :class="stockFilter === opt.value
             ? 'bg-white/15 text-white shadow-sm'
@@ -252,6 +260,7 @@
         </select>
         <button
           @click="sortDir = sortDir === 'asc' ? 'desc' : 'asc'"
+          :aria-label="sortDir === 'asc' ? 'Sort descending' : 'Sort ascending'"
           class="flex items-center justify-center w-8 h-8 rounded-lg border border-white/10 bg-white/5 text-white/80 hover:text-white hover:bg-white/10 transition-all"
         >
           <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
@@ -284,8 +293,93 @@
         </button>
       </div>
 
+      <!-- Mobile cards -->
+      <div v-else-if="products.length" class="md:hidden">
+        <div class="divide-y divide-white/10">
+          <button
+            v-for="item in products"
+            :key="item.id"
+            class="w-full text-left p-4 hover:bg-white/[0.03] transition-colors"
+            @click="openSidekick(item)"
+          >
+            <div class="flex items-center gap-3">
+              <div class="h-11 w-11 flex-shrink-0 rounded-xl border border-white/10 bg-white/5 overflow-hidden flex items-center justify-center">
+                <img
+                  v-if="item.imageUrl"
+                  :src="thumbUrl(item.imageUrl, 96)"
+                  :alt="item.title"
+                  class="h-full w-full object-cover"
+                  loading="lazy"
+                  width="44" height="44"
+                  @error="(e) => { const t = e.target as HTMLImageElement; if (t.src !== item.imageUrl) t.src = item.imageUrl || '' }"
+                />
+                <svg v-else class="w-4 h-4 text-white/35" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M3 7.5A2.25 2.25 0 015.25 5.25h13.5A2.25 2.25 0 0121 7.5v9A2.25 2.25 0 0118.75 18.75H5.25A2.25 2.25 0 013 16.5v-9z"/>
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M8 10.5h8m-8 3h5"/>
+                </svg>
+              </div>
+              <div class="min-w-0 flex-1">
+                <div class="flex items-center gap-2">
+                  <p class="text-sm font-semibold truncate">{{ item.title }}</p>
+                  <span v-if="item.isVariant" class="rounded-md bg-white/[0.07] border border-white/10 px-1.5 py-0.5 text-[10px] font-medium text-white/45">Var</span>
+                </div>
+                <div class="mt-0.5 flex items-center gap-2">
+                  <span class="text-xs text-white/65 font-mono truncate">{{ item.sku }}</span>
+                  <span class="text-[10px] px-2 py-0.5 rounded-full border border-white/10" :class="badgeClass(item.category)">{{ item.category }}</span>
+                </div>
+              </div>
+              <div class="flex flex-col items-end gap-1">
+                <span class="text-sm font-semibold" :class="scoreColor(item.score)">{{ item.score }}</span>
+                <span class="text-[10px] text-white/45">Score</span>
+              </div>
+            </div>
+
+            <div class="mt-3 grid grid-cols-2 gap-2 text-xs">
+              <div class="rounded-lg border border-white/10 bg-white/[0.03] p-2">
+                <p class="text-white/55">Spend</p>
+                <p class="mt-0.5 font-semibold">{{ formatMoney(item.spend ?? 0) }}</p>
+              </div>
+              <div class="rounded-lg border border-white/10 bg-white/[0.03] p-2">
+                <p class="text-white/55">Revenue</p>
+                <p class="mt-0.5 font-semibold">{{ formatMoney(item.revenue ?? 0) }}</p>
+              </div>
+              <div class="rounded-lg border border-white/10 bg-white/[0.03] p-2">
+                <p class="text-white/55">ROAS</p>
+                <p class="mt-0.5 font-semibold">{{ (item.roas ?? 0).toFixed(2) }}</p>
+              </div>
+              <div class="rounded-lg border border-white/10 bg-white/[0.03] p-2">
+                <p class="text-white/55">CTR</p>
+                <p class="mt-0.5 font-semibold">{{ (item.ctr ?? 0).toFixed(2) }}%</p>
+              </div>
+            </div>
+
+            <div class="mt-3 flex items-center justify-between text-xs">
+              <a
+                v-if="item.productUrl"
+                :href="item.productUrl"
+                target="_blank"
+                rel="noopener"
+                class="text-glow-500/80 hover:text-glow-500 transition-colors"
+                @click.stop
+              >View product ↗</a>
+              <button
+                class="flex items-center gap-1 text-white/55 hover:text-white transition-colors"
+                @click.stop="openSidekick(item)"
+              >
+                <span>More</span>
+                <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/>
+                </svg>
+              </button>
+            </div>
+
+            <p class="mt-2 text-[11px] text-white/45">Tap anywhere for more details</p>
+          </button>
+        </div>
+      </div>
+
       <!-- Data table -->
-      <div v-else class="overflow-x-auto">
+      <div v-if="products.length" class="overflow-x-auto hidden md:block">
         <table class="w-full text-sm">
           <thead>
             <tr class="border-b border-white/10">
@@ -344,17 +438,17 @@
             </tr>
           </thead>
           <tbody class="divide-y divide-white/[0.05]">
-            <tr
-              v-for="item in products"
-              :key="item.id"
-              class="group hover:bg-white/[0.04] transition-colors cursor-pointer"
-              @click="openSidekick(item)"
-            >
+            <template v-for="item in products" :key="item.id">
+              <tr
+                class="group hover:bg-white/[0.04] transition-colors cursor-pointer"
+                @click="openSidekick(item)"
+              >
               <!-- Product info -->
               <td class="px-5 py-4">
                 <div class="flex items-center gap-3">
-                  <div class="h-9 w-9 flex-shrink-0 rounded-lg border border-white/10 bg-white/5 overflow-hidden">
+                  <div class="h-9 w-9 flex-shrink-0 rounded-lg border border-white/10 bg-white/5 overflow-hidden flex items-center justify-center">
                     <img
+                      v-if="item.imageUrl"
                       :src="thumbUrl(item.imageUrl)"
                       :alt="item.title"
                       class="h-full w-full object-cover"
@@ -362,6 +456,10 @@
                       width="36" height="36"
                       @error="(e) => { const t = e.target as HTMLImageElement; if (t.src !== item.imageUrl) t.src = item.imageUrl || '' }"
                     />
+                    <svg v-else class="w-4 h-4 text-white/35" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M3 7.5A2.25 2.25 0 015.25 5.25h13.5A2.25 2.25 0 0121 7.5v9A2.25 2.25 0 0118.75 18.75H5.25A2.25 2.25 0 013 16.5v-9z"/>
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M8 10.5h8m-8 3h5"/>
+                    </svg>
                   </div>
                   <div class="min-w-0">
                     <div class="flex items-center gap-1.5">
@@ -384,9 +482,18 @@
                         :href="item.productUrl"
                         target="_blank"
                         rel="noopener"
-                        class="text-xs text-glow-500/80 hover:text-glow-500 transition-colors opacity-0 group-hover:opacity-100"
+                        class="text-xs text-glow-500/80 hover:text-glow-500 transition-colors opacity-100 sm:opacity-0 sm:group-hover:opacity-100"
                         @click.stop
-                      >↗</a>
+                      >View ↗</a>
+                      <button
+                        class="text-xs text-white/55 hover:text-white transition-colors hidden lg:inline-flex items-center gap-1"
+                        @click.stop="openSidekick(item)"
+                      >
+                        More
+                        <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                          <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/>
+                        </svg>
+                      </button>
                     </div>
                   </div>
                 </div>
@@ -413,6 +520,12 @@
                       stroke-linejoin="round"
                     />
                   </svg>
+                  <button
+                    v-else-if="sparklineFailed.has(item.id)"
+                    @click.stop="retrySparkline(item.id)"
+                    class="w-10 h-4 flex-shrink-0 text-[9px] text-white/20 hover:text-white/50 transition-colors leading-none"
+                    title="Score history unavailable — click to retry"
+                  >retry</button>
                   <!-- Why? explainability trigger -->
                   <button
                     @click.stop="showExplain(item)"
@@ -472,7 +585,8 @@
                   <path stroke-linecap="round" stroke-linejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5"/>
                 </svg>
               </td>
-            </tr>
+              </tr>
+            </template>
           </tbody>
         </table>
       </div>
@@ -586,6 +700,14 @@ import { useGlobalFilters } from "~/composables/useGlobalFilters";
 const { public: { apiBase } } = useRuntimeConfig();
 
 const search      = ref("");
+// Debounced copy used for the API query — avoids a network request on every keystroke
+const searchDebounced = ref("");
+let searchDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+watch(search, (val) => {
+  if (searchDebounceTimer) clearTimeout(searchDebounceTimer);
+  searchDebounceTimer = setTimeout(() => { searchDebounced.value = val; }, 300);
+});
+
 const filter      = ref("all");
 const stockFilter = ref<'all' | 'inStock' | 'outOfStock'>("all");
 const includeVariants = ref(false);
@@ -617,16 +739,18 @@ const stockOptions: { value: 'all' | 'inStock' | 'outOfStock'; label: string; do
   { value: 'outOfStock',   label: 'Out of stock', dot: 'bg-ember-400' },
 ];
 
-// Reset to page 0 whenever any filter/sort/range changes
-watch([sortBy, sortDir, limit, filter, stockFilter, includeVariants, query], () => { page.value = 0; });
-watch(search, () => { page.value = 0; });
+// Reset to page 0 whenever any filter/sort/range changes (search uses debounced ref)
+watch([sortBy, sortDir, limit, filter, stockFilter, includeVariants, query, searchDebounced], () => { page.value = 0; });
 
 const { data, pending, refresh } = await useFetch(`${apiBase}/v1/products`, {
   server: false,
   credentials: 'include',
+  onResponseError({ response }) {
+    if (response.status === 401) navigateTo('/auth/login');
+  },
   query: computed(() => ({
     ...query.value,
-    search: search.value || undefined,
+    search: searchDebounced.value || undefined,
     category: filter.value === "all" ? undefined : filter.value,
     stock: stockFilter.value === "all" ? undefined : stockFilter.value,
     includeVariants: includeVariants.value ? "true" : undefined,
@@ -649,6 +773,9 @@ const storeSyncStatus = computed(() => data.value?.store?.lastSyncStatus  ?? 'ID
 const storeSyncError  = computed(() => data.value?.store?.lastSyncError   ?? null);
 const needsReauth     = computed(() => storeSyncStatus.value === 'NEEDS_REAUTH');
 const hasSyncError    = computed(() => storeSyncStatus.value === 'ERROR');
+const lastRollupAt    = computed(() => data.value?.store?.lastRollupAt ?? null);
+const rollupStatus    = computed(() => data.value?.store?.lastRollupStatus ?? 'IDLE');
+const rollupError     = computed(() => data.value?.store?.lastRollupError ?? null);
 
 // Human-readable "X ago" helper
 function timeAgo(iso: string | null): string {
@@ -734,6 +861,7 @@ const scoreBarColor = (score: number) => {
   return 'bg-white/30';
 };
 
+
 const badgeClass = (category: string) => {
   if (category === 'SCALE') return 'bg-lime-500/15 text-lime-400 border border-lime-500/20';
   if (category === 'TEST') return 'bg-glow-500/15 text-glow-400 border border-glow-500/20';
@@ -818,6 +946,14 @@ const openSidekick = async (item: Record<string, unknown>) => {
     historyLoading.value = false;
   }
 };
+
+// Strips stack traces / internal paths from backend error strings before showing
+// them in the UI. Truncates anything over 200 chars.
+function sanitizeError(msg: string | null | undefined, fallback: string): string {
+  if (!msg) return fallback;
+  if (/^\s*(Error|TypeError|ReferenceError|SyntaxError):/m.test(msg) || /\s+at \w/.test(msg)) return fallback;
+  return msg.length > 200 ? msg.slice(0, 200) + '…' : msg;
+}
 
 // ── Sync now ──────────────────────────────────────────────────────────────────
 const syncError = ref('');
@@ -919,62 +1055,47 @@ const triggerSync = async () => {
 
 // ── Score explainability ──────────────────────────────────────────────────────
 const explainProduct = ref<null | Record<string, any>>(null);
+const explainMap = ref<Record<string, Array<{ label: string; contribution: number; max: number; detail: string }>>>({});
+const explainLoading = ref(false);
+watch([() => query.value.range, () => query.value.start, () => query.value.end], () => {
+  explainMap.value = {};
+});
+
+async function fetchExplain(productId: string) {
+  if (explainMap.value[productId]) return;
+  explainLoading.value = true;
+  try {
+    const res = await $fetch<{ ok: boolean; factors: any[] }>(
+      `${apiBase}/v1/products/${productId}/explain`,
+      { credentials: 'include', query: { range: query.value.range, start: query.value.start, end: query.value.end } }
+    );
+    if (res?.ok) explainMap.value[productId] = res.factors ?? [];
+  } catch {
+    // no-op
+  } finally {
+    explainLoading.value = false;
+  }
+}
 
 function showExplain(item: Record<string, any>) {
   explainProduct.value = item;
+  fetchExplain(item.id);
 }
 
-/**
- * Decompose a product's score into its 4 contributing factors.
- * Mirrors the formula in backend/src/jobs/scoring.ts:
- *   ROAS(35%) + CTR(20%) + Margin(25%) + Inventory(20%)
- */
 function explainFactors(product: Record<string, any>) {
-  const roas      = Number(product.roas      ?? 0);
-  const ctr       = Number(product.ctr       ?? 0);
-  const margin    = Number(product.margin    ?? 0);
-  const inventory = product.inventoryLevel != null ? Number(product.inventoryLevel) : null;
-
-  const roasBenchmark      = userBenchmarks.roas;
-  const ctrBenchmark       = userBenchmarks.ctr / 100;
-  const marginBenchmark    = userBenchmarks.margin / 100;
-  const inventoryBenchmark = userBenchmarks.inventory;
-
-  const roasScore      = Math.min(roas / roasBenchmark,   1) * 35;
-  const ctrScore       = Math.min(ctr / ctrBenchmark,     1) * 20;
-  const marginScore    = Math.min(margin / marginBenchmark, 1) * 25;
-  const inventoryScore = inventory === null ? 10 : inventory >= inventoryBenchmark ? 20 : (inventory / inventoryBenchmark) * 20;
-
+  const factors = explainMap.value[product.id];
+  if (factors?.length) return factors;
   return [
-    {
-      label:        'ROAS (Return on Ad Spend)',
-      contribution: Math.round(roasScore * 10) / 10,
-      max:          35,
-      detail:       `${roas.toFixed(2)}× (benchmark: ${roasBenchmark}×)`,
-    },
-    {
-      label:        'CTR (Click-Through Rate)',
-      contribution: Math.round(ctrScore * 10) / 10,
-      max:          20,
-      detail:       `${(ctr * 100).toFixed(2)}% (benchmark: ${userBenchmarks.ctr}%)`,
-    },
-    {
-      label:        'Profit Margin',
-      contribution: Math.round(marginScore * 10) / 10,
-      max:          25,
-      detail:       `${(margin * 100).toFixed(1)}% (benchmark: ${userBenchmarks.margin}%)`,
-    },
-    {
-      label:        'Inventory Level',
-      contribution: Math.round(inventoryScore * 10) / 10,
-      max:          20,
-      detail:       inventory === null ? 'Unknown (neutral)' : `${inventory} units (≥${inventoryBenchmark} = full marks)`,
-    },
+    { label: 'ROAS (Return on Ad Spend)', contribution: 0, max: 35, detail: explainLoading.value ? 'Loading…' : '—' },
+    { label: 'CTR (Click-Through Rate)', contribution: 0, max: 20, detail: explainLoading.value ? 'Loading…' : '—' },
+    { label: 'Profit Margin', contribution: 0, max: 25, detail: explainLoading.value ? 'Loading…' : '—' },
+    { label: 'Inventory', contribution: 0, max: 20, detail: explainLoading.value ? 'Loading…' : '—' },
   ];
 }
 
 // ── Score sparklines ──────────────────────────────────────────────────────────
-const sparklines = ref<Record<string, { score: number; date: string }[]>>({});
+const sparklines     = ref<Record<string, { score: number; date: string }[]>>({});
+const sparklineFailed = ref<Set<string>>(new Set());
 
 function getSparkPoints(history: { score: number }[]) {
   if (!history.length) return '';
@@ -998,14 +1119,25 @@ function getSparkColor(history: { score: number }[]) {
 }
 
 async function fetchSparkline(productId: string) {
-  if (sparklines.value[productId]) return;
+  if (sparklines.value[productId] || sparklineFailed.value.has(productId)) return;
   try {
     const res = await $fetch<any>(
       `${apiBase}/v1/analytics/products/score-history/${productId}`,
       { credentials: 'include' }
     );
-    if (res?.ok) sparklines.value[productId] = res.history ?? [];
-  } catch {}
+    if (res?.ok && res.history?.length) {
+      sparklines.value[productId] = res.history;
+    } else {
+      sparklineFailed.value = new Set([...sparklineFailed.value, productId]);
+    }
+  } catch {
+    sparklineFailed.value = new Set([...sparklineFailed.value, productId]);
+  }
+}
+
+function retrySparkline(productId: string) {
+  sparklineFailed.value = new Set([...sparklineFailed.value].filter(id => id !== productId));
+  fetchSparkline(productId);
 }
 
 // Fetch sparklines for first 20 visible products when data loads
@@ -1079,6 +1211,7 @@ const exportCsv = async (mode: 'page' | 'all' = 'page') => {
           sortDir:  sortDir.value,
           limit:    batchSize,
           page:     currentPage,
+          __export: '1',
         },
       });
       const items = res?.items ?? [];
@@ -1097,7 +1230,10 @@ const exportCsv = async (mode: 'page' | 'all' = 'page') => {
       body: { productCount: allRows.length },
     }).catch(() => {});
   } catch (err: any) {
-    syncError.value = err?.data?.message || 'Export failed. Please try again.';
+    const msg = err?.data?.message || err?.message || 'Export failed. Please try again.';
+    syncError.value = err?.status === 429 || err?.statusCode === 429
+      ? msg
+      : `Export failed: ${msg}`;
   } finally {
     exportingAll.value = false;
     exportProgress.value = '';

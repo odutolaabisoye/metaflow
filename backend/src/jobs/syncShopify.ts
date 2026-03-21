@@ -1,5 +1,7 @@
 import type { PrismaClient } from "@prisma/client";
 import { storeLocalDayBounds, storeLocalDateStr } from "./dateUtils.js";
+import { getExchangeRate } from "../utils/fx.js";
+import { fetchWithRetry } from "../utils/http.js";
 
 const SHOPIFY_API_VERSION = "2024-04";
 
@@ -23,11 +25,16 @@ interface ShopifyProduct {
 interface ShopifyOrder {
   id: number;
   created_at: string;
+  currency: string;        // order's presentment currency code, e.g. "USD"
   line_items: Array<{
     product_id: number;
     variant_id: number;
     quantity: number;
     price: string;
+    /** Total discount applied to this line item (e.g. "5.00"). Included in the
+     *  Shopify Orders REST response.  Must be subtracted so revenue reflects
+     *  what the merchant actually received, not the pre-discount list price. */
+    total_discount: string;
   }>;
   financial_status: string;
 }
@@ -42,7 +49,7 @@ async function shopifyFetch<T>(
     ? `https://${shop}/admin/api/${SHOPIFY_API_VERSION}${path}&page_info=${pageInfo}&limit=250`
     : `https://${shop}/admin/api/${SHOPIFY_API_VERSION}${path}${path.includes("?") ? "&" : "?"}limit=250`;
 
-  const res = await fetch(url, {
+  const res = await fetchWithRetry(url, {
     headers: {
       "X-Shopify-Access-Token": accessToken,
       "Content-Type": "application/json"
@@ -90,6 +97,8 @@ interface SyncShopifyData {
   accessToken: string;
   /** IANA timezone string for this store, e.g. "America/New_York". Defaults to "Africa/Lagos". */
   timezone?: string;
+  /** Store's base currency code, e.g. "NGN". Used for multi-currency FX conversion. */
+  storeCurrency?: string;
 }
 
 /**
@@ -104,7 +113,7 @@ export async function runShopifySync(
   prisma: PrismaClient,
   data: SyncShopifyData
 ): Promise<{ products: number; orders: number }> {
-  const { storeId, shop, accessToken, timezone = "Africa/Lagos" } = data;
+  const { storeId, shop, accessToken, timezone = "Africa/Lagos", storeCurrency } = data;
 
   // --- Step 1: Fetch all products ---
   const products = await shopifyPaginate<{ products: ShopifyProduct[] }, ShopifyProduct>(
@@ -130,16 +139,38 @@ export async function runShopifySync(
   //
   // revenueMapByDate: productId → (localDateStr → {revenue, orderCount})
   //
-  // This lets us write one correct DailyMetric row per day per product and
-  // naturally backfill the last 30 days on every sync run.
+  // Multi-currency: Shopify can send orders in different currencies when a store
+  // uses Shopify Markets. We build a per-currency FX rate cache for the batch so
+  // we only call the FX API once per unique currency, not once per order.
+  //
+  // For most stores all orders share the same currency → fxRateCache has 1 entry
+  // and no network call is made (same currency → rate 1.0).
   const revenueMapByDate = new Map<number, Map<string, { revenue: number; orderCount: number }>>();
   const todayLocalStr = storeLocalDateStr(timezone); // e.g. "2026-03-20"
+  const fxRateCache = new Map<string, number>(); // orderCurrency → rate to storeCurrency
+
+  async function getFxRate(orderCurrency: string): Promise<number> {
+    if (!storeCurrency || orderCurrency === storeCurrency) return 1;
+    const cached = fxRateCache.get(orderCurrency);
+    if (cached !== undefined) return cached;
+    const rate = await getExchangeRate(orderCurrency, storeCurrency);
+    fxRateCache.set(orderCurrency, rate);
+    if (rate !== 1) {
+      console.log(`[syncShopify] FX ${orderCurrency}→${storeCurrency}: ${rate.toFixed(6)}`);
+    }
+    return rate;
+  }
 
   for (const order of orders) {
     const orderLocalDate = storeLocalDateStr(timezone, new Date(order.created_at));
+    const fxRate = await getFxRate(order.currency ?? storeCurrency ?? "");
     for (const item of order.line_items) {
       const itemId = item.variant_id && item.variant_id > 0 ? item.variant_id : item.product_id;
-      const itemRevenue = parseFloat(item.price) * item.quantity;
+      // Use gross revenue minus line-item discount so we track what the merchant
+      // actually received, not the pre-discount list price.
+      const grossRevenue = parseFloat(item.price) * item.quantity;
+      const lineDiscount = parseFloat(item.total_discount ?? "0") || 0;
+      const itemRevenue = (grossRevenue - lineDiscount) * fxRate;
       if (!revenueMapByDate.has(itemId)) revenueMapByDate.set(itemId, new Map());
       const dateMap = revenueMapByDate.get(itemId)!;
       const existing = dateMap.get(orderLocalDate) ?? { revenue: 0, orderCount: 0 };
@@ -188,6 +219,8 @@ export async function runShopifySync(
         score: 0,
         category: "TEST",
         storeId,
+        isActive: true,
+        archivedAt: null,
         isVariant: false,
         parentId: null
       },
@@ -198,6 +231,8 @@ export async function runShopifySync(
         altIds,
         productUrl,
         inventoryLevel,
+        isActive: true,
+        archivedAt: null,
         isVariant: false,
         parentId: null
       }
@@ -221,6 +256,8 @@ export async function runShopifySync(
           score: 0,
           category: "TEST",
           storeId,
+          isActive: true,
+          archivedAt: null,
           isVariant: true,
           parentId: parent.id
         },
@@ -230,6 +267,8 @@ export async function runShopifySync(
           sku: variantSku,
           productUrl: variantUrl,
           inventoryLevel: variant.inventory_quantity ?? null,
+          isActive: true,
+          archivedAt: null,
           isVariant: true,
           parentId: parent.id
         }
@@ -352,6 +391,26 @@ export async function runShopifySync(
         }
       });
     }
+  }
+
+  // Mark products no longer present in Shopify as inactive
+  const seenExternalIds = new Set<string>();
+  for (const product of products) {
+    seenExternalIds.add(String(product.id));
+    for (const v of product.variants) {
+      seenExternalIds.add(String(v.id));
+    }
+  }
+  const seenList = [...seenExternalIds];
+  if (seenList.length > 0) {
+    await prisma.productMeta.updateMany({
+      where: {
+        storeId,
+        isActive: true,
+        externalId: { notIn: seenList }
+      },
+      data: { isActive: false, archivedAt: new Date() }
+    });
   }
 
   return { products: products.length, orders: orders.length };

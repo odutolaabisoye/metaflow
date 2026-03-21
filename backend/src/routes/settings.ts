@@ -41,6 +41,7 @@ export async function settingsRoutes(app: FastifyInstance) {
   app.get("/settings", async (request, reply) => {
     try {
       const payload = await request.jwtVerify<{ sub: string }>();
+      if (!payload?.sub) return reply.code(401).send({ ok: false, message: "Unauthorized" });
 
       const settings = await app.prisma.userSettings.upsert({
         where:  { userId: payload.sub },
@@ -61,6 +62,7 @@ export async function settingsRoutes(app: FastifyInstance) {
   app.patch("/settings", async (request, reply) => {
     try {
       const payload = await request.jwtVerify<{ sub: string }>();
+      if (!payload?.sub) return reply.code(401).send({ ok: false, message: "Unauthorized" });
       const body = request.body as {
         rules?: {
           scale?: boolean;
@@ -96,18 +98,20 @@ export async function settingsRoutes(app: FastifyInstance) {
       }
 
       if (body.thresholds) {
-        const clamp = (v: number) => Math.min(100, Math.max(0, Math.round(v)));
+        // Guard against NaN/Infinity which would pass through Math.min/max unchanged and corrupt the DB
+        const clamp = (v: number) => !Number.isFinite(v) ? 0 : Math.min(100, Math.max(0, Math.round(v)));
         if (body.thresholds.scale !== undefined) data.thresholdScale = clamp(body.thresholds.scale);
         if (body.thresholds.test  !== undefined) data.thresholdTest  = clamp(body.thresholds.test);
         if (body.thresholds.kill  !== undefined) data.thresholdKill  = clamp(body.thresholds.kill);
       }
 
       if (body.benchmarks) {
-        const clampPositive = (v: number) => Math.max(0.001, v);
+        // Guard against NaN/Infinity — Math.max(0.001, NaN) === NaN, which would be written to DB
+        const clampPositive = (v: number) => !Number.isFinite(v) ? 0.001 : Math.max(0.001, v);
         if (body.benchmarks.roas      !== undefined) data.benchmarkRoas      = clampPositive(body.benchmarks.roas);
         if (body.benchmarks.ctr       !== undefined) data.benchmarkCtr       = Math.min(1, clampPositive(body.benchmarks.ctr / 100)); // accept as % like "3" → store as 0.03
         if (body.benchmarks.margin    !== undefined) data.benchmarkMargin    = Math.min(1, clampPositive(body.benchmarks.margin / 100)); // accept as % like "50" → 0.5
-        if (body.benchmarks.inventory !== undefined) data.benchmarkInventory = Math.max(1, Math.round(body.benchmarks.inventory));
+        if (body.benchmarks.inventory !== undefined) data.benchmarkInventory = !Number.isFinite(body.benchmarks.inventory) ? 1 : Math.max(1, Math.round(body.benchmarks.inventory));
       }
 
       if (body.notifications) {
@@ -121,6 +125,44 @@ export async function settingsRoutes(app: FastifyInstance) {
         update: data,
         create: { userId: payload.sub, ...data },
       });
+
+      // Write audit log for scoring/benchmark/threshold changes on all user stores,
+      // then re-trigger the scoring job so products are re-scored with the new benchmarks.
+      const hasScoringChange = body.benchmarks || body.thresholds;
+      if (hasScoringChange && Object.keys(data).length > 0) {
+        const userStores = await app.prisma.store.findMany({
+          where: { ownerId: payload.sub },
+          select: { id: true }
+        });
+        await Promise.all(
+          userStores.map((s: { id: string }) =>
+            app.prisma.auditLog.create({
+              data: {
+                storeId: s.id,
+                action:  "settings.updated",
+                detail:  `User updated global settings: ${Object.keys(data).join(", ")}`,
+                metadata: { updates: data },
+              }
+            }).catch((err: Error) =>
+              app.log.warn({ err, storeId: s.id }, "[settings] Audit log write failed — non-fatal")
+            )
+          )
+        );
+
+        // Re-score each store immediately so the new benchmarks/thresholds are reflected
+        // without waiting for the next scheduled scoring run.
+        if (app.queues?.scoringQueue) {
+          await Promise.all(
+            userStores.map((s: { id: string }) =>
+              app.queues.scoringQueue
+                .add("score-store", { storeId: s.id }, { attempts: 2, backoff: { type: "fixed", delay: 5000 } })
+                .catch((err: Error) =>
+                  app.log.warn({ err, storeId: s.id }, "[settings] Failed to enqueue re-score job — non-fatal")
+                )
+            )
+          );
+        }
+      }
 
       return reply.send({ ok: true, settings: formatSettings(settings) });
     } catch {
@@ -137,6 +179,7 @@ export async function settingsRoutes(app: FastifyInstance) {
   app.patch("/settings/plan", async (request, reply) => {
     try {
       const payload = await request.jwtVerify<{ sub: string }>();
+      if (!payload?.sub) return reply.code(401).send({ ok: false, message: "Unauthorized" });
       const { plan: newPlan } = (request.body ?? {}) as { plan?: string };
 
       if (!newPlan) {
@@ -181,6 +224,7 @@ export async function settingsRoutes(app: FastifyInstance) {
   app.get("/settings/store/:storeId", async (request, reply) => {
     try {
       const payload = await request.jwtVerify<{ sub: string }>();
+      if (!payload?.sub) return reply.code(401).send({ ok: false, message: "Unauthorized" });
       const { storeId } = request.params as { storeId: string };
 
       // Verify ownership
@@ -223,6 +267,7 @@ export async function settingsRoutes(app: FastifyInstance) {
   app.patch("/settings/store/:storeId", async (request, reply) => {
     try {
       const payload = await request.jwtVerify<{ sub: string }>();
+      if (!payload?.sub) return reply.code(401).send({ ok: false, message: "Unauthorized" });
       const { storeId } = request.params as { storeId: string };
 
       // Verify ownership
@@ -238,17 +283,35 @@ export async function settingsRoutes(app: FastifyInstance) {
         inventory?: number | null;
       };
 
+      // Guard: NaN/Infinity from malformed JSON would pass through Math.max/min unchanged.
+      // fin(v, fb) returns v when it's a finite number, fb otherwise (null stays null).
+      const fin = (v: number | null | undefined, fb: number): number =>
+        (v != null && Number.isFinite(v)) ? v : fb;
+
       const data: Record<string, unknown> = {};
-      if (body.roas      !== undefined) data.benchmarkRoas      = body.roas      != null ? Math.max(0.1, body.roas) : null;
-      if (body.ctr       !== undefined) data.benchmarkCtr       = body.ctr       != null ? Math.min(1, Math.max(0.001, body.ctr / 100)) : null;
-      if (body.margin    !== undefined) data.benchmarkMargin    = body.margin    != null ? Math.min(1, Math.max(0.001, body.margin / 100)) : null;
-      if (body.inventory !== undefined) data.benchmarkInventory = body.inventory != null ? Math.max(1, Math.round(body.inventory)) : null;
+      if (body.roas      !== undefined) data.benchmarkRoas      = body.roas      != null ? Math.max(0.1,  fin(body.roas,      0.1))                            : null;
+      if (body.ctr       !== undefined) data.benchmarkCtr       = body.ctr       != null ? Math.min(1, Math.max(0.001, fin(body.ctr,       3) / 100))          : null;
+      if (body.margin    !== undefined) data.benchmarkMargin    = body.margin    != null ? Math.min(1, Math.max(0.001, fin(body.margin,    50) / 100))          : null;
+      if (body.inventory !== undefined) data.benchmarkInventory = body.inventory != null ? Math.max(1, Math.round(fin(body.inventory, 10)))                    : null;
 
       const updated = await app.prisma.store.update({
         where: { id: storeId },
         data,
         select: { benchmarkRoas: true, benchmarkCtr: true, benchmarkMargin: true, benchmarkInventory: true }
       });
+
+      if (Object.keys(data).length > 0) {
+        await app.prisma.auditLog.create({
+          data: {
+            storeId,
+            action: "store.benchmarks.updated",
+            detail: `Updated store benchmark overrides: ${Object.keys(data).join(", ")}`,
+            metadata: { updates: data },
+          }
+        }).catch((err: Error) =>
+          app.log.warn({ err, storeId }, "[settings] Audit log write failed — non-fatal")
+        );
+      }
 
       return reply.send({
         ok: true,
@@ -271,6 +334,7 @@ export async function settingsRoutes(app: FastifyInstance) {
   app.delete("/settings", async (request, reply) => {
     try {
       const payload = await request.jwtVerify<{ sub: string }>();
+      if (!payload?.sub) return reply.code(401).send({ ok: false, message: "Unauthorized" });
 
       await app.prisma.userSettings.deleteMany({
         where: { userId: payload.sub },

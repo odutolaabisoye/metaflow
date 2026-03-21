@@ -1,4 +1,5 @@
 import type { PrismaClient, ProductCategory } from "@prisma/client";
+import { storeLocalDateStr } from "./dateUtils.js";
 
 interface MailService {
   sendScoreAlert(email: string, name: string, productTitle: string, oldCategory: string, newCategory: string, score: number): Promise<void>;
@@ -80,6 +81,50 @@ export function computeProductScore(
   return Math.round(roasScore + ctrScore + marginScore + inventoryScore);
 }
 
+export function computeScoreBreakdown(
+  metrics: ScoringMetrics,
+  benchmarks: ScoringBenchmarks = DEFAULT_BENCHMARKS
+): Array<{ label: string; contribution: number; max: number; detail: string }> {
+  const { roasBenchmark, ctrBenchmark, marginBenchmark, inventoryBenchmark } = benchmarks;
+  const roasScore      = Math.min(metrics.roas / roasBenchmark, 1) * 35;
+  const ctrScore       = Math.min(metrics.ctr / ctrBenchmark, 1) * 20;
+  const marginScore    = Math.min(metrics.margin / marginBenchmark, 1) * 25;
+  const inventoryScore = metrics.inventoryLevel === null
+    ? 10
+    : metrics.inventoryLevel >= inventoryBenchmark
+      ? 20
+      : (metrics.inventoryLevel / inventoryBenchmark) * 20;
+
+  return [
+    {
+      label: "ROAS (Return on Ad Spend)",
+      contribution: Math.round(roasScore * 10) / 10,
+      max: 35,
+      detail: `${metrics.roas.toFixed(2)}× (benchmark: ${roasBenchmark}×)`,
+    },
+    {
+      label: "CTR (Click-Through Rate)",
+      contribution: Math.round(ctrScore * 10) / 10,
+      max: 20,
+      detail: `${(metrics.ctr * 100).toFixed(2)}% (benchmark: ${(ctrBenchmark * 100).toFixed(2)}%)`,
+    },
+    {
+      label: "Profit Margin",
+      contribution: Math.round(marginScore * 10) / 10,
+      max: 25,
+      detail: `${(metrics.margin * 100).toFixed(1)}% (benchmark: ${(marginBenchmark * 100).toFixed(1)}%)`,
+    },
+    {
+      label: "Inventory",
+      contribution: Math.round(inventoryScore * 10) / 10,
+      max: 20,
+      detail: metrics.inventoryLevel === null
+        ? "No inventory data (neutral score)"
+        : `${metrics.inventoryLevel} units (benchmark: ${inventoryBenchmark})`,
+    },
+  ];
+}
+
 export function scoreToCategory(
   score: number,
   thresholds: CategoryThresholds = DEFAULT_THRESHOLDS
@@ -124,12 +169,18 @@ export async function runScoringJob(
 ): Promise<ScoringResult> {
   const { storeId } = data;
 
+  // Single store query — fetches timezone, ownerId AND benchmark overrides together
   const store = await prisma.store.findUnique({
     where: { id: storeId },
-    select: { ownerId: true }
+    select: {
+      ownerId: true, timezone: true,
+      benchmarkRoas: true, benchmarkCtr: true,
+      benchmarkMargin: true, benchmarkInventory: true,
+    }
   });
+  const storeTimezone = store?.timezone ?? "UTC";
 
-  // Load user's custom benchmarks and thresholds up front
+  // Load user's custom benchmarks/thresholds — only if store has an owner
   const userSettings = store?.ownerId
     ? await prisma.userSettings.findUnique({
         where: { userId: store.ownerId },
@@ -142,20 +193,12 @@ export async function runScoringJob(
       })
     : null;
 
-  // Load store-level benchmark overrides (take precedence over user-level settings)
-  const storeData = await prisma.store.findUnique({
-    where: { id: storeId },
-    select: {
-      benchmarkRoas: true, benchmarkCtr: true,
-      benchmarkMargin: true, benchmarkInventory: true,
-    }
-  });
-
+  // Cascade: store-level overrides > user-level settings > global defaults
   const benchmarks: ScoringBenchmarks = {
-    roasBenchmark:      storeData?.benchmarkRoas      ?? userSettings?.benchmarkRoas      ?? DEFAULT_BENCHMARKS.roasBenchmark,
-    ctrBenchmark:       storeData?.benchmarkCtr       ?? userSettings?.benchmarkCtr       ?? DEFAULT_BENCHMARKS.ctrBenchmark,
-    marginBenchmark:    storeData?.benchmarkMargin     ?? userSettings?.benchmarkMargin    ?? DEFAULT_BENCHMARKS.marginBenchmark,
-    inventoryBenchmark: storeData?.benchmarkInventory  ?? userSettings?.benchmarkInventory ?? DEFAULT_BENCHMARKS.inventoryBenchmark,
+    roasBenchmark:      store?.benchmarkRoas      ?? userSettings?.benchmarkRoas      ?? DEFAULT_BENCHMARKS.roasBenchmark,
+    ctrBenchmark:       store?.benchmarkCtr       ?? userSettings?.benchmarkCtr       ?? DEFAULT_BENCHMARKS.ctrBenchmark,
+    marginBenchmark:    store?.benchmarkMargin     ?? userSettings?.benchmarkMargin    ?? DEFAULT_BENCHMARKS.marginBenchmark,
+    inventoryBenchmark: store?.benchmarkInventory  ?? userSettings?.benchmarkInventory ?? DEFAULT_BENCHMARKS.inventoryBenchmark,
   };
 
   const thresholds: CategoryThresholds = {
@@ -166,7 +209,7 @@ export async function runScoringJob(
 
   // Load products without DailyMetric include — aggregates fetched below in one query
   const products = await prisma.productMeta.findMany({
-    where: { storeId },
+    where: { storeId, isActive: true },
     select: { id: true, title: true, category: true, score: true, isVariant: true, parentId: true }
   });
 
@@ -228,6 +271,30 @@ export async function runScoringJob(
   };
 
   const productIndex = new Map(products.map(p => [p.id, p]));
+  // Re-issue groupBy queries now that we know the active product IDs, so that
+  // metrics for archived/deleted products are excluded from the rollup.
+  const activeProductIds = products.map(p => p.id);
+
+  const [filteredMetrics30d, filteredMetrics7d] = await Promise.all([
+    prisma.dailyMetric.groupBy({
+      by: ["productId"],
+      where: { storeId, productId: { in: activeProductIds }, date: { gte: since30 } },
+      _sum: AGG_SUM_FIELDS,
+      _avg: { margin: true },
+      _max: { inventoryLevel: true },
+    }),
+    prisma.dailyMetric.groupBy({
+      by: ["productId"],
+      where: { storeId, productId: { in: activeProductIds }, date: { gte: since7 } },
+      _sum: AGG_SUM_FIELDS,
+    }),
+  ]);
+
+  // Replace the unfiltered maps with the filtered ones
+  metricMap.clear();
+  metricMap7.clear();
+  for (const m of filteredMetrics30d) metricMap.set(m.productId, m);
+  for (const m of filteredMetrics7d) metricMap7.set(m.productId, m);
 
   const rollup30d = new Map<string, Rollup>();
   for (const m of metrics30d) {
@@ -308,9 +375,13 @@ export async function runScoringJob(
         const impressions30d = product.isVariant ? (m?._sum.impressions  ?? 0) : (r?.impressions ?? 0);
         const clicks30d      = product.isVariant ? (m?._sum.clicks       ?? 0) : (r?.clicks ?? 0);
         const conversions30d = product.isVariant ? (m?._sum.conversions  ?? 0) : (r?.conversions ?? 0);
+        const hasRealMargin  = product.isVariant
+          ? m?._avg.margin != null
+          : (r?.marginWeight ?? 0) > 0;
         const margin         = product.isVariant
           ? (m?._avg.margin ?? 0.35)
           : ((r?.marginWeight ?? 0) > 0 ? (r!.marginWeightedSum / r!.marginWeight) : 0.35);
+        const marginSource   = hasRealMargin ? "synced" : "default";
         const inventoryLevel = product.isVariant
           ? (m?._max.inventoryLevel ?? null)
           : (r ? Math.max(0, r.inventorySum) : null);
@@ -344,7 +415,7 @@ export async function runScoringJob(
         const oldCategory = product.category;
         const oldScore = product.score;
 
-        const scoreShifted = Math.abs(newScore - oldScore) >= 2;
+        const scoreShifted = Math.abs(newScore - oldScore) >= 1;
         const categoryChanged = newCategory !== oldCategory;
 
         await prisma.productMeta.update({
@@ -352,7 +423,7 @@ export async function runScoringJob(
           data: {
             spend30d, revenue30d, metaRevenue30d,
             impressions30d, clicks30d, conversions30d,
-            roas30d, ctr30d, margin, inventoryLevel,
+            roas30d, ctr30d, margin, marginSource, inventoryLevel,
             addToCart30d, addToCartOmni30d,
             checkoutInitiated30d, checkoutInitiatedOmni30d,
             spend7d, revenue7d, metaRevenue7d,
@@ -369,11 +440,14 @@ export async function runScoringJob(
 
         if (!scoreShifted && !categoryChanged) return;
 
+        const localScoreDate = storeLocalDateStr(storeTimezone, new Date());
+        const scoreDate = new Date(`${localScoreDate}T00:00:00.000Z`);
+
         await prisma.productScoreHistory.upsert({
           where: {
             productId_date: {
               productId: product.id,
-              date: new Date(new Date().toISOString().split('T')[0])
+              date: scoreDate
             }
           },
           update: { score: newScore, category: newCategory },
@@ -382,7 +456,7 @@ export async function runScoringJob(
             storeId,
             score: newScore,
             category: newCategory,
-            date: new Date(new Date().toISOString().split('T')[0])
+            date: scoreDate
           }
         });
 

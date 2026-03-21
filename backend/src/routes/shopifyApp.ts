@@ -18,12 +18,20 @@
  */
 
 import type { FastifyInstance } from "fastify";
+import { encryptToken } from "../utils/crypto.js";
+import { convertCurrency } from "../utils/fx.js";
 import crypto from "crypto";
 import bcrypt from "bcryptjs";
 import { registerShopifyWebhooks } from "./connections.js";
+import { storeLocalDateStr, storeLocalDayBounds } from "../jobs/dateUtils.js";
+import { fetchWithRetry } from "../utils/http.js";
+import { SHOPIFY_API_VERSION } from "../utils/constants.js";
 
-const SHOPIFY_API_VERSION = "2024-04";
 const SHOPIFY_SCOPES = "read_products,read_orders,read_inventory,write_products";
+
+function generateJti() {
+  return crypto.randomBytes(16).toString("hex");
+}
 
 // Plan → max stores (0 = unlimited)
 const PLAN_STORE_LIMITS: Record<string, number> = {
@@ -66,14 +74,24 @@ function validateInstallHmac(query: Record<string, string>, secret: string): boo
 /**
  * Validates the HMAC signature Shopify sends in webhook POST headers.
  * Uses base64 encoding (different from install flow).
+ * Uses crypto.timingSafeEqual to prevent timing-based side-channel attacks —
+ * a plain === comparison leaks timing info proportional to the shared prefix length.
  */
 function validateWebhookHmac(rawBody: string, hmacHeader: string, secret: string): boolean {
   if (!hmacHeader) return false;
-  const expected = crypto
-    .createHmac("sha256", secret)
-    .update(rawBody, "utf8")
-    .digest("base64");
-  return hmacHeader === expected;
+  try {
+    const expected = crypto
+      .createHmac("sha256", secret)
+      .update(rawBody, "utf8")
+      .digest("base64");
+    const a = Buffer.from(hmacHeader);
+    const b = Buffer.from(expected);
+    // Buffers must be the same length for timingSafeEqual; length mismatch is itself
+    // non-secret (an attacker already knows the expected base64 length), so this is safe.
+    return a.length === b.length && crypto.timingSafeEqual(a, b);
+  } catch {
+    return false;
+  }
 }
 
 // ─── Cookie options (mirrors auth.ts) ─────────────────────────────────────────
@@ -196,7 +214,7 @@ export async function shopifyAppRoutes(app: FastifyInstance) {
 
     try {
       // --- 2. Exchange code for permanent access token ---
-      const tokenRes = await fetch(`https://${shop}/admin/oauth/access_token`, {
+      const tokenRes = await fetchWithRetry(`https://${shop}/admin/oauth/access_token`, {
         method:  "POST",
         headers: { "Content-Type": "application/json" },
         body:    JSON.stringify({
@@ -218,7 +236,7 @@ export async function shopifyAppRoutes(app: FastifyInstance) {
       const accessToken = tokenData.access_token;
 
       // --- 3. Fetch Shopify shop details ---
-      const shopRes = await fetch(
+      const shopRes = await fetchWithRetry(
         `https://${shop}/admin/api/${SHOPIFY_API_VERSION}/shop.json`,
         { headers: { "X-Shopify-Access-Token": accessToken } }
       );
@@ -247,22 +265,51 @@ export async function shopifyAppRoutes(app: FastifyInstance) {
         });
 
         app.log.info({ email: ownerEmail }, "[shopify-app] Created new MetaFlow user");
-        // TODO: queue welcome + "set your password" email to ownerEmail
+        // Send welcome + "set your password" email (fire-and-forget — don't block install)
+        app.mail.sendWelcome(ownerEmail, shopName).catch((err: Error) =>
+          app.log.warn({ err, email: ownerEmail }, "[shopify-app] Welcome email failed — install continues")
+        );
       }
 
       // --- 5. Find or create Store ---
+      // Use exact URL match — `contains` would match partial substrings and could
+      // accidentally link to a different user's store (e.g. "store" matches "mystore").
+      const canonicalShopUrl = `https://${shop}`;
       let store = await app.prisma.store.findFirst({
-        where: { ownerId: user.id, storeUrl: { contains: shop } }
+        where: { ownerId: user.id, storeUrl: canonicalShopUrl }
       });
 
       if (!store) {
-        // Enforce plan store limit
-        const storeCount = await app.prisma.store.count({ where: { ownerId: user.id } });
-        const limit       = PLAN_STORE_LIMITS[user.plan] ?? 1;
+        const limit = PLAN_STORE_LIMITS[user.plan] ?? 1;
 
-        if (limit > 0 && storeCount >= limit) {
-          // Redirect to pricing — user needs to upgrade
-          const upgradeToken = app.jwt.sign({ sub: user.id, email: user.email, role: user.role });
+        // Atomically check store count and create — SERIALIZABLE prevents concurrent installs
+        // from both reading count=0 and then both creating a store, bypassing the plan limit.
+        let limitExceeded = false;
+        try {
+          store = await app.prisma.$transaction(async (tx) => {
+            const storeCount = await tx.store.count({ where: { ownerId: user.id } });
+            if (limit > 0 && storeCount >= limit) {
+              limitExceeded = true;
+              return null;
+            }
+            return await tx.store.create({
+              data: {
+                name:     shopName,
+                platform: "SHOPIFY",
+                storeUrl: `https://${shop}`,
+                currency,
+                ownerId:  user.id
+              }
+            });
+          }, { isolationLevel: "Serializable" });
+        } catch (txErr) {
+          // Serialization failure (concurrent install) — treat as limit exceeded to be safe
+          app.log.warn({ userId: user.id, shop, err: txErr }, "[shopify-app] Store create transaction failed");
+          limitExceeded = true;
+        }
+
+        if (limitExceeded || !store) {
+          const upgradeToken = app.jwt.sign({ sub: user.id, email: user.email, role: user.role, jti: generateJti() });
           const maxAge       = 60 * 60 * 24 * 7;
           reply.setCookie("mf_session", upgradeToken, { ...SESSION_COOKIE, secure: process.env.NODE_ENV === "production", maxAge });
           reply.setCookie("mf_auth",    "1",           { ...FLAG_COOKIE,    secure: process.env.NODE_ENV === "production", maxAge });
@@ -271,24 +318,16 @@ export async function shopifyAppRoutes(app: FastifyInstance) {
           return reply.redirect(`${frontendBase}/pricing?reason=store_limit`);
         }
 
-        store = await app.prisma.store.create({
-          data: {
-            name:     shopName,
-            platform: "SHOPIFY",
-            storeUrl: `https://${shop}`,
-            currency,
-            ownerId:  user.id
-          }
-        });
-
         app.log.info({ storeId: store.id, shop }, "[shopify-app] Created new store");
       }
+
+      const encryptedAccessToken = encryptToken(accessToken);
 
       // --- 6. Upsert Shopify connection ---
       await app.prisma.connection.upsert({
         where:  { storeId_provider: { storeId: store.id, provider: "SHOPIFY" } },
-        create: { provider: "SHOPIFY", accessToken, scopes: tokenData.scope, storeId: store.id },
-        update: { accessToken, scopes: tokenData.scope }
+        create: { provider: "SHOPIFY", accessToken: encryptedAccessToken, scopes: tokenData.scope, storeId: store.id },
+        update: { accessToken: encryptedAccessToken, scopes: tokenData.scope }
       });
 
       // Keep store URL in sync
@@ -302,7 +341,7 @@ export async function shopifyAppRoutes(app: FastifyInstance) {
 
       // Also register the uninstall webhook so we can clean up
       try {
-        await fetch(`https://${shop}/admin/api/${SHOPIFY_API_VERSION}/webhooks.json`, {
+        await fetchWithRetry(`https://${shop}/admin/api/${SHOPIFY_API_VERSION}/webhooks.json`, {
           method:  "POST",
           headers: {
             "X-Shopify-Access-Token": accessToken,
@@ -343,7 +382,7 @@ export async function shopifyAppRoutes(app: FastifyInstance) {
       );
 
       // --- 9. Set session cookies + redirect ---
-      const sessionToken = app.jwt.sign({ sub: user.id, email: user.email, role: user.role });
+      const sessionToken = app.jwt.sign({ sub: user.id, email: user.email, role: user.role, jti: generateJti() });
       const maxAge       = 60 * 60 * 24 * 7; // 7 days
 
       const isProduction = process.env.NODE_ENV === "production";
@@ -397,7 +436,7 @@ export async function shopifyAppRoutes(app: FastifyInstance) {
     "/shopify/webhooks/uninstall",
     {
       // Disable the default body parser so we can read the raw bytes for HMAC
-      config: { rawBody: true }
+      config: { rawBody: true, csrf: false }
     },
     async (request, reply) => {
       const hmacHeader = (request.headers["x-shopify-hmac-sha256"] as string) ?? "";
@@ -415,7 +454,7 @@ export async function shopifyAppRoutes(app: FastifyInstance) {
 
       try {
         const store = await app.prisma.store.findFirst({
-          where:   { storeUrl: { contains: shop } },
+          where:   { storeUrl: `https://${shop}` },
           include: { connections: { where: { provider: "SHOPIFY" } } }
         });
 
@@ -438,6 +477,355 @@ export async function shopifyAppRoutes(app: FastifyInstance) {
         return reply.code(200).send({ ok: true });
       } catch (err) {
         app.log.error({ err }, "[shopify-app] Uninstall webhook error");
+        return reply.code(200).send({ ok: true });
+      }
+    }
+  );
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Webhook payload types (subset of full Shopify objects)
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  interface WebhookProduct {
+    id: number;
+    title: string;
+    handle: string;
+    status: string; // "active" | "archived" | "draft"
+    variants: Array<{
+      id: number;
+      sku: string;
+      title?: string;
+      inventory_quantity: number;
+      price: string;
+    }>;
+    images: Array<{ src: string }>;
+  }
+
+  interface WebhookOrder {
+    id: number;
+    created_at: string;
+    currency: string;        // store's base currency, e.g. "NGN"
+    financial_status: string;
+    line_items: Array<{
+      product_id: number;
+      variant_id: number;
+      quantity: number;
+      price: string;
+    }>;
+  }
+
+  // ─── Shared helpers ────────────────────────────────────────────────────────
+
+  /** Validates the webhook HMAC and extracts the shop domain. Returns null on failure. */
+  function verifyWebhook(request: any, reply: any): { shop: string; rawBody: string } | null {
+    const hmacHeader = (request.headers["x-shopify-hmac-sha256"] as string) ?? "";
+    const shop       = (request.headers["x-shopify-shop-domain"]  as string) ?? "";
+    const rawBody    = typeof (request as any).rawBody === "string"
+      ? (request as any).rawBody
+      : JSON.stringify(request.body ?? {});
+
+    if (!validateWebhookHmac(rawBody, hmacHeader, app.config.SHOPIFY_API_SECRET)) {
+      app.log.warn({ shop }, "[shopify-webhook] HMAC invalid");
+      reply.code(401).send({ ok: false });
+      return null;
+    }
+    return { shop, rawBody };
+  }
+
+  /** Looks up the MetaFlow Store record by shop domain. */
+  async function findStoreByShop(shop: string) {
+    return app.prisma.store.findFirst({
+      where: { storeUrl: `https://${shop}` },
+      select: { id: true, currency: true, timezone: true }
+    });
+  }
+
+  /** Builds a variant title, collapsing "Default Title" → parent title. */
+  function buildVariantTitle(productTitle: string, variantTitle?: string): string {
+    if (!variantTitle || variantTitle.toLowerCase() === "default title") return productTitle;
+    return `${productTitle} — ${variantTitle}`;
+  }
+
+  /** Upserts ProductMeta for a product and all its variants from a webhook payload. */
+  async function upsertProductFromWebhook(storeId: string, shop: string, product: WebhookProduct): Promise<void> {
+    const firstVariant = product.variants[0];
+    if (!firstVariant) return;
+
+    const parentExternalId = String(product.id);
+    const parentSku   = firstVariant.sku || `SHOPIFY-${firstVariant.id}`;
+    const imageUrl    = product.images[0]?.src ?? null;
+    const productUrl  = product.handle ? `https://${shop}/products/${product.handle}` : null;
+    const altIds      = product.variants.map((v) => String(v.id));
+    const inventoryLevel = product.variants.reduce((sum, v) => sum + (v.inventory_quantity ?? 0), 0);
+
+    const parent = await app.prisma.productMeta.upsert({
+      where:  { storeId_externalId: { storeId, externalId: parentExternalId } },
+      create: {
+        externalId: parentExternalId, sku: parentSku, altIds, title: product.title,
+        imageUrl, productUrl, score: 0, category: "TEST", storeId,
+        isActive: true, archivedAt: null, isVariant: false, parentId: null
+      },
+      update: {
+        title: product.title, imageUrl, sku: parentSku, altIds, productUrl,
+        inventoryLevel, isActive: true, archivedAt: null
+      }
+    });
+
+    for (const variant of product.variants) {
+      const variantExternalId = String(variant.id);
+      const variantSku   = variant.sku || `SHOPIFY-${variant.id}`;
+      const variantTitle = buildVariantTitle(product.title, variant.title);
+      const variantUrl   = productUrl ? `${productUrl}?variant=${variant.id}` : null;
+
+      await app.prisma.productMeta.upsert({
+        where:  { storeId_externalId: { storeId, externalId: variantExternalId } },
+        create: {
+          externalId: variantExternalId, sku: variantSku, title: variantTitle,
+          imageUrl, productUrl: variantUrl, score: 0, category: "TEST", storeId,
+          isActive: true, archivedAt: null, isVariant: true, parentId: parent.id
+        },
+        update: {
+          title: variantTitle, imageUrl, sku: variantSku, productUrl: variantUrl,
+          inventoryLevel: variant.inventory_quantity ?? null,
+          isActive: true, archivedAt: null, isVariant: true, parentId: parent.id
+        }
+      });
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // POST /webhooks/shopify/products/create
+  // POST /webhooks/shopify/products/update
+  //
+  // Shopify fires these when a product is created or its metadata changes
+  // (title, SKU, variant inventory, images, etc.).  We upsert ProductMeta
+  // immediately so the dashboard reflects changes before the nightly sync.
+  // ═══════════════════════════════════════════════════════════════════════════
+  for (const path of [
+    "/webhooks/shopify/products/create",
+    "/webhooks/shopify/products/update"
+  ] as const) {
+    app.post(path, { config: { rawBody: true, csrf: false } }, async (request, reply) => {
+      const ctx = verifyWebhook(request, reply);
+      if (!ctx) return;
+
+      try {
+        const product = request.body as WebhookProduct;
+        const store = await findStoreByShop(ctx.shop);
+        if (!store) {
+          app.log.warn({ shop: ctx.shop }, "[shopify-webhook] products — store not found");
+          return reply.code(200).send({ ok: true });
+        }
+
+        // Archived/draft products → soft-delete and skip variant upserts
+        if (product.status === "archived" || product.status === "draft") {
+          await app.prisma.productMeta.updateMany({
+            where: { storeId: store.id, externalId: String(product.id), isActive: true },
+            data:  { isActive: false, archivedAt: new Date() }
+          });
+          app.log.info({ shop: ctx.shop, productId: product.id, status: product.status },
+            "[shopify-webhook] product soft-deleted (non-active status)");
+          return reply.code(200).send({ ok: true });
+        }
+
+        await upsertProductFromWebhook(store.id, ctx.shop, product);
+        app.log.info({ shop: ctx.shop, productId: product.id },
+          `[shopify-webhook] product upserted (${path.split("/").pop()})`);
+
+        return reply.code(200).send({ ok: true });
+      } catch (err) {
+        app.log.error({ err }, `[shopify-webhook] ${path} error`);
+        return reply.code(200).send({ ok: true });
+      }
+    });
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // POST /webhooks/shopify/products/delete
+  //
+  // Shopify fires this when a product is permanently deleted.
+  // We soft-delete the parent ProductMeta + all its variants.
+  // ═══════════════════════════════════════════════════════════════════════════
+  app.post(
+    "/webhooks/shopify/products/delete",
+    { config: { rawBody: true, csrf: false } },
+    async (request, reply) => {
+      const ctx = verifyWebhook(request, reply);
+      if (!ctx) return;
+
+      try {
+        const { id: productId } = request.body as { id: number };
+        const store = await findStoreByShop(ctx.shop);
+        if (!store) return reply.code(200).send({ ok: true });
+
+        const externalId = String(productId);
+
+        // Find the parent row to get its DB id (for variant parentId lookup)
+        const parent = await app.prisma.productMeta.findUnique({
+          where:  { storeId_externalId: { storeId: store.id, externalId } },
+          select: { id: true }
+        });
+
+        // Soft-delete parent + variants (variants have parentId = parent.id)
+        const deleteWhere = parent
+          ? { storeId: store.id, isActive: true, OR: [{ externalId }, { parentId: parent.id }] }
+          : { storeId: store.id, isActive: true, externalId };
+
+        const { count } = await app.prisma.productMeta.updateMany({
+          where: deleteWhere,
+          data:  { isActive: false, archivedAt: new Date() }
+        });
+
+        app.log.info({ shop: ctx.shop, productId, affected: count },
+          "[shopify-webhook] product deleted");
+        return reply.code(200).send({ ok: true });
+      } catch (err) {
+        app.log.error({ err }, "[shopify-webhook] products/delete error");
+        return reply.code(200).send({ ok: true });
+      }
+    }
+  );
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // POST /webhooks/shopify/orders/create
+  //
+  // Shopify fires this as soon as an order is placed.
+  // We update today's DailyMetric revenue immediately — so the dashboard
+  // reflects today's sales within seconds, not at the nightly 2am sync.
+  //
+  // Multi-currency: if the order currency differs from the store currency
+  // (possible on multi-currency Shopify stores), we convert via FX API.
+  // ═══════════════════════════════════════════════════════════════════════════
+  app.post(
+    "/webhooks/shopify/orders/create",
+    { config: { rawBody: true, csrf: false } },
+    async (request, reply) => {
+      const ctx = verifyWebhook(request, reply);
+      if (!ctx) return;
+
+      try {
+        const order = request.body as WebhookOrder;
+
+        // Only process paid orders
+        if (order.financial_status !== "paid") {
+          return reply.code(200).send({ ok: true });
+        }
+
+        // ── Idempotency guard ────────────────────────────────────────────────
+        // Shopify retries webhooks on non-2xx or timeouts. Without this guard
+        // each retry would increment revenue a second time.
+        // NX = only set if key does NOT exist; EX = auto-expire after 72h.
+        // 72h (vs 24h) covers Shopify's 48h retry window with headroom.
+        if (app.redis) {
+          const idempotencyKey = `webhook:order:${order.id}`;
+          const wasSet = await app.redis.set(idempotencyKey, "1", "EX", 259200, "NX");
+          if (!wasSet) {
+            app.log.info(
+              { shop: ctx.shop, orderId: order.id },
+              "[shopify-webhook] duplicate orders/create — skipping"
+            );
+            return reply.code(200).send({ ok: true });
+          }
+        }
+        // ─────────────────────────────────────────────────────────────────────
+
+        const store = await findStoreByShop(ctx.shop);
+        if (!store) return reply.code(200).send({ ok: true });
+
+        const { id: storeId, timezone = "UTC", currency: storeCurrency } = store;
+
+        // Determine the local date for this order
+        const orderDate     = new Date(order.created_at);
+        const orderLocalStr = storeLocalDateStr(timezone, orderDate);
+        const { start: orderDay } = storeLocalDayBounds(timezone, orderDate);
+
+        // FX multiplier if order currency ≠ store currency
+        let fxRate = 1;
+        if (order.currency && storeCurrency && order.currency !== storeCurrency) {
+          fxRate = await convertCurrency(1, order.currency, storeCurrency);
+          app.log.info(
+            { shop: ctx.shop, orderCurrency: order.currency, storeCurrency, fxRate },
+            "[shopify-webhook] currency conversion applied"
+          );
+        }
+
+        // Build a map: variantId → { revenue, orderCount } for this single order
+        const lineMap = new Map<number, { revenue: number; orders: number }>();
+        for (const item of order.line_items) {
+          const itemId  = item.variant_id && item.variant_id > 0 ? item.variant_id : item.product_id;
+          const revenue = parseFloat(item.price) * item.quantity * fxRate;
+          const existing = lineMap.get(itemId) ?? { revenue: 0, orders: 0 };
+          lineMap.set(itemId, { revenue: existing.revenue + revenue, orders: existing.orders + 1 });
+        }
+
+        const todayLocalStr = storeLocalDateStr(timezone);
+
+        // Wrap all per-line-item DB writes in a single transaction so that a
+        // partial failure (e.g. mid-loop crash) cannot leave revenue half-credited.
+        await app.prisma.$transaction(async (tx) => {
+          for (const [itemId, { revenue, orders }] of lineMap) {
+            // Look up the ProductMeta by externalId (variant id → string)
+            const productMeta = await tx.productMeta.findUnique({
+              where:  { storeId_externalId: { storeId, externalId: String(itemId) } },
+              select: { id: true }
+            });
+            if (!productMeta) continue;
+
+            const existingMetric = await tx.dailyMetric.findUnique({
+              where:  { storeId_productId_date: { storeId, productId: productMeta.id, date: orderDay } },
+              select: { revenue: true, conversions: true, roas: true, ctr: true, spend: true,
+                        blendedRoas: true, conversionRate: true, margin: true, velocity: true,
+                        metaRevenue: true, impressions: true, clicks: true, inventoryLevel: true }
+            });
+
+            if (orderLocalStr === todayLocalStr) {
+              // Today: increment revenue and conversions on today's row
+              if (existingMetric) {
+                await tx.dailyMetric.update({
+                  where: { storeId_productId_date: { storeId, productId: productMeta.id, date: orderDay } },
+                  data:  {
+                    revenue:     { increment: revenue },
+                    conversions: { increment: orders }
+                  }
+                });
+              } else {
+                await tx.dailyMetric.create({
+                  data: {
+                    date: orderDay, storeId, productId: productMeta.id,
+                    roas: 0, blendedRoas: null, ctr: 0, conversionRate: 0,
+                    margin: 0.35, velocity: 0, spend: 0,
+                    revenue, metaRevenue: null, impressions: null, clicks: null,
+                    conversions: orders, inventoryLevel: null
+                  }
+                });
+              }
+            } else {
+              // Historical date (order with a backdated created_at, rare but possible)
+              await tx.dailyMetric.upsert({
+                where:  { storeId_productId_date: { storeId, productId: productMeta.id, date: orderDay } },
+                create: {
+                  date: orderDay, storeId, productId: productMeta.id,
+                  roas: 0, blendedRoas: null, ctr: 0, conversionRate: 0,
+                  margin: 0.35, velocity: 0, spend: 0,
+                  revenue, metaRevenue: null, impressions: null, clicks: null,
+                  conversions: orders, inventoryLevel: null
+                },
+                update: {
+                  revenue:     { increment: revenue },
+                  conversions: { increment: orders }
+                }
+              });
+            }
+          }
+        });
+
+        app.log.info(
+          { shop: ctx.shop, orderId: order.id, lineItems: lineMap.size },
+          "[shopify-webhook] order/create revenue updated"
+        );
+        return reply.code(200).send({ ok: true });
+      } catch (err) {
+        app.log.error({ err }, "[shopify-webhook] orders/create error");
         return reply.code(200).send({ ok: true });
       }
     }

@@ -5,8 +5,8 @@
     <div class="glass rounded-2xl p-6">
       <div class="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h1 class="text-2xl font-semibold tracking-tight">Workspace setup</h1>
-          <p class="mt-1 text-sm text-white/65">{{ steps[step].subtitle }}</p>
+          <h1 class="text-xl sm:text-2xl font-semibold tracking-tight">Workspace setup</h1>
+          <p class="mt-1 text-xs sm:text-sm text-white/65">{{ steps[step].subtitle }}</p>
         </div>
         <span class="rounded-full bg-white/[0.08] border border-white/10 px-3 py-1 text-xs font-medium text-white/75">
           Step {{ step + 1 }} of {{ steps.length }}
@@ -15,7 +15,7 @@
 
       <!-- Step track -->
       <div class="mt-6 flex items-center gap-0">
-        <template v-for="(s, i) in steps" :key="i">
+        <template v-for="(s, i) in steps" :key="s.label">
           <div
             class="flex items-center justify-center w-8 h-8 rounded-full text-xs font-semibold flex-shrink-0 transition-all duration-300"
             :class="i < step
@@ -35,7 +35,7 @@
 
       <!-- Step labels (desktop) -->
       <div class="mt-3 hidden sm:flex items-start">
-        <template v-for="(s, i) in steps" :key="i">
+        <template v-for="(s, i) in steps" :key="s.label">
           <div class="flex-1 text-center" :class="i === 0 ? 'text-left' : i === steps.length - 1 ? 'text-right' : 'text-center'">
             <p class="text-xs transition-colors" :class="i === step ? 'text-white/70' : 'text-white/50'">{{ s.label }}</p>
           </div>
@@ -105,7 +105,7 @@
 
             <div>
               <label class="form-label">Store name</label>
-              <input v-model.trim="form.storeName" type="text" placeholder="Lagos Homeware" class="form-input" />
+              <input v-model.trim="form.storeName" type="text" placeholder="Lagos Homeware" class="form-input" maxlength="200" />
             </div>
 
             <div>
@@ -118,6 +118,7 @@
                   v-model.trim="form.shopifySubdomain"
                   type="text"
                   placeholder="yourstore"
+                  maxlength="60"
                   class="flex-1 min-w-0 border border-x-0 border-white/10 bg-white/[0.06] px-3 py-3 text-sm text-white placeholder:text-white/50 outline-none focus:border-glow-500/40 transition-all"
                 />
                 <div class="flex items-center rounded-r-xl border border-l-0 border-white/10 bg-white/[0.04] px-3 text-sm text-white/60 select-none flex-shrink-0">
@@ -170,11 +171,11 @@
             <div class="grid gap-4 sm:grid-cols-2">
               <div>
                 <label class="form-label">Store name</label>
-                <input v-model.trim="form.storeName" type="text" placeholder="Lagos Homeware" class="form-input" />
+                <input v-model.trim="form.storeName" type="text" placeholder="Lagos Homeware" class="form-input" maxlength="200" />
               </div>
               <div>
                 <label class="form-label">Store URL</label>
-                <input v-model.trim="form.storeUrl" type="url" placeholder="https://yourstore.com" class="form-input" />
+                <input v-model.trim="form.storeUrl" type="url" placeholder="https://yourstore.com" class="form-input" maxlength="500" />
               </div>
             </div>
 

@@ -1,5 +1,6 @@
 import type { PrismaClient } from "@prisma/client";
 import { storeLocalDayBounds, storeLocalDateStr } from "./dateUtils.js";
+import { fetchWithRetry } from "../utils/http.js";
 
 const WC_API_VERSION = "wc/v3";
 
@@ -47,7 +48,7 @@ async function wcFetch<T>(
 
   const credentials = Buffer.from(`${consumerKey}:${consumerSecret}`).toString("base64");
 
-  const res = await fetch(url, {
+  const res = await fetchWithRetry(url, {
     headers: {
       Authorization: `Basic ${credentials}`,
       "Content-Type": "application/json"
@@ -111,7 +112,7 @@ export async function runWooCommerceSync(
   prisma: PrismaClient,
   data: SyncWooCommerceData
 ): Promise<{ products: number; orders: number }> {
-  const { storeId, storeUrl, accessToken, timezone = "Africa/Lagos" } = data;
+  const { storeId, storeUrl, accessToken, timezone = "UTC" } = data;
 
   // accessToken is stored as "key:secret"
   const [consumerKey, consumerSecret] = accessToken.split(":");
@@ -149,7 +150,16 @@ export async function runWooCommerceSync(
   const todayLocalStr = storeLocalDateStr(timezone); // e.g. "2026-03-20"
 
   for (const order of orders) {
-    const orderLocalDate = storeLocalDateStr(timezone, new Date(order.date_created));
+    // WooCommerce's `date_created` is in the *store's local time* with no UTC offset
+    // (e.g. "2024-03-20T14:30:00"). Appending "Z" would treat it as UTC, which is wrong.
+    // We use `date_created_gmt` when available; fall back to appending "Z" which at least
+    // avoids the server OS timezone polluting the parse.
+    const rawDate = (order as any).date_created_gmt
+      ? `${(order as any).date_created_gmt}Z`
+      : order.date_created.endsWith("Z") || order.date_created.includes("+")
+        ? order.date_created
+        : `${order.date_created}Z`;
+    const orderLocalDate = storeLocalDateStr(timezone, new Date(rawDate));
     for (const item of order.line_items) {
       const pid = item.variation_id && item.variation_id > 0 ? item.variation_id : item.product_id;
       const rev = parseFloat(item.total);
@@ -180,8 +190,15 @@ export async function runWooCommerceSync(
   //
   // Historical rows only update `revenue` and `conversions` so we never
   // overwrite Meta spend/ROAS data that syncMeta already wrote for those dates.
+  const seenExternalIds = new Set<string>();
+
+  let skipped = 0;
   for (const product of products) {
+    // Per-product isolation: a bad product (malformed data, API error on variations)
+    // is skipped and logged rather than aborting the entire sync run.
+    try {
     const externalId = String(product.id);
+    seenExternalIds.add(externalId);
     const imageUrl = product.images[0]?.src ?? null;
     const sku = product.sku || `WC-${product.id}`;
     const productUrl = product.permalink || null;
@@ -199,6 +216,7 @@ export async function runWooCommerceSync(
         );
         altIds = variations.map((v) => String(v.id));
         inventoryLevel = variations.reduce((sum, v) => sum + (v.stock_quantity ?? 0), 0);
+        for (const v of variations) seenExternalIds.add(String(v.id));
       } catch {
         // Non-fatal: keep parent stock_quantity as fallback
       }
@@ -217,6 +235,8 @@ export async function runWooCommerceSync(
         score: 0,
         category: "TEST",
         storeId,
+        isActive: true,
+        archivedAt: null,
         isVariant: false,
         parentId: null
       },
@@ -227,6 +247,8 @@ export async function runWooCommerceSync(
         altIds,
         productUrl,
         ...(inventoryLevel !== null ? { inventoryLevel } : {}),
+        isActive: true,
+        archivedAt: null,
         isVariant: false,
         parentId: null
       }
@@ -250,6 +272,8 @@ export async function runWooCommerceSync(
           score: 0,
           category: "TEST",
           storeId,
+          isActive: true,
+          archivedAt: null,
           isVariant: true,
           parentId: upserted.id
         },
@@ -259,6 +283,8 @@ export async function runWooCommerceSync(
           sku: variantSku,
           productUrl,
           inventoryLevel: variation.stock_quantity ?? null,
+          isActive: true,
+          archivedAt: null,
           isVariant: true,
           parentId: upserted.id
         }
@@ -381,7 +407,30 @@ export async function runWooCommerceSync(
         }
       });
     }
+    } catch (productErr) {
+      // Skip this product — one bad item (malformed data, variation API error) must not
+      // abort the entire sync run. Logged for ops visibility.
+      skipped++;
+      console.warn(`[woo-sync] storeId=${storeId} skipped product ${product.id}: ${(productErr as Error).message}`);
+    }
   }
 
-  return { products: products.length, orders: orders.length };
+  if (skipped > 0) {
+    console.warn(`[woo-sync] storeId=${storeId}: skipped ${skipped}/${products.length} products due to errors`);
+  }
+
+  // Mark products no longer present in WooCommerce as inactive
+  const seenList = [...seenExternalIds];
+  if (seenList.length > 0) {
+    await prisma.productMeta.updateMany({
+      where: {
+        storeId,
+        isActive: true,
+        externalId: { notIn: seenList }
+      },
+      data: { isActive: false, archivedAt: new Date() }
+    });
+  }
+
+  return { products: products.length - skipped, orders: orders.length, skipped };
 }

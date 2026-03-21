@@ -9,6 +9,7 @@ import assert from "node:assert/strict";
 
 import {
   computeProductScore,
+  computeScoreBreakdown,
   scoreToCategory,
   DEFAULT_BENCHMARKS,
   DEFAULT_THRESHOLDS,
@@ -198,5 +199,127 @@ describe("scoreToCategory boundary conditions", () => {
 
   test("Score 100 → SCALE", () => {
     assert.equal(scoreToCategory(100, DEFAULT_THRESHOLDS), "SCALE");
+  });
+});
+
+// ────────────────────────────────────────────────────────────────────────────
+// computeScoreBreakdown
+// ────────────────────────────────────────────────────────────────────────────
+
+describe("computeScoreBreakdown", () => {
+  test("Returns 4 factors", () => {
+    const breakdown = computeScoreBreakdown({
+      roas: 5, ctr: 0.03, margin: 0.5, inventoryLevel: 10
+    });
+    assert.equal(breakdown.length, 4);
+  });
+
+  test("Factor labels are correct", () => {
+    const breakdown = computeScoreBreakdown({
+      roas: 5, ctr: 0.03, margin: 0.5, inventoryLevel: 10
+    });
+    const labels = breakdown.map(f => f.label);
+    assert.ok(labels.some(l => l.includes("ROAS")));
+    assert.ok(labels.some(l => l.includes("CTR")));
+    assert.ok(labels.some(l => l.includes("Margin")));
+    assert.ok(labels.some(l => l.includes("Inventory")));
+  });
+
+  test("Max values sum to 100 (35+20+25+20)", () => {
+    const breakdown = computeScoreBreakdown({
+      roas: 5, ctr: 0.03, margin: 0.5, inventoryLevel: 10
+    });
+    const totalMax = breakdown.reduce((sum, f) => sum + f.max, 0);
+    assert.equal(totalMax, 100);
+  });
+
+  test("All benchmarks met → contributions sum to 100", () => {
+    const breakdown = computeScoreBreakdown({
+      roas:           DEFAULT_BENCHMARKS.roasBenchmark,
+      ctr:            DEFAULT_BENCHMARKS.ctrBenchmark,
+      margin:         DEFAULT_BENCHMARKS.marginBenchmark,
+      inventoryLevel: DEFAULT_BENCHMARKS.inventoryBenchmark
+    });
+    const total = breakdown.reduce((sum, f) => sum + f.contribution, 0);
+    assert.equal(total, 100);
+  });
+
+  test("inventoryLevel null → Inventory contribution is 10 (neutral)", () => {
+    const breakdown = computeScoreBreakdown({
+      roas: 0, ctr: 0, margin: 0, inventoryLevel: null
+    });
+    const inv = breakdown.find(f => f.label.includes("Inventory"))!;
+    assert.equal(inv.contribution, 10);
+    assert.ok(inv.detail.includes("neutral"));
+  });
+
+  test("inventoryLevel 0 → Inventory contribution is 0", () => {
+    const breakdown = computeScoreBreakdown({
+      roas: 0, ctr: 0, margin: 0, inventoryLevel: 0
+    });
+    const inv = breakdown.find(f => f.label.includes("Inventory"))!;
+    assert.equal(inv.contribution, 0);
+  });
+
+  test("ROAS at benchmark → ROAS contribution is 35", () => {
+    const breakdown = computeScoreBreakdown({
+      roas: DEFAULT_BENCHMARKS.roasBenchmark,
+      ctr: 0, margin: 0, inventoryLevel: null
+    });
+    const roas = breakdown.find(f => f.label.includes("ROAS"))!;
+    assert.equal(roas.contribution, 35);
+  });
+
+  test("CTR above benchmark → capped at 20 (max)", () => {
+    const breakdown = computeScoreBreakdown({
+      roas: 0,
+      ctr: DEFAULT_BENCHMARKS.ctrBenchmark * 100,
+      margin: 0, inventoryLevel: null
+    });
+    const ctr = breakdown.find(f => f.label.includes("CTR"))!;
+    assert.equal(ctr.contribution, 20);
+    assert.equal(ctr.max, 20);
+  });
+
+  test("Custom benchmarks override defaults", () => {
+    const breakdown = computeScoreBreakdown(
+      { roas: 5, ctr: 0.03, margin: 0.5, inventoryLevel: 10 },
+      {
+        roasBenchmark:      10,  // double default → each metric at 50%
+        ctrBenchmark:       0.06,
+        marginBenchmark:    1.0,
+        inventoryBenchmark: 20
+      }
+    );
+    // ROAS: min(5/10,1)*35 = 17.5
+    const roas = breakdown.find(f => f.label.includes("ROAS"))!;
+    assert.equal(roas.contribution, 17.5);
+    // Margin: min(0.5/1.0,1)*25 = 12.5
+    const margin = breakdown.find(f => f.label.includes("Margin"))!;
+    assert.equal(margin.contribution, 12.5);
+  });
+
+  test("breakdown contributions align with computeProductScore total", () => {
+    const metrics = {
+      roas: 3, ctr: 0.02, margin: 0.4, inventoryLevel: 5
+    };
+    const score     = computeProductScore(metrics);
+    const breakdown = computeScoreBreakdown(metrics);
+    const brkTotal  = Math.round(breakdown.reduce((s, f) => s + f.contribution, 0));
+    assert.equal(brkTotal, score, "breakdown sum should equal computeProductScore");
+  });
+
+  test("Each factor has label, contribution, max, detail properties", () => {
+    const breakdown = computeScoreBreakdown({
+      roas: 5, ctr: 0.03, margin: 0.5, inventoryLevel: 10
+    });
+    for (const factor of breakdown) {
+      assert.ok(typeof factor.label        === "string",  `label should be string`);
+      assert.ok(typeof factor.contribution === "number",  `contribution should be number`);
+      assert.ok(typeof factor.max          === "number",  `max should be number`);
+      assert.ok(typeof factor.detail       === "string",  `detail should be string`);
+      assert.ok(factor.contribution >= 0,                 `contribution should be >= 0`);
+      assert.ok(factor.contribution <= factor.max,        `contribution <= max`);
+    }
   });
 });

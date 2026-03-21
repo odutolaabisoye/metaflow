@@ -10,11 +10,26 @@
  * Returns the store's current local date as "YYYY-MM-DD".
  * Safe to use for DailyMetric date keys.
  *
- * @example storeLocalDateStr("Africa/Lagos")   // "2026-03-20"
+ * Uses formatToParts instead of relying on a locale's date format — the en-CA
+ * locale produces YYYY-MM-DD on Linux but M/D/YYYY on macOS with some ICU
+ * builds, which breaks downstream date parsing. formatToParts is always
+ * locale-independent and consistent across platforms.
+ *
+ * @example storeLocalDateStr("Africa/Lagos")     // "2026-03-20"
  * @example storeLocalDateStr("America/New_York") // "2026-03-19" (at midnight WAT)
  */
 export function storeLocalDateStr(timezone: string, date: Date = new Date()): string {
-  return new Intl.DateTimeFormat("en-CA", { timeZone: timezone }).format(date);
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: timezone,
+    year:     "numeric",
+    month:    "2-digit",
+    day:      "2-digit",
+  }).formatToParts(date);
+
+  const y = parts.find((p) => p.type === "year")!.value;
+  const m = parts.find((p) => p.type === "month")!.value;
+  const d = parts.find((p) => p.type === "day")!.value;
+  return `${y}-${m}-${d}`;
 }
 
 /**

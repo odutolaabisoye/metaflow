@@ -1,15 +1,31 @@
 import type { FastifyInstance } from "fastify";
+import { decryptToken } from "../utils/crypto.js";
 
 type AdminPayload = { sub: string; email: string; role: string };
 
 async function verifyAdmin(
-  _app: FastifyInstance,
+  app: FastifyInstance,
   request: any,
   reply: any
 ): Promise<AdminPayload | null> {
   try {
     const payload = await request.jwtVerify<AdminPayload>();
+    if (!payload?.sub) {
+      reply.code(401).send({ ok: false, message: "Unauthorized" });
+      return null;
+    }
+    // Fast path: JWT role claim is present and says ADMIN.
+    // Fallback: always confirm against the DB so a downgraded admin's stale
+    // session can't reach admin routes until their token expires.
     if (payload.role !== "ADMIN") {
+      reply.code(403).send({ ok: false, message: "Forbidden: Admin access required" });
+      return null;
+    }
+    const dbUser = await app.prisma.user.findUnique({
+      where: { id: payload.sub },
+      select: { role: true }
+    });
+    if (dbUser?.role !== "ADMIN") {
       reply.code(403).send({ ok: false, message: "Forbidden: Admin access required" });
       return null;
     }
@@ -38,6 +54,8 @@ export async function adminRoutes(app: FastifyInstance) {
       platformBreakdown,
       recentUsers,
       recentActivity,
+      lastRollupLog,
+      rollupStaleCount,
     ] = await Promise.all([
       app.prisma.user.count(),
       app.prisma.store.count(),
@@ -75,6 +93,14 @@ export async function adminRoutes(app: FastifyInstance) {
           },
         },
       }),
+      app.prisma.auditLog.findFirst({
+        where: { action: "Rollup Complete" },
+        orderBy: { createdAt: "desc" },
+        select: { createdAt: true, metadata: true }
+      }),
+      app.prisma.store.count({
+        where: { OR: [{ lastRollupStatus: null }, { lastRollupStatus: { not: "SUCCESS" } }] }
+      }),
     ]);
 
     return reply.send({
@@ -91,6 +117,14 @@ export async function adminRoutes(app: FastifyInstance) {
         })),
         recentUsers,
         recentActivity,
+        rollup: lastRollupLog
+          ? {
+              lastAt: lastRollupLog.createdAt,
+              rows: (lastRollupLog.metadata as any)?.rows ?? null,
+              durationMs: (lastRollupLog.metadata as any)?.durationMs ?? null,
+              staleStores: rollupStaleCount,
+            }
+          : { lastAt: null, rows: null, durationMs: null, staleStores: rollupStaleCount },
       },
     });
   });
@@ -107,7 +141,7 @@ export async function adminRoutes(app: FastifyInstance) {
       limit?: string;
       cursor?: string;
     };
-    const take = Math.min(parseInt(limit), 100);
+    const take = Math.min(parseInt(limit, 10), 100);
 
     const logs = await app.prisma.auditLog.findMany({
       take,
@@ -143,7 +177,7 @@ export async function adminRoutes(app: FastifyInstance) {
       limit?: string;
       cursor?: string;
     };
-    const take = Math.min(parseInt(limit), 100);
+    const take = Math.min(parseInt(limit, 10), 100);
 
     const where =
       search
@@ -266,6 +300,37 @@ export async function adminRoutes(app: FastifyInstance) {
 
     app.log.info({ userId, updatedBy: admin.sub, role: body.role, plan: body.plan }, "Admin updated user");
 
+    // Write a durable audit entry for plan and role changes so there is a clear
+    // record of who changed what and when (compliance + support investigations).
+    const auditParts: string[] = [];
+    if (body.plan && body.plan !== existing.plan) {
+      auditParts.push(`plan: ${existing.plan} → ${body.plan}`);
+    }
+    if (body.role && body.role !== existing.role) {
+      auditParts.push(`role: ${existing.role} → ${body.role}`);
+    }
+    if (auditParts.length > 0) {
+      // User-level changes don't have a storeId, so we write one entry per store
+      // they own. If they have no stores, we still want a record — use a system log.
+      const userStores = await app.prisma.store.findMany({
+        where: { ownerId: userId },
+        select: { id: true }
+      });
+      const auditDetail = `Admin (${admin.sub}) updated user ${userId} (${existing.email}): ${auditParts.join("; ")}`;
+      if (userStores.length > 0) {
+        await Promise.all(
+          userStores.map((s: { id: string }) =>
+            app.prisma.auditLog.create({
+              data: { storeId: s.id, action: "admin.user.updated", detail: auditDetail,
+                metadata: { adminId: admin.sub, userId, changes: auditParts } }
+            }).catch(() => {})
+          )
+        );
+      } else {
+        app.log.info({ auditDetail }, "Admin updated user (no stores to attach audit log to)");
+      }
+    }
+
     return reply.send({ ok: true, user: updated });
   });
 
@@ -316,31 +381,39 @@ export async function adminRoutes(app: FastifyInstance) {
 
   /**
    * PATCH /admin/users/:userId/freeze
-   * Freeze or unfreeze a user account (sets/clears frozenAt timestamp)
+   * Freeze or unfreeze a user account (sets/clears frozenAt timestamp).
+   * Body: { frozen: true | false }
+   * Requires explicit intent — toggle semantics would allow a replayed request
+   * to silently reverse the operation (freeze→unfreeze or vice-versa).
    */
   app.patch("/admin/users/:userId/freeze", async (request, reply) => {
     const admin = await verifyAdmin(app, request, reply);
     if (!admin) return;
 
     const { userId } = request.params as { userId: string };
+    const { frozen } = (request.body ?? {}) as { frozen?: boolean };
+
+    if (typeof frozen !== "boolean") {
+      return reply.code(400).send({ ok: false, message: "frozen (boolean) is required" });
+    }
     if (userId === admin.sub) {
       return reply.code(400).send({ ok: false, message: "Cannot freeze your own account" });
     }
 
-    const user = await app.prisma.user.findUnique({ where: { id: userId }, select: { id: true, frozenAt: true } });
+    const user = await app.prisma.user.findUnique({ where: { id: userId }, select: { id: true } });
     if (!user) return reply.code(404).send({ ok: false, message: "User not found" });
 
-    const frozenAt = user.frozenAt ? null : new Date(); // toggle
+    const frozenAt = frozen ? new Date() : null;
     const updated = await app.prisma.user.update({
       where: { id: userId },
       data: { frozenAt },
       select: { id: true, email: true, frozenAt: true }
     });
 
-    const action = frozenAt ? "frozen" : "unfrozen";
+    const action = frozen ? "frozen" : "unfrozen";
     app.log.info({ userId, action, doneBy: admin.sub }, `Admin ${action} user`);
 
-    return reply.send({ ok: true, frozen: !!frozenAt, frozenAt: updated.frozenAt });
+    return reply.send({ ok: true, frozen, frozenAt: updated.frozenAt });
   });
 
   /**
@@ -410,7 +483,7 @@ export async function adminRoutes(app: FastifyInstance) {
       limit?: string;
       cursor?: string;
     };
-    const take = Math.min(parseInt(limit), 100);
+    const take = Math.min(parseInt(limit, 10), 100);
 
     const validPlatforms = ["SHOPIFY", "WOOCOMMERCE", "API"];
     const platformFilter =
@@ -467,6 +540,19 @@ export async function adminRoutes(app: FastifyInstance) {
       return reply.code(404).send({ ok: false, message: "Store not found" });
     }
 
+    // Write audit log BEFORE the cascade delete — the store (and its audit rows)
+    // are removed in the transaction below, so logging afterwards is impossible.
+    await app.prisma.auditLog.create({
+      data: {
+        action: "admin.store.deleted",
+        detail: `Admin ${admin.email} permanently deleted store "${store.name}" (${storeId})`,
+        metadata: { storeId, storeName: store.name, platform: store.platform, deletedBy: admin.sub, adminEmail: admin.email },
+        storeId,
+      }
+    }).catch((err: Error) =>
+      app.log.warn({ err, storeId }, "[admin] Pre-delete audit log write failed — continuing with delete")
+    );
+
     await app.prisma.$transaction([
       app.prisma.auditLog.deleteMany({ where: { storeId } }),
       app.prisma.dailyMetric.deleteMany({ where: { storeId } }),
@@ -475,7 +561,7 @@ export async function adminRoutes(app: FastifyInstance) {
       app.prisma.store.delete({ where: { id: storeId } }),
     ]);
 
-    app.log.info({ storeId, deletedBy: admin.sub }, "Admin deleted store");
+    app.log.info({ storeId, storeName: store.name, deletedBy: admin.sub }, "Admin deleted store");
 
     return reply.send({ ok: true });
   });
@@ -502,19 +588,20 @@ export async function adminRoutes(app: FastifyInstance) {
 
     for (const conn of store.connections) {
       if (filterProvider && conn.provider !== filterProvider.toUpperCase()) continue;
+      const token = decryptToken(conn.accessToken);
 
       if (conn.provider === "SHOPIFY") {
         const shop = store.storeUrl.replace(/https?:\/\//, "").replace(/\/$/, "");
         await app.queues.syncQueue.add(
           "shopify-sync",
-          { storeId, provider: "SHOPIFY", shop, accessToken: conn.accessToken },
+          { storeId, provider: "SHOPIFY", shop, accessToken: token },
           { attempts: 3, backoff: { type: "exponential", delay: 5000 } }
         );
         enqueued.push("SHOPIFY");
       } else if (conn.provider === "WOOCOMMERCE") {
         await app.queues.syncQueue.add(
           "woocommerce-sync",
-          { storeId, provider: "WOOCOMMERCE", storeUrl: store.storeUrl, accessToken: conn.accessToken },
+          { storeId, provider: "WOOCOMMERCE", storeUrl: store.storeUrl, accessToken: token },
           { attempts: 3, backoff: { type: "exponential", delay: 5000 } }
         );
         enqueued.push("WOOCOMMERCE");
@@ -524,7 +611,7 @@ export async function adminRoutes(app: FastifyInstance) {
           {
             storeId,
             provider: "META",
-            accessToken: conn.accessToken,
+            accessToken: token,
             metaAdAccountId: conn.metaAdAccountId ?? null,
             metaCatalogId: conn.metaCatalogId ?? null,
           },

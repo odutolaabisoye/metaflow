@@ -69,6 +69,7 @@ export async function dashboardRoutes(app: FastifyInstance) {
   app.get("/dashboard", async (request, reply) => {
     try {
       const payload = await request.jwtVerify<{ sub: string }>();
+      if (!payload?.sub) return reply.code(401).send({ ok: false, message: "Unauthorized" });
       const { storeId, range, start, end } = request.query as { storeId?: string; range?: string; start?: string; end?: string };
 
       const storeWhere = storeId
@@ -120,12 +121,12 @@ export async function dashboardRoutes(app: FastifyInstance) {
       // ── Top / risk products — read directly from ProductMeta pre-computed fields ──
       // No DailyMetric include needed — scoring job stores roas30d, spend30d etc.
       const [activeSKUs, riskCount, topProducts, riskProducts] = await Promise.all([
-        app.prisma.productMeta.count({ where: { storeId: store.id, isVariant: false } }),
+        app.prisma.productMeta.count({ where: { storeId: store.id, isVariant: false, isActive: true } }),
         app.prisma.productMeta.count({
-          where: { storeId: store.id, isVariant: false, category: { in: ["RISK", "KILL"] } }
+          where: { storeId: store.id, isVariant: false, isActive: true, category: { in: ["RISK", "KILL"] } }
         }),
         app.prisma.productMeta.findMany({
-          where: { storeId: store.id, isVariant: false, category: "SCALE" },
+          where: { storeId: store.id, isVariant: false, isActive: true, category: "SCALE" },
           orderBy: { score: "desc" },
           take: 6,
           select: {
@@ -134,7 +135,7 @@ export async function dashboardRoutes(app: FastifyInstance) {
           }
         }),
         app.prisma.productMeta.findMany({
-          where: { storeId: store.id, isVariant: false, category: { in: ["RISK", "KILL"] } },
+          where: { storeId: store.id, isVariant: false, isActive: true, category: { in: ["RISK", "KILL"] } },
           orderBy: { score: "asc" },
           take: 6,
           select: {
@@ -154,12 +155,12 @@ export async function dashboardRoutes(app: FastifyInstance) {
 
       let totalRevenue = 0, totalSpend = 0, totalMetaRevenue = 0;
       let totalImpressions = 0, totalClicks = 0, totalConversions = 0;
-      let prevTotalRevenue = 0, prevTotalSpend = 0;
+      let prevTotalRevenue = 0, prevTotalSpend = 0, prevTotalMetaRevenue = 0;
 
       if (usePrecomputed) {
         // ── Fast path: KPIs from pre-computed ProductMeta fields (no DailyMetric scan) ──
         const agg = await app.prisma.productMeta.aggregate({
-          where: { storeId: store.id, isVariant: false },
+          where: { storeId: store.id, isVariant: false, isActive: true },
           _sum: {
             spend30d: true, revenue30d: true, metaRevenue30d: true,
             impressions30d: true, clicks30d: true, conversions30d: true,
@@ -175,10 +176,11 @@ export async function dashboardRoutes(app: FastifyInstance) {
         // Previous period still needs DailyMetric (pre-computed covers current 30d only)
         const prevMetrics = await app.prisma.dailyMetric.aggregate({
           where: { storeId: store.id, date: { gte: prevStart, lte: prevEnd } },
-          _sum: { revenue: true, spend: true }
+          _sum: { revenue: true, spend: true, metaRevenue: true }
         });
-        prevTotalRevenue = prevMetrics._sum.revenue ?? 0;
-        prevTotalSpend   = prevMetrics._sum.spend   ?? 0;
+        prevTotalRevenue     = prevMetrics._sum.revenue     ?? 0;
+        prevTotalSpend       = prevMetrics._sum.spend       ?? 0;
+        prevTotalMetaRevenue = prevMetrics._sum.metaRevenue ?? 0;
       } else {
         // ── Fallback: aggregate DailyMetric for custom / 7d / 90d ranges ──
         const [currentMetrics, prevMetrics] = await Promise.all([
@@ -188,26 +190,29 @@ export async function dashboardRoutes(app: FastifyInstance) {
           }),
           app.prisma.dailyMetric.aggregate({
             where: { storeId: store.id, date: { gte: prevStart, lte: prevEnd } },
-            _sum: { revenue: true, spend: true }
+            _sum: { revenue: true, spend: true, metaRevenue: true }
           })
         ]);
-        totalRevenue     = currentMetrics._sum.revenue     ?? 0;
-        totalSpend       = currentMetrics._sum.spend       ?? 0;
-        totalMetaRevenue = currentMetrics._sum.metaRevenue ?? 0;
-        totalImpressions = currentMetrics._sum.impressions ?? 0;
-        totalClicks      = currentMetrics._sum.clicks      ?? 0;
-        totalConversions = currentMetrics._sum.conversions ?? 0;
-        prevTotalRevenue = prevMetrics._sum.revenue ?? 0;
-        prevTotalSpend   = prevMetrics._sum.spend   ?? 0;
+        totalRevenue         = currentMetrics._sum.revenue     ?? 0;
+        totalSpend           = currentMetrics._sum.spend       ?? 0;
+        totalMetaRevenue     = currentMetrics._sum.metaRevenue ?? 0;
+        totalImpressions     = currentMetrics._sum.impressions ?? 0;
+        totalClicks          = currentMetrics._sum.clicks      ?? 0;
+        totalConversions     = currentMetrics._sum.conversions ?? 0;
+        prevTotalRevenue     = prevMetrics._sum.revenue     ?? 0;
+        prevTotalSpend       = prevMetrics._sum.spend       ?? 0;
+        prevTotalMetaRevenue = prevMetrics._sum.metaRevenue ?? 0;
       }
 
-      const avgRoas        = totalSpend > 0 ? totalRevenue / totalSpend : 0;
-      const avgBlendedRoas = avgRoas;
+      // Meta ROAS: Meta-attributed revenue / Meta ad spend (pure channel attribution)
+      const avgRoas        = totalSpend > 0 ? totalMetaRevenue / totalSpend : 0;
+      // Blended ROAS: all store revenue (all channels) / Meta ad spend
+      const avgBlendedRoas = totalSpend > 0 ? totalRevenue / totalSpend : 0;
       const avgCtrVal      = totalImpressions > 0 ? totalClicks / totalImpressions : null;
       const avgConvRateVal = totalClicks > 0 ? totalConversions / totalClicks : null;
 
-      const prevAvgRoas     = prevTotalSpend > 0 ? prevTotalRevenue / prevTotalSpend : 0;
-      const prevBlendedRoas = prevAvgRoas;
+      const prevAvgRoas     = prevTotalSpend > 0 ? prevTotalMetaRevenue / prevTotalSpend : 0;
+      const prevBlendedRoas = prevTotalSpend > 0 ? prevTotalRevenue     / prevTotalSpend : 0;
 
       const roasDelta = prevAvgRoas > 0
         ? ((avgRoas - prevAvgRoas) / prevAvgRoas) * 100
@@ -256,6 +261,19 @@ export async function dashboardRoutes(app: FastifyInstance) {
       const topCategory =
         [...catRevMap.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? "--";
 
+      const [latestMetaSummary, latestMetaUnmatched] = await Promise.all([
+        app.prisma.auditLog.findFirst({
+          where: { storeId: store.id, action: "Meta Sync — Summary" },
+          orderBy: { createdAt: "desc" },
+          select: { createdAt: true, detail: true, metadata: true }
+        }),
+        app.prisma.auditLog.findFirst({
+          where: { storeId: store.id, action: "Meta Sync — Unmatched Catalog Products" },
+          orderBy: { createdAt: "desc" },
+          select: { createdAt: true, detail: true, metadata: true }
+        })
+      ]);
+
       return reply.send({
         ok: true,
         storeId: store.id,
@@ -294,6 +312,12 @@ export async function dashboardRoutes(app: FastifyInstance) {
           topCategory,
           avgCtr: fmtPct(avgCtrVal),
           conversionRate: fmtPct(avgConvRateVal)
+        },
+        syncHealth: {
+          lastSyncAt: store.lastSyncAt,
+          lastSyncStatus: store.lastSyncStatus,
+          metaSummary: latestMetaSummary,
+          metaUnmatched: latestMetaUnmatched
         },
         topProducts: topProducts.map((p) => ({
           id: p.id,

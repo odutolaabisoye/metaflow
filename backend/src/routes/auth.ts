@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import bcrypt from "bcryptjs";
 import crypto from "crypto";
+import { hashToken } from "../utils/crypto.js";
 
 // In production the frontend (Netlify) and API (Hetzner) are on different origins.
 // Cookies must use SameSite=none + Secure so the browser sends them cross-origin.
@@ -28,6 +29,10 @@ function generateToken() {
   return crypto.randomBytes(32).toString("hex");
 }
 
+function generateJti() {
+  return crypto.randomBytes(16).toString("hex");
+}
+
 export async function authRoutes(app: FastifyInstance) {
   app.post("/auth/signup", { config: { rateLimit: { max: 20, timeWindow: '1 minute' } } }, async (request, reply) => {
     const body = request.body as { email?: string; password?: string; name?: string };
@@ -36,6 +41,9 @@ export async function authRoutes(app: FastifyInstance) {
 
     if (!email || !password) {
       return reply.code(400).send({ ok: false, message: "Email and password are required" });
+    }
+    if (password.length < 8) {
+      return reply.code(400).send({ ok: false, message: "Password must be at least 8 characters" });
     }
 
     const existing = await app.prisma.user.findUnique({ where: { email } });
@@ -57,7 +65,7 @@ export async function authRoutes(app: FastifyInstance) {
       app.log.error({ err }, "Failed to send welcome email")
     );
 
-    const token = app.jwt.sign({ sub: user.id, email: user.email, role: user.role });
+    const token = app.jwt.sign({ sub: user.id, email: user.email, role: user.role, jti: generateJti() });
     const maxAge = 60 * 60 * 24 * 7;
     reply.setCookie("mf_session", token, { ...COOKIE_OPTIONS, maxAge });
     reply.setCookie("mf_auth", "1", { ...AUTH_FLAG_OPTIONS, maxAge });
@@ -78,6 +86,10 @@ export async function authRoutes(app: FastifyInstance) {
 
     const user = await app.prisma.user.findUnique({ where: { email } });
     if (!user) {
+      // Run a dummy bcrypt to equalise response time and prevent user-enumeration
+      // via timing (an attacker measuring the difference between ~0 ms "no user"
+      // and ~100 ms bcrypt can discover valid email addresses).
+      await bcrypt.compare(password, "$2b$10$dummyhashfortimingequalizationXXXXXXXXXXXXXXXXXXXXXXX");
       return reply.code(401).send({ ok: false, message: "Invalid credentials" });
     }
 
@@ -86,7 +98,7 @@ export async function authRoutes(app: FastifyInstance) {
       return reply.code(401).send({ ok: false, message: "Invalid credentials" });
     }
 
-    const token = app.jwt.sign({ sub: user.id, email: user.email, role: user.role });
+    const token = app.jwt.sign({ sub: user.id, email: user.email, role: user.role, jti: generateJti() });
     const maxAge = 60 * 60 * 24 * 7;
     reply.setCookie("mf_session", token, { ...COOKIE_OPTIONS, maxAge });
     reply.setCookie("mf_auth", "1", { ...AUTH_FLAG_OPTIONS, maxAge });
@@ -101,6 +113,18 @@ export async function authRoutes(app: FastifyInstance) {
   });
 
   app.post("/auth/logout", async (_request, reply) => {
+    try {
+      const payload = await (_request as any).jwtVerify<{ jti?: string; exp?: number }>();
+      if (app.redis && payload?.jti && payload?.exp) {
+        const ttlSeconds = payload.exp - Math.floor(Date.now() / 1000);
+        if (ttlSeconds > 0) {
+          await app.redis.set(`jwt:bl:${payload.jti}`, "1", "EX", ttlSeconds);
+        }
+      }
+    } catch {
+      // ignore — still clear cookies
+    }
+
     reply.clearCookie("mf_session", COOKIE_OPTIONS);
     reply.clearCookie("mf_auth", AUTH_FLAG_OPTIONS);
     reply.clearCookie("mf_role", AUTH_FLAG_OPTIONS);
@@ -108,9 +132,56 @@ export async function authRoutes(app: FastifyInstance) {
     return reply.send({ ok: true });
   });
 
+  /**
+   * POST /auth/refresh
+   * Re-issues a fresh JWT for an authenticated user.
+   * Reads the current mf_session cookie, verifies it, then rotates to a new
+   * token with a fresh JTI and expiry.  The old JTI is added to the blocklist
+   * so it can no longer be used (prevents token reuse after refresh).
+   */
+  app.post("/auth/refresh", { config: { rateLimit: { max: 30, timeWindow: "1 minute" } } }, async (request, reply) => {
+    try {
+      const payload = await request.jwtVerify<{ sub: string; jti?: string; exp?: number }>();
+      if (!payload?.sub) return reply.code(401).send({ ok: false, message: "Unauthorized" });
+
+      const user = await app.prisma.user.findUnique({
+        where: { id: payload.sub },
+        select: { id: true, email: true, role: true, plan: true }
+      });
+
+      if (!user) {
+        return reply.code(401).send({ ok: false, message: "Unauthorized" });
+      }
+
+      // Blocklist the old JTI so it can't be reused
+      if (app.redis && payload.jti && payload.exp) {
+        const ttlSeconds = payload.exp - Math.floor(Date.now() / 1000);
+        if (ttlSeconds > 0) {
+          await app.redis.set(`jwt:bl:${payload.jti}`, "1", "EX", ttlSeconds).catch(() => {});
+        }
+      }
+
+      // Issue a fresh token
+      const newToken = app.jwt.sign({ sub: user.id, email: user.email, role: user.role, jti: generateJti() });
+      const maxAge = 60 * 60 * 24 * 7;
+
+      reply.setCookie("mf_session", newToken, { ...COOKIE_OPTIONS, maxAge });
+      reply.setCookie("mf_auth", "1", { ...AUTH_FLAG_OPTIONS, maxAge });
+      reply.setCookie("mf_plan", user.plan, { ...AUTH_FLAG_OPTIONS, maxAge });
+      if (user.role === "ADMIN") {
+        reply.setCookie("mf_role", "ADMIN", { ...AUTH_FLAG_OPTIONS, maxAge });
+      }
+
+      return reply.send({ ok: true });
+    } catch {
+      return reply.code(401).send({ ok: false, message: "Unauthorized" });
+    }
+  });
+
   app.get("/auth/me", async (request, reply) => {
     try {
       const payload = await request.jwtVerify<{ sub: string }>();
+      if (!payload?.sub) return reply.code(401).send({ ok: false, message: "Unauthorized" });
       const user = await app.prisma.user.findUnique({
         where: { id: payload.sub },
         select: { id: true, email: true, name: true, role: true, plan: true, createdAt: true }
@@ -139,32 +210,44 @@ export async function authRoutes(app: FastifyInstance) {
       return reply.send({ ok: true });
     }
 
-    const token = generateToken();
+    const tokenPlain = generateToken();
+    const tokenHash  = hashToken(tokenPlain);
     const expiresAt = new Date(Date.now() + 1000 * 60 * 60);
 
     await app.prisma.passwordResetToken.create({
       data: {
-        token,
+        token: tokenHash,
         expiresAt,
         userId: user.id
       }
     });
 
-    await app.mail.sendPasswordReset(email, token);
+    await app.mail.sendPasswordReset(email, tokenPlain);
 
     return reply.send({ ok: true });
   });
 
   app.post("/auth/reset", { config: { rateLimit: { max: 10, timeWindow: '1 minute' } } }, async (request, reply) => {
     const body = request.body as { token?: string; password?: string };
-    const token = body?.token?.trim();
+    const tokenPlain = body?.token?.trim();
     const password = body?.password?.trim();
 
-    if (!token || !password) {
+    if (!tokenPlain || !password) {
       return reply.code(400).send({ ok: false, message: "Token and password are required" });
     }
 
-    const record = await app.prisma.passwordResetToken.findUnique({ where: { token } });
+    const tokenHash = hashToken(tokenPlain);
+    let record = await app.prisma.passwordResetToken.findUnique({ where: { token: tokenHash } });
+    // Legacy fallback: plaintext stored in DB — accept once and rotate to hashed
+    if (!record) {
+      const legacy = await app.prisma.passwordResetToken.findUnique({ where: { token: tokenPlain } });
+      if (legacy && !legacy.usedAt && legacy.expiresAt >= new Date()) {
+        record = await app.prisma.passwordResetToken.update({
+          where: { token: tokenPlain },
+          data:  { token: tokenHash }
+        });
+      }
+    }
     if (!record || record.usedAt || record.expiresAt < new Date()) {
       return reply.code(400).send({ ok: false, message: "Invalid or expired token" });
     }
@@ -177,7 +260,7 @@ export async function authRoutes(app: FastifyInstance) {
         data: { passwordHash }
       }),
       app.prisma.passwordResetToken.update({
-        where: { token },
+        where: { token: tokenHash },
         data: { usedAt: new Date() }
       })
     ]);
@@ -188,6 +271,7 @@ export async function authRoutes(app: FastifyInstance) {
   app.patch("/auth/password", async (request, reply) => {
     try {
       const payload = await request.jwtVerify<{ sub: string }>();
+      if (!payload?.sub) return reply.code(401).send({ ok: false, message: "Unauthorized" });
       const body = request.body as { currentPassword?: string; newPassword?: string };
 
       if (!body?.currentPassword || !body?.newPassword) {

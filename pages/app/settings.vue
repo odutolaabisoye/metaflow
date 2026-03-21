@@ -5,34 +5,42 @@
     <div class="flex flex-wrap items-center justify-between gap-3">
       <div>
         <p class="text-[11px] uppercase tracking-widest text-white/65 mb-1">Workspace</p>
-        <h1 class="text-2xl font-semibold tracking-tight">Settings</h1>
-        <p class="mt-1 text-sm text-white/75">Manage your integrations, automation rules, and account preferences.</p>
+        <h1 class="text-xl sm:text-2xl font-semibold tracking-tight">Settings</h1>
+        <p class="mt-1 text-xs sm:text-sm text-white/75">Manage your integrations, automation rules, and account preferences.</p>
       </div>
-      <!-- Toasts -->
+      <!-- Screen-reader announcer — always in DOM, invisible, politely announces toasts -->
+      <div aria-live="polite" aria-atomic="true" class="sr-only">
+        <span v-if="saveSuccess">Rule changes saved</span>
+        <span v-else-if="saveError">Failed to save. Please try again.</span>
+        <span v-else-if="metaConnected">Meta Ads connected successfully</span>
+        <span v-else-if="metaError">Meta connection failed. Please try again.</span>
+      </div>
+
+      <!-- Visual toasts (animated) -->
       <Transition name="fade-up">
-        <div v-if="saveSuccess" class="flex items-center gap-2.5 rounded-xl border border-lime-500/25 bg-lime-500/8 px-4 py-2.5 text-sm font-medium text-lime-400">
+        <div v-if="saveSuccess" class="flex items-center gap-2.5 rounded-xl border border-lime-500/25 bg-lime-500/8 px-4 py-2.5 text-sm font-medium text-lime-400" aria-hidden="true">
           <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
             <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
           </svg>
           Rule changes saved
         </div>
-        <div v-else-if="saveError" class="flex items-center gap-2.5 rounded-xl border border-ember-500/25 bg-ember-500/8 px-4 py-2.5 text-sm font-medium text-ember-400">
+        <div v-else-if="saveError" class="flex items-center gap-2.5 rounded-xl border border-ember-500/25 bg-ember-500/8 px-4 py-2.5 text-sm font-medium text-ember-400" aria-hidden="true">
           <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
             <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z"/>
           </svg>
-          Failed to save: {{ saveError }}
+          Failed to save. Please try again.
         </div>
-        <div v-else-if="metaConnected" class="flex items-center gap-2.5 rounded-xl border border-lime-500/25 bg-lime-500/8 px-4 py-2.5 text-sm font-medium text-lime-400">
+        <div v-else-if="metaConnected" class="flex items-center gap-2.5 rounded-xl border border-lime-500/25 bg-lime-500/8 px-4 py-2.5 text-sm font-medium text-lime-400" aria-hidden="true">
           <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
             <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
           </svg>
           Meta Ads connected successfully
         </div>
-        <div v-else-if="metaError" class="flex items-center gap-2.5 rounded-xl border border-ember-500/25 bg-ember-500/8 px-4 py-2.5 text-sm font-medium text-ember-400">
+        <div v-else-if="metaError" class="flex items-center gap-2.5 rounded-xl border border-ember-500/25 bg-ember-500/8 px-4 py-2.5 text-sm font-medium text-ember-400" aria-hidden="true">
           <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
             <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z"/>
           </svg>
-          Meta connection failed: {{ metaError }}
+          Meta connection failed. Please try again.
         </div>
       </Transition>
     </div>
@@ -171,6 +179,14 @@
         </Transition>
       </div>
 
+      <div v-if="rollupStatus" class="mb-4 rounded-xl border border-white/10 bg-white/[0.04] p-3">
+        <p class="text-xs text-white/70 font-medium">Daily rollup status</p>
+        <p class="text-[11px] text-white/50 mt-1">
+          {{ rollupStatus === 'SUCCESS' ? `Last rollup ${timeAgo(rollupAt)}` : rollupStatus }}
+          <span v-if="rollupStatus === 'ERROR' && rollupError" class="text-rose-300"> · {{ rollupError }}</span>
+        </p>
+      </div>
+
       <div v-if="metaSyncStatus === 'NEEDS_REAUTH'" class="mb-4 rounded-xl border border-amber-400/30 bg-amber-400/10 p-3">
         <p class="text-xs text-amber-300 font-medium">Meta connection needs re‑authorization.</p>
         <p class="text-[11px] text-white/60 mt-1">Reconnect to restore ad insights and automation.</p>
@@ -183,7 +199,7 @@
       </div>
       <div v-else-if="metaSyncStatus === 'ERROR'" class="mb-4 rounded-xl border border-rose-400/30 bg-rose-400/10 p-3">
         <p class="text-xs text-rose-300 font-medium">Meta sync error.</p>
-        <p class="text-[11px] text-white/60 mt-1">{{ metaSyncError || 'Check permissions and try again.' }}</p>
+        <p class="text-[11px] text-white/60 mt-1">{{ sanitizeError(metaSyncError, 'Check permissions and try again.') }}</p>
       </div>
 
       <!-- Loading skeleton -->
@@ -386,124 +402,6 @@
         </div>
       </div>
 
-      <!-- Per-store benchmark overrides -->
-      <div v-if="!loadingRules && stores.length > 0" class="mt-5 pt-5 border-t border-white/8 space-y-4">
-        <div>
-          <p class="text-xs font-medium text-white/60 uppercase tracking-wider">Store benchmark overrides</p>
-          <p class="text-xs text-white/45 mt-1">Set different scoring targets per store. Leave blank to inherit account defaults.</p>
-        </div>
-
-        <!-- Store picker -->
-        <div v-if="stores.length > 1">
-          <label class="text-xs font-medium text-white/75 block mb-1.5">Store</label>
-          <select
-            v-model="storeBenchmarkStoreId"
-            class="form-input"
-            @change="loadStoreBenchmarks(storeBenchmarkStoreId)"
-          >
-            <option v-for="s in stores" :key="s.id" :value="s.id">{{ s.name }}</option>
-          </select>
-        </div>
-
-        <!-- Loading skeleton -->
-        <div v-if="storeBenchmarkLoading" class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <div v-for="i in 4" :key="i" class="h-16 rounded-xl bg-white/5 animate-pulse"></div>
-        </div>
-
-        <div v-else class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <!-- Store ROAS target -->
-          <div>
-            <label class="text-xs font-medium text-white/75 block mb-1.5">ROAS Target</label>
-            <div class="relative">
-              <input
-                type="number"
-                step="0.5"
-                min="0.5"
-                :placeholder="String(storeBenchmarkDefaults.roas)"
-                v-model.number="storeBenchmarkValues.roas"
-                class="w-full rounded-xl border border-white/10 bg-white/[0.06] pl-3 pr-8 py-2 text-sm text-white placeholder:text-white/40 outline-none focus:border-glow-500/40 focus:ring-2 focus:ring-glow-500/15 transition-all"
-              />
-              <span class="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-white/40">×</span>
-            </div>
-            <p class="text-[10px] text-white/40 mt-1">default: {{ storeBenchmarkDefaults.roas }}×</p>
-          </div>
-          <!-- Store CTR target -->
-          <div>
-            <label class="text-xs font-medium text-white/75 block mb-1.5">CTR Target</label>
-            <div class="relative">
-              <input
-                type="number"
-                step="0.1"
-                min="0.01"
-                :placeholder="String(storeBenchmarkDefaults.ctr)"
-                v-model.number="storeBenchmarkValues.ctr"
-                class="w-full rounded-xl border border-white/10 bg-white/[0.06] pl-3 pr-8 py-2 text-sm text-white placeholder:text-white/40 outline-none focus:border-glow-500/40 focus:ring-2 focus:ring-glow-500/15 transition-all"
-              />
-              <span class="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-white/40">%</span>
-            </div>
-            <p class="text-[10px] text-white/40 mt-1">default: {{ storeBenchmarkDefaults.ctr }}%</p>
-          </div>
-          <!-- Store Margin target -->
-          <div>
-            <label class="text-xs font-medium text-white/75 block mb-1.5">Margin Target</label>
-            <div class="relative">
-              <input
-                type="number"
-                step="1"
-                min="1"
-                max="100"
-                :placeholder="String(storeBenchmarkDefaults.margin)"
-                v-model.number="storeBenchmarkValues.margin"
-                class="w-full rounded-xl border border-white/10 bg-white/[0.06] pl-3 pr-8 py-2 text-sm text-white placeholder:text-white/40 outline-none focus:border-glow-500/40 focus:ring-2 focus:ring-glow-500/15 transition-all"
-              />
-              <span class="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-white/40">%</span>
-            </div>
-            <p class="text-[10px] text-white/40 mt-1">default: {{ storeBenchmarkDefaults.margin }}%</p>
-          </div>
-          <!-- Store Min Stock -->
-          <div>
-            <label class="text-xs font-medium text-white/75 block mb-1.5">Min. Stock</label>
-            <div class="relative">
-              <input
-                type="number"
-                step="1"
-                min="1"
-                :placeholder="String(storeBenchmarkDefaults.inventory)"
-                v-model.number="storeBenchmarkValues.inventory"
-                class="w-full rounded-xl border border-white/10 bg-white/[0.06] pl-3 pr-12 py-2 text-sm text-white placeholder:text-white/40 outline-none focus:border-glow-500/40 focus:ring-2 focus:ring-glow-500/15 transition-all"
-              />
-              <span class="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-white/40">units</span>
-            </div>
-            <p class="text-[10px] text-white/40 mt-1">default: {{ storeBenchmarkDefaults.inventory }} units</p>
-          </div>
-        </div>
-
-        <!-- Store benchmark actions -->
-        <div v-if="!storeBenchmarkLoading" class="flex gap-3">
-          <button
-            @click="saveStoreBenchmarks"
-            :disabled="storeBenchmarkSaving"
-            class="flex-1 flex items-center justify-center gap-2 rounded-xl bg-white/10 border border-white/15 text-white py-2.5 text-sm font-semibold hover:bg-white/15 transition-all disabled:opacity-60 disabled:cursor-not-allowed"
-          >
-            <svg v-if="storeBenchmarkSaving" class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
-              <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
-              <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
-            </svg>
-            {{ storeBenchmarkSaving ? 'Saving…' : 'Save store benchmarks' }}
-          </button>
-          <button
-            @click="resetStoreBenchmarks"
-            :disabled="storeBenchmarkSaving"
-            class="px-4 flex items-center justify-center rounded-xl border border-white/12 bg-white/[0.03] text-white/60 text-sm hover:text-white/85 hover:border-white/20 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
-          >
-            Reset to defaults
-          </button>
-        </div>
-
-        <p v-if="storeBenchmarkSuccess" class="text-xs text-lime-400">Store benchmarks saved.</p>
-        <p v-if="storeBenchmarkError" class="text-xs text-red-400">{{ storeBenchmarkError }}</p>
-      </div>
-
       <button
         v-if="!loadingRules"
         @click="saveRules"
@@ -516,6 +414,165 @@
         </svg>
         {{ savingRules ? 'Saving…' : 'Save rule changes' }}
       </button>
+    </div>
+
+    <!-- ── Per-store benchmark overrides ── -->
+    <!--
+      Separate card from "Automation rules" to avoid confusion with the
+      account-wide "Scoring benchmarks" inputs above. These fields ONLY
+      override the account defaults for a specific store — leave blank
+      to inherit.  Priority: store override › account default › global default.
+    -->
+    <div v-if="stores.length > 0" class="glass rounded-2xl p-6">
+      <div class="flex flex-wrap items-center justify-between gap-3 mb-5">
+        <div>
+          <h2 class="font-semibold">Per-store benchmark overrides</h2>
+          <p class="text-xs text-white/65 mt-0.5">
+            Override scoring targets for a specific store. Leave any field blank to inherit the
+            account-wide default set above.
+          </p>
+        </div>
+        <!-- Cascade hint badge -->
+        <div class="flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.04] px-3 py-1">
+          <span class="text-xs text-white/40">Account default</span>
+          <svg class="w-3 h-3 text-white/25" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+          </svg>
+          <span class="text-xs text-white/70 font-medium">Store override</span>
+        </div>
+      </div>
+
+      <!-- Store picker (only shown when user has multiple stores) -->
+      <div v-if="stores.length > 1" class="mb-5">
+        <label class="text-xs font-medium text-white/75 block mb-1.5">Select store</label>
+        <select
+          v-model="storeBenchmarkStoreId"
+          class="form-input"
+          @change="loadStoreBenchmarks(storeBenchmarkStoreId)"
+        >
+          <option v-for="s in stores" :key="s.id" :value="s.id">{{ s.name }}</option>
+        </select>
+      </div>
+
+      <!-- Loading skeleton -->
+      <div v-if="storeBenchmarkLoading" class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div v-for="i in 4" :key="i" class="h-20 rounded-xl bg-white/5 animate-pulse"></div>
+      </div>
+
+      <div v-else class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <!-- ROAS override -->
+        <div>
+          <div class="flex items-center justify-between mb-1.5">
+            <label class="text-xs font-medium text-white/75">ROAS override</label>
+            <span class="text-[10px] text-white/35 font-mono">acct: {{ storeBenchmarkDefaults.roas }}×</span>
+          </div>
+          <div class="relative">
+            <input
+              type="number"
+              step="0.5"
+              min="0.5"
+              :placeholder="String(storeBenchmarkDefaults.roas)"
+              v-model.number="storeBenchmarkValues.roas"
+              class="w-full rounded-xl border border-white/10 bg-white/[0.04] pl-3 pr-8 py-2 text-sm text-white placeholder:text-white/25 outline-none focus:border-glow-500/40 focus:ring-2 focus:ring-glow-500/15 transition-all"
+            />
+            <span class="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-white/40">×</span>
+          </div>
+          <p class="text-[10px] mt-1" :class="storeBenchmarkValues.roas ? 'text-glow-400/70' : 'text-white/30'">
+            {{ storeBenchmarkValues.roas ? `This store: ${storeBenchmarkValues.roas}×` : 'Inheriting account default' }}
+          </p>
+        </div>
+
+        <!-- CTR override -->
+        <div>
+          <div class="flex items-center justify-between mb-1.5">
+            <label class="text-xs font-medium text-white/75">CTR override</label>
+            <span class="text-[10px] text-white/35 font-mono">acct: {{ storeBenchmarkDefaults.ctr }}%</span>
+          </div>
+          <div class="relative">
+            <input
+              type="number"
+              step="0.1"
+              min="0.01"
+              :placeholder="String(storeBenchmarkDefaults.ctr)"
+              v-model.number="storeBenchmarkValues.ctr"
+              class="w-full rounded-xl border border-white/10 bg-white/[0.04] pl-3 pr-8 py-2 text-sm text-white placeholder:text-white/25 outline-none focus:border-glow-500/40 focus:ring-2 focus:ring-glow-500/15 transition-all"
+            />
+            <span class="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-white/40">%</span>
+          </div>
+          <p class="text-[10px] mt-1" :class="storeBenchmarkValues.ctr ? 'text-glow-400/70' : 'text-white/30'">
+            {{ storeBenchmarkValues.ctr ? `This store: ${storeBenchmarkValues.ctr}%` : 'Inheriting account default' }}
+          </p>
+        </div>
+
+        <!-- Margin override -->
+        <div>
+          <div class="flex items-center justify-between mb-1.5">
+            <label class="text-xs font-medium text-white/75">Margin override</label>
+            <span class="text-[10px] text-white/35 font-mono">acct: {{ storeBenchmarkDefaults.margin }}%</span>
+          </div>
+          <div class="relative">
+            <input
+              type="number"
+              step="1"
+              min="1"
+              max="100"
+              :placeholder="String(storeBenchmarkDefaults.margin)"
+              v-model.number="storeBenchmarkValues.margin"
+              class="w-full rounded-xl border border-white/10 bg-white/[0.04] pl-3 pr-8 py-2 text-sm text-white placeholder:text-white/25 outline-none focus:border-glow-500/40 focus:ring-2 focus:ring-glow-500/15 transition-all"
+            />
+            <span class="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-white/40">%</span>
+          </div>
+          <p class="text-[10px] mt-1" :class="storeBenchmarkValues.margin ? 'text-glow-400/70' : 'text-white/30'">
+            {{ storeBenchmarkValues.margin ? `This store: ${storeBenchmarkValues.margin}%` : 'Inheriting account default' }}
+          </p>
+        </div>
+
+        <!-- Min. stock override -->
+        <div>
+          <div class="flex items-center justify-between mb-1.5">
+            <label class="text-xs font-medium text-white/75">Min. stock override</label>
+            <span class="text-[10px] text-white/35 font-mono">acct: {{ storeBenchmarkDefaults.inventory }} u</span>
+          </div>
+          <div class="relative">
+            <input
+              type="number"
+              step="1"
+              min="1"
+              :placeholder="String(storeBenchmarkDefaults.inventory)"
+              v-model.number="storeBenchmarkValues.inventory"
+              class="w-full rounded-xl border border-white/10 bg-white/[0.04] pl-3 pr-12 py-2 text-sm text-white placeholder:text-white/25 outline-none focus:border-glow-500/40 focus:ring-2 focus:ring-glow-500/15 transition-all"
+            />
+            <span class="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-white/40">units</span>
+          </div>
+          <p class="text-[10px] mt-1" :class="storeBenchmarkValues.inventory ? 'text-glow-400/70' : 'text-white/30'">
+            {{ storeBenchmarkValues.inventory ? `This store: ${storeBenchmarkValues.inventory} units` : 'Inheriting account default' }}
+          </p>
+        </div>
+      </div>
+
+      <!-- Actions -->
+      <div v-if="!storeBenchmarkLoading" class="flex gap-3 mt-5">
+        <button
+          @click="saveStoreBenchmarks"
+          :disabled="storeBenchmarkSaving"
+          class="flex-1 flex items-center justify-center gap-2 rounded-xl bg-white text-ink-950 py-2.5 text-sm font-semibold hover:bg-white/90 transition-all disabled:opacity-60 disabled:cursor-not-allowed"
+        >
+          <svg v-if="storeBenchmarkSaving" class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+          </svg>
+          {{ storeBenchmarkSaving ? 'Saving…' : 'Save store overrides' }}
+        </button>
+        <button
+          @click="resetStoreBenchmarks"
+          :disabled="storeBenchmarkSaving"
+          class="px-4 flex items-center justify-center rounded-xl border border-white/12 bg-white/[0.03] text-white/60 text-sm hover:text-white/85 hover:border-white/20 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          Clear overrides
+        </button>
+      </div>
+      <p v-if="storeBenchmarkSuccess" class="text-xs text-lime-400 mt-3">Store overrides saved.</p>
+      <p v-if="storeBenchmarkError" class="text-xs text-red-400 mt-3">{{ storeBenchmarkError }}</p>
     </div>
 
     <!-- ── Two-column: Notifications + Billing ── -->
@@ -1091,6 +1148,13 @@
 const { public: { apiBase } } = useRuntimeConfig();
 const route = useRoute();
 
+// Strips stack traces / internal paths before rendering backend errors in the UI
+function sanitizeError(msg: string | null | undefined, fallback: string): string {
+  if (!msg) return fallback;
+  if (/^\s*(Error|TypeError|ReferenceError|SyntaxError):/m.test(msg) || /\s+at \w/.test(msg)) return fallback;
+  return msg.length > 200 ? msg.slice(0, 200) + '…' : msg;
+}
+
 // ── Toast state ───────────────────────────────────────────────────────────────
 const metaConnected = ref(route.query.meta_connected === '1');
 const metaError = ref(typeof route.query.meta_error === 'string' ? decodeURIComponent(route.query.meta_error as string) : '');
@@ -1143,6 +1207,9 @@ interface StoreRecord {
   lastSyncStatus?: string | null;
   lastSyncError?: string | null;
   lastSyncProvider?: string | null;
+  lastRollupAt?: string | null;
+  lastRollupStatus?: string | null;
+  lastRollupError?: string | null;
   connections: ConnRecord[];
 }
 
@@ -1170,6 +1237,10 @@ const connectedMetaConn = computed<(ConnRecord & { storeId: string }) | null>(()
   return mc ? { ...mc, storeId: store.id } : null;
 });
 
+const rollupStatus = computed(() => connectedStore.value?.lastRollupStatus ?? null);
+const rollupError = computed(() => connectedStore.value?.lastRollupError ?? null);
+const rollupAt = computed(() => connectedStore.value?.lastRollupAt ?? null);
+
 const metaSyncStatus = computed(() => {
   if (!connectedStore.value) return null;
   if (connectedStore.value.lastSyncProvider !== 'META') return null;
@@ -1189,7 +1260,10 @@ async function loadConnections() {
       { credentials: 'include' }
     );
     if (res.ok) stores.value = res.stores;
-  } catch { /* network error — leave state empty */ }
+  } catch (err: any) {
+    if (err?.status === 401 || err?.response?.status === 401) { navigateTo('/auth/login'); return; }
+    /* other network error — leave state empty */
+  }
   loadingConnections.value = false;
 }
 
@@ -1473,6 +1547,21 @@ async function loadSettings() {
 }
 
 async function saveRules() {
+  // L7: validate benchmark ranges before sending to the server
+  const bv = benchmarkValues;
+  if (!bv.roas || bv.roas < 0.5 || bv.roas > 100) {
+    showSaveError('ROAS target must be between 0.5 and 100'); return;
+  }
+  if (!bv.ctr || bv.ctr < 0.01 || bv.ctr > 100) {
+    showSaveError('CTR target must be between 0.01% and 100%'); return;
+  }
+  if (!bv.margin || bv.margin < 1 || bv.margin > 100) {
+    showSaveError('Margin target must be between 1% and 100%'); return;
+  }
+  if (!bv.inventory || bv.inventory < 1 || bv.inventory > 100000) {
+    showSaveError('Min. Stock must be between 1 and 100,000 units'); return;
+  }
+
   savingRules.value = true;
   try {
     const res = await $fetch<{ ok: boolean; settings: Parameters<typeof applySettings>[0] }>(

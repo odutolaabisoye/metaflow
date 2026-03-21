@@ -2,8 +2,8 @@
   <div class="space-y-6">
     <div>
       <p class="text-[11px] uppercase tracking-widest text-white/65 mb-1">Workspace</p>
-      <h1 class="text-2xl font-semibold tracking-tight">Automation Activity</h1>
-      <p class="mt-1 text-sm text-white/75">Rule firings, score changes, and automated actions for your store.</p>
+      <h1 class="text-xl sm:text-2xl font-semibold tracking-tight">Automation Activity</h1>
+      <p class="mt-1 text-xs sm:text-sm text-white/75">Rule firings, score changes, and automated actions for your store.</p>
     </div>
 
     <!-- No store state -->

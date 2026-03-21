@@ -1,5 +1,6 @@
 import type { PrismaClient } from "@prisma/client";
 import { storeLocalDayBounds } from "./dateUtils.js";
+import { fetchWithRetry } from "../utils/http.js";
 
 const META_GRAPH_VERSION = "v19.0";
 const META_GRAPH_BASE = `https://graph.facebook.com/${META_GRAPH_VERSION}`;
@@ -265,15 +266,23 @@ function getActionCount(actions: Array<{ action_type: string; value: string }>, 
 
 /**
  * Normalise a retailer/external ID for loose matching.
- * Strips non-digit chars from Shopify GIDs: gid://shopify/Product/123 → "123"
- * Leaves plain SKUs untouched: "25122" → "25122"
+ * - Shopify GIDs: gid://shopify/Product/123 → "123"
+ * - Pure numeric IDs: "25122" → "25122"
+ * - Alphanumeric SKUs: "SKU-25122-A" → "SKU-25122-A" (preserve)
  */
 function normalizeRetailerId(value?: string): string | null {
   if (!value) return null;
   const trimmed = value.trim();
   if (!trimmed) return null;
-  const digits = trimmed.match(/\d+/g)?.join("") ?? "";
-  return digits.length > 0 ? digits : trimmed;
+  // Shopify GID
+  if (trimmed.startsWith("gid://shopify/")) {
+    const digits = trimmed.match(/\d+/g)?.join("") ?? "";
+    return digits.length > 0 ? digits : trimmed;
+  }
+  // Pure numeric IDs (WooCommerce/Shopify numeric product/variant IDs)
+  if (/^\d+$/.test(trimmed)) return trimmed;
+  // Preserve alphanumeric SKUs
+  return trimmed;
 }
 
 /**
@@ -396,7 +405,7 @@ export async function runMetaSync(
 
   // --- Build product lookup maps (SKU, externalId, and altIds) ---
   const productIndex = await prisma.productMeta.findMany({
-    where: { storeId },
+    where: { storeId, isActive: true },
     select: { id: true, externalId: true, sku: true, altIds: true, title: true }
   });
 
@@ -466,6 +475,7 @@ export async function runMetaSync(
 
   for (const account of adAccounts) {
     try {
+      const matchedBefore = totalMatched;
       // --- Step 1b: Fetch account billing currency for spend conversion ---
       // Meta returns spend/revenue in the ad account's billing currency, which may
       // differ from the store's operating currency (e.g. NGN ad account vs USD store).
@@ -479,7 +489,7 @@ export async function runMetaSync(
         );
         const acctCurrency = (acctDetails.currency ?? storeCurrency).toUpperCase();
         if (acctCurrency !== storeCurrency) {
-          const ratesRes = await fetch(
+          const ratesRes = await fetchWithRetry(
             `https://open.er-api.com/v6/latest/${acctCurrency}`
           );
           if (ratesRes.ok) {
@@ -591,28 +601,28 @@ export async function runMetaSync(
        *  3. Catalog item ID itself (as an externalId/SKU — rare but possible)
        *  4. Title similarity (word overlap ≥60%) — last resort
        */
-      function lookupByCatalogItem(catalogItemId: string): string | null {
+      function lookupByCatalogItem(catalogItemId: string): { id: string; method: string } | null {
         // 1. retailer_id (the store's own product identifier)
         const retailerId = catalogItemToRetailer.get(catalogItemId);
         if (retailerId) {
           const found = lookupProduct(retailerId);
-          if (found) return found;
+          if (found) return { id: found, method: "retailer_id" };
         }
         // 2. SKU extracted from Meta's "SKU, Title" product name format
         const titleSku = catalogItemToTitleSku.get(catalogItemId);
         if (titleSku) {
           const found = lookupProduct(titleSku);
-          if (found) return found;
+          if (found) return { id: found, method: "title_sku" };
         }
         // 3. Treat the catalog item ID itself as an externalId/SKU (rare but possible)
         const byId = lookupProduct(catalogItemId);
-        if (byId) return byId;
+        if (byId) return { id: byId, method: "catalog_item_id" };
 
         // 4. Title similarity fallback — handles slight name differences
         const metaName = catalogItemToName.get(catalogItemId);
         if (metaName) {
           const found = matchByTitleSimilarity(metaName);
-          if (found) return found;
+          if (found) return { id: found, method: "title_similarity" };
 
           // Record as unmatched so it can be surfaced to the merchant
           const retailerIdForLog = retailerId ?? catalogItemId;
@@ -726,6 +736,8 @@ export async function runMetaSync(
         [regularInsights, 'regular'],
       ];
 
+      const matchCounts: Record<string, number> = {};
+
       for (const [batch, source] of insightBatches) {
         for (const insight of batch) {
           // Use priority-based helpers to avoid double-counting onsite/pixel/omni
@@ -776,9 +788,10 @@ export async function runMetaSync(
 
           // Method 1: product_id from breakdown (Meta catalog item ID)
           if (insight.product_id) {
-            productMetaId = lookupByCatalogItem(insight.product_id);
-            if (productMetaId) {
-              matchMethod = "catalog_item";
+            const match = lookupByCatalogItem(insight.product_id);
+            if (match) {
+              productMetaId = match.id;
+              matchMethod = match.method;
             }
 
             // If Meta product_id looks like "SKU, Title" (e.g. "34523, Men's Polo"),
@@ -811,7 +824,13 @@ export async function runMetaSync(
           if (!productMetaId && insight.adset_id) {
             const adset = adSetMap.get(insight.adset_id);
             const itemId = adset?.promoted_object?.product_item_id;
-            if (itemId) productMetaId = lookupByCatalogItem(itemId);
+            if (itemId) {
+              const match = lookupByCatalogItem(itemId);
+              if (match) {
+                productMetaId = match.id;
+                matchMethod = `adset_${match.method}`;
+              }
+            }
           }
 
           // Unmatched: accumulate for proportional distribution in Step 6
@@ -867,6 +886,10 @@ export async function runMetaSync(
               checkoutInitiated: existing.checkoutInitiated + checkoutInitiated,
               checkoutInitiatedOmni: existing.checkoutInitiatedOmni + checkoutInitiatedOmni,
             });
+          }
+
+          if (matchMethod !== "none") {
+            matchCounts[matchMethod] = (matchCounts[matchMethod] ?? 0) + 1;
           }
         }
       }
@@ -942,28 +965,25 @@ export async function runMetaSync(
       // --- Step 6: Proportional distribution of unmatched spend ---
       // For ads we couldn't attribute to a specific product, split spend
       // across products proportionally based on each product's store revenue that day.
+      let unmatchedSpendTotal = 0;
       for (const [dateKey, accum] of unmatchedAccum) {
         const insightDate = new Date(dateKey);
 
-        const products = await prisma.productMeta.findMany({
-          where: { storeId },
-          include: {
-            dailyMetrics: { where: { date: insightDate }, take: 1 }
-          }
-        });
+        unmatchedSpendTotal += accum.spend;
 
-        const totalRevenue = products.reduce(
-          (sum, p) => sum + (p.dailyMetrics[0]?.revenue ?? 0),
-          0
-        );
+        const metricsForDay = await prisma.dailyMetric.findMany({
+          where: { storeId, date: insightDate },
+          select: { productId: true, revenue: true, margin: true }
+        });
+        const totalRevenue = metricsForDay.reduce((sum, m) => sum + (m.revenue ?? 0), 0);
 
         if (totalRevenue === 0) continue;
 
-        for (const product of products) {
-          const productRevenue = product.dailyMetrics[0]?.revenue ?? 0;
+        for (const metric of metricsForDay) {
+          const productRevenue = metric.revenue ?? 0;
           if (productRevenue === 0) continue;
 
-          const writeKey = `${product.id}\x00${insightDate.toISOString()}`;
+          const writeKey = `${metric.productId}\x00${insightDate.toISOString()}`;
           if (writtenKeys.has(writeKey)) continue; // matched insight already wrote this slot
 
           const share = productRevenue / totalRevenue;
@@ -973,14 +993,14 @@ export async function runMetaSync(
           const blendedRoas = pSpend > 0 ? productRevenue / pSpend : accum.purchaseRoas;
 
           await prisma.dailyMetric.upsert({
-            where: { storeId_productId_date: { storeId, productId: product.id, date: insightDate } },
+            where: { storeId_productId_date: { storeId, productId: metric.productId, date: insightDate } },
             create: {
               date: insightDate,
               roas: accum.purchaseRoas,
               blendedRoas,
               ctr: accum.ctr,
               conversionRate: pClicks > 0 ? (accum.purchases * share) / pClicks : 0,
-              margin: product.dailyMetrics[0]?.margin ?? 0.35,
+              margin: metric.margin ?? 0.35,
               velocity: productRevenue / 30,
               spend: pSpend,
               revenue: productRevenue,
@@ -993,7 +1013,7 @@ export async function runMetaSync(
               checkoutInitiated: 0,
               checkoutInitiatedOmni: 0,
               storeId,
-              productId: product.id
+              productId: metric.productId
             },
             update: {
               roas: accum.purchaseRoas,
@@ -1015,6 +1035,32 @@ export async function runMetaSync(
           writtenKeys.add(writeKey);
           totalMatched++;
         }
+      }
+
+      // Visibility: write a compact summary audit log for this account sync
+      try {
+        const matchedThisAccount = totalMatched - matchedBefore;
+        await prisma.auditLog.create({
+          data: {
+            action: "Meta Sync — Summary",
+            detail: `Matched ${matchedThisAccount} insight rows for account ${account.account_id}. Unmatched spend: ${unmatchedSpendTotal.toFixed(2)} (${storeCurrency}).`,
+            metadata: {
+              matched: matchedThisAccount,
+              unmatchedSpend: unmatchedSpendTotal,
+              currency: storeCurrency,
+              matchCounts,
+              productBreakdownSucceeded,
+              adAccounts: adAccounts.length,
+              accountId: account.account_id,
+              accountGraphId: account.id,
+              tag: "Info",
+              variant: "info"
+            },
+            storeId
+          }
+        });
+      } catch {
+        // non-fatal
       }
     } catch (err) {
       // Don't fail the whole sync if one ad account errors

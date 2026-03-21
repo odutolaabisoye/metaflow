@@ -181,7 +181,10 @@
             :key="item.to"
             :to="item.to"
             class="relative flex items-center gap-3 rounded-xl px-3 py-2.5 transition-all duration-200 group"
-            :class="route.path === item.to ? 'bg-white/10 text-white' : 'text-white/70 hover:text-white hover:bg-white/5'"
+            :class="[
+              item.locked ? 'opacity-50 cursor-default' : '',
+              route.path === item.to ? 'bg-white/10 text-white' : 'text-white/70 hover:text-white hover:bg-white/5',
+            ]"
           >
             <div v-if="route.path === item.to" class="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-5 rounded-r-full" :style="{ background: item.color }"></div>
             <div class="h-8 w-8 flex-shrink-0 rounded-lg flex items-center justify-center transition-colors" :class="route.path === item.to ? 'bg-white/8' : 'group-hover:bg-white/5'" :style="route.path === item.to ? { color: item.color } : {}">
@@ -192,7 +195,9 @@
               <span v-if="item.badge" class="rounded-full px-1.5 py-0.5 text-[10px] font-semibold" :style="{ background: item.badgeBg, color: item.badgeColor }">{{ item.badge }}</span>
             </template>
             <div v-if="!sidebarOpen" class="pointer-events-none absolute left-full ml-2.5 z-50 hidden group-hover:flex items-center">
-              <div class="rounded-lg bg-ink-800 border border-white/15 px-2.5 py-1.5 text-xs font-medium text-white shadow-xl whitespace-nowrap">{{ item.label }}</div>
+              <div class="rounded-lg bg-ink-800 border border-white/15 px-2.5 py-1.5 text-xs font-medium text-white shadow-xl whitespace-nowrap">
+                {{ item.label }}{{ item.locked ? ' — SCALE plan' : '' }}
+              </div>
             </div>
           </NuxtLink>
 
@@ -265,6 +270,16 @@
                 <template v-else>Not synced</template>
               </span>
             </div>
+            <!-- Mobile date range button -->
+            <button
+              class="md:hidden rounded-xl border border-white/10 bg-white/5 p-2 text-white/75 hover:text-white transition-colors"
+              @click="rangeOpen = !rangeOpen"
+              title="Date range"
+            >
+              <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M8 7V3m8 4V3M4 11h16M6 5h12a2 2 0 012 2v12a2 2 0 01-2 2H6a2 2 0 01-2-2V7a2 2 0 012-2z"/>
+              </svg>
+            </button>
             <!-- Date range — hidden on mobile, shown from md up -->
             <div class="hidden md:flex items-center gap-2">
               <select v-model="selectedRange" class="rounded-xl border border-white/10 bg-white/[0.05] px-3 py-1.5 text-xs text-white/80 outline-none focus:border-glow-500/40 transition-colors cursor-pointer">
@@ -400,12 +415,31 @@
             </div>
           </div>
 
+          <!-- Mobile date range -->
+          <div class="border-b border-white/8 px-4 py-3">
+            <p class="text-[10px] font-semibold uppercase tracking-widest text-white/45 mb-2">Date range</p>
+            <div class="space-y-2">
+              <select v-model="selectedRange" class="w-full rounded-xl border border-white/10 bg-white/[0.06] px-3 py-2 text-xs text-white outline-none focus:border-glow-500/40 transition-all">
+                <option v-for="opt in rangeOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+              </select>
+              <div v-if="isCustom" class="grid grid-cols-2 gap-2">
+                <input v-model="customStart" type="date"
+                  class="rounded-xl border border-white/10 bg-white/[0.05] px-2.5 py-2 text-xs text-white/70 outline-none focus:border-glow-500/40 transition-colors"/>
+                <input v-model="customEnd" type="date"
+                  class="rounded-xl border border-white/10 bg-white/[0.05] px-2.5 py-2 text-xs text-white/70 outline-none focus:border-glow-500/40 transition-colors"/>
+              </div>
+            </div>
+          </div>
+
           <!-- Nav links -->
           <nav class="flex-1 p-4 space-y-0.5">
             <p class="px-2 py-1.5 text-[10px] font-semibold uppercase tracking-widest text-white/45">Main</p>
             <NuxtLink v-for="item in nav" :key="item.to" :to="item.to"
               class="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition-colors"
-              :class="route.path === item.to ? 'bg-white/10 text-white' : 'text-white/75 hover:text-white hover:bg-white/5'"
+              :class="[
+                item.locked ? 'opacity-50' : '',
+                route.path === item.to ? 'bg-white/10 text-white' : 'text-white/75 hover:text-white hover:bg-white/5',
+              ]"
               @click="navOpen = false">
               <div class="h-7 w-7 rounded-lg flex items-center justify-center bg-white/5 flex-shrink-0" :style="route.path === item.to ? { color: item.color } : {}">
                 <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5" v-html="item.icon"></svg>
@@ -428,6 +462,37 @@
         </div>
       </Transition>
     </Teleport>
+
+    <!-- Mobile date range popover -->
+    <Teleport to="body">
+      <Transition name="fade">
+        <div v-if="rangeOpen" @click="rangeOpen = false" class="md:hidden fixed inset-0 z-40 bg-black/60 backdrop-blur-sm"></div>
+      </Transition>
+      <Transition name="slide-up">
+        <div v-if="rangeOpen" class="md:hidden fixed left-4 right-4 bottom-6 z-50 rounded-2xl border border-white/15 bg-ink-900/95 backdrop-blur-xl shadow-2xl overflow-hidden">
+          <div class="flex items-center justify-between px-4 py-3 border-b border-white/10">
+            <p class="text-sm font-medium">Date range</p>
+            <button class="text-white/60 hover:text-white" @click="rangeOpen = false">
+              <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+            </button>
+          </div>
+          <div class="p-4 space-y-3">
+            <select v-model="selectedRange" class="w-full rounded-xl border border-white/10 bg-white/[0.06] px-3 py-2 text-xs text-white outline-none focus:border-glow-500/40 transition-all">
+              <option v-for="opt in rangeOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+            </select>
+            <div v-if="isCustom" class="grid grid-cols-2 gap-2">
+              <input v-model="customStart" type="date"
+                class="rounded-xl border border-white/10 bg-white/[0.05] px-2.5 py-2 text-xs text-white/70 outline-none focus:border-glow-500/40 transition-colors"/>
+              <input v-model="customEnd" type="date"
+                class="rounded-xl border border-white/10 bg-white/[0.05] px-2.5 py-2 text-xs text-white/70 outline-none focus:border-glow-500/40 transition-colors"/>
+            </div>
+            <button class="w-full rounded-xl border border-white/10 bg-white/[0.06] py-2 text-xs text-white/80 hover:text-white hover:bg-white/10 transition-colors" @click="rangeOpen = false">
+              Done
+            </button>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
   </div>
 </template>
 
@@ -437,9 +502,10 @@ import { useGlobalFilters } from '~/composables/useGlobalFilters';
 const route = useRoute();
 const config = useRuntimeConfig();
 const navOpen = ref(false);
+const rangeOpen = ref(false);
 
 // Close mobile nav on route change
-watch(route, () => { navOpen.value = false; });
+watch(route, () => { navOpen.value = false; rangeOpen.value = false; });
 const sidebarOpen = ref(true);
 const profileOpen = ref(false);
 const loggingOut = ref(false);
@@ -631,10 +697,19 @@ const nav = computed(() => [
     label: 'Products', to: '/app/products', color: '#84cc16', badge: null,
     icon: '<path stroke-linecap="round" stroke-linejoin="round" d="M9.568 3H5.25A2.25 2.25 0 003 5.25v4.318c0 .597.237 1.17.659 1.591l9.581 9.581c.699.699 1.78.872 2.607.33a18.095 18.095 0 005.223-5.223c.542-.827.369-1.908-.33-2.607L11.16 3.66A2.25 2.25 0 009.568 3z"/><path stroke-linecap="round" stroke-linejoin="round" d="M6 6h.008v.008H6V6z"/>',
   },
-  ...(showAnalytics.value ? [{
-    label: 'Analytics', to: '/app/analytics/products', color: '#f97316', badge: null,
+  {
+    label: 'Analytics',
+    to: showAnalytics.value ? '/app/analytics/products' : '/app/settings?upgrade=analytics',
+    color: '#f97316',
+    // Show a "SCALE" badge when the feature is locked so non-SCALE users can see
+    // that Analytics exists and understand what plan they need — rather than just
+    // having the item disappear silently.
+    badge:     showAnalytics.value ? null : 'SCALE',
+    badgeBg:   showAnalytics.value ? undefined : 'rgba(249,115,22,0.15)',
+    badgeColor: showAnalytics.value ? undefined : '#f97316',
+    locked: !showAnalytics.value,
     icon: ANALYTICS_ICON,
-  }] : []),
+  },
   {
     label: 'Automation', to: '/app/automation', color: '#22d3ee', badge: null,
     icon: '<path stroke-linecap="round" stroke-linejoin="round" d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z"/>',
@@ -705,5 +780,15 @@ const pageSubtitle = computed(() => {
 .slide-left-enter-from,
 .slide-left-leave-to {
   transform: translateX(-100%);
+}
+
+.slide-up-enter-active,
+.slide-up-leave-active {
+  transition: transform 0.2s ease, opacity 0.2s ease;
+}
+.slide-up-enter-from,
+.slide-up-leave-to {
+  transform: translateY(12px);
+  opacity: 0;
 }
 </style>

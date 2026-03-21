@@ -5,8 +5,8 @@
     <div class="flex flex-wrap items-start justify-between gap-4">
       <div>
         <p class="text-[11px] uppercase tracking-widest text-white/65 mb-1">Transparency</p>
-        <h1 class="text-2xl font-semibold tracking-tight">Audit Log</h1>
-        <p class="mt-1 text-sm text-white/75">Full history of all automation actions taken by MetaFlow</p>
+        <h1 class="text-xl sm:text-2xl font-semibold tracking-tight">Audit Log</h1>
+        <p class="mt-1 text-xs sm:text-sm text-white/75">Full history of all automation actions taken by MetaFlow</p>
       </div>
       <button
         @click="downloadCsv"

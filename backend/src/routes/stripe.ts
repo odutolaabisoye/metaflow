@@ -50,7 +50,7 @@ export async function stripeRoutes(app: FastifyInstance) {
 
   // POST /billing/webhook — Stripe webhook to apply plan after successful payment
   app.post("/billing/webhook", {
-    config: { rawBody: true }
+    config: { rawBody: true, csrf: false }
   }, async (request, reply) => {
     const stripeSecretKey = app.config.STRIPE_SECRET_KEY;
     const webhookSecret = app.config.STRIPE_WEBHOOK_SECRET;
@@ -74,6 +74,17 @@ export async function stripeRoutes(app: FastifyInstance) {
       return reply.code(400).send({ ok: false, message: "Invalid signature" });
     }
 
+    // Idempotency guard — Stripe may replay the same event on retry.
+    // Store the event ID in Redis for 24 h; skip if already processed.
+    if (app.redis) {
+      const idempotencyKey = `stripe:evt:${event.id}`;
+      const alreadyProcessed = await app.redis.set(idempotencyKey, "1", "EX", 86400, "NX").catch(() => null);
+      if (alreadyProcessed === null) {
+        app.log.info({ eventId: event.id }, "Stripe event already processed — skipping");
+        return reply.send({ received: true });
+      }
+    }
+
     if (event.type === "checkout.session.completed") {
       const session = event.data.object as Stripe.Checkout.Session;
       const { userId, plan } = session.metadata ?? {};
@@ -85,7 +96,7 @@ export async function stripeRoutes(app: FastifyInstance) {
             where: { id: userId },
             data: { plan: plan as any }
           });
-          app.log.info({ userId, plan }, "Plan upgraded via Stripe");
+          app.log.info({ userId, plan, eventId: event.id }, "Plan upgraded via Stripe");
         }
       }
     }

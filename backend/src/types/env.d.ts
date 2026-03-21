@@ -18,6 +18,11 @@ declare module "fastify" {
       APP_URL: string;
       SHOPIFY_API_KEY: string;
       SHOPIFY_API_SECRET: string;
+      STRIPE_SECRET_KEY: string;
+      STRIPE_WEBHOOK_SECRET: string;
+      STRIPE_PRICE_GROWTH: string;
+      STRIPE_PRICE_SCALE: string;
+      ENCRYPTION_KEY: string;
     };
   }
 }

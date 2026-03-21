@@ -1,4 +1,6 @@
 import type { FastifyInstance } from "fastify";
+import { decryptToken } from "../utils/crypto.js";
+import { fetchWithRetry } from "../utils/http.js";
 
 const META_GRAPH_VERSION = "v19.0";
 const META_GRAPH_BASE = `https://graph.facebook.com/${META_GRAPH_VERSION}`;
@@ -57,7 +59,7 @@ async function metaGet<T>(path: string, token: string, params: Record<string, st
     const url = new URL(`${META_GRAPH_BASE}${path}`);
     url.searchParams.set("access_token", token);
     for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
-    const res = await fetch(url.toString());
+    const res = await fetchWithRetry(url.toString());
     const body = await res.json() as any;
     if (!res.ok) {
       const msg = body?.error?.message ?? `HTTP ${res.status}`;
@@ -105,6 +107,7 @@ export async function debugRoutes(app: FastifyInstance) {
     }
 
     const { accessToken, ...connPublic } = connection;
+    const token = decryptToken(accessToken);
     const now = Date.now();
     const isExpired = connection.expiresAt ? connection.expiresAt.getTime() < now : false;
     const daysUntilExpiry = connection.expiresAt
@@ -113,12 +116,12 @@ export async function debugRoutes(app: FastifyInstance) {
 
     // ── 2. Validate token via /me ───────────────────────────────────────────────
     const meResult = await metaGet<{ id: string; name: string }>(
-      "/me", accessToken, { fields: "id,name" }
+      "/me", token, { fields: "id,name" }
     );
 
     // ── 3. Ad accounts ─────────────────────────────────────────────────────────
     const adAccountsResult = await metaGet<{ data: Array<{ id: string; account_id: string; name: string; currency: string; timezone_name: string }> }>(
-      "/me/adaccounts", accessToken,
+      "/me/adaccounts", token,
       { fields: "account_id,name,currency,timezone_name", limit: "50" }
     );
     const adAccounts = adAccountsResult.data?.data ?? [];
@@ -132,7 +135,7 @@ export async function debugRoutes(app: FastifyInstance) {
     let adSetsError: string | null = null;
     if (activeAccount) {
       const r = await metaGet<{ data: any[] }>(
-        `/${activeAccount.id}/adsets`, accessToken,
+        `/${activeAccount.id}/adsets`, token,
         { fields: "id,name,status,promoted_object", limit: "100" }
       );
       adSets = r.data?.data ?? [];
@@ -149,7 +152,7 @@ export async function debugRoutes(app: FastifyInstance) {
     // Fallback strategy 1: direct /{accountId}/product_catalogs endpoint
     if (catalogIds.size === 0 && activeAccount) {
       const r = await metaGet<{ data: Array<{ id: string }> }>(
-        `/${activeAccount.id}/product_catalogs`, accessToken,
+        `/${activeAccount.id}/product_catalogs`, token,
         { fields: "id", limit: "50" }
       );
       for (const c of r.data?.data ?? []) {
@@ -160,12 +163,12 @@ export async function debugRoutes(app: FastifyInstance) {
     // Fallback strategy 2: business-owned catalogs
     if (catalogIds.size === 0) {
       const bizRes = await metaGet<{ data: Array<{ id: string }> }>(
-        "/me/businesses", accessToken,
+        "/me/businesses", token,
         { fields: "id", limit: "20" }
       );
       await Promise.all((bizRes.data?.data ?? []).map(async (biz: any) => {
         const catRes = await metaGet<{ data: Array<{ id: string }> }>(
-          `/${biz.id}/owned_product_catalogs`, accessToken,
+          `/${biz.id}/owned_product_catalogs`, token,
           { fields: "id", limit: "50" }
         );
         for (const c of catRes.data?.data ?? []) {
@@ -177,7 +180,7 @@ export async function debugRoutes(app: FastifyInstance) {
     // ── 5. Load DB product index ────────────────────────────────────────────────
     const dbProductIndex = await app.prisma.productMeta.findMany({
       where: { storeId },
-      select: { id: true, title: true, sku: true, externalId: true },
+      select: { id: true, title: true, sku: true, externalId: true, altIds: true },
       take: 200
     });
 
@@ -194,12 +197,23 @@ export async function debugRoutes(app: FastifyInstance) {
         const norm = normalizeId(p.sku);
         if (norm) bySku.set(norm, p);
       }
+      for (const altId of p.altIds ?? []) {
+        if (!byExternal.has(altId)) byExternal.set(altId, p);
+        const norm = normalizeId(altId);
+        if (norm && !byExternal.has(norm)) byExternal.set(norm, p);
+      }
     }
 
     function normalizeId(v?: string | null): string | null {
       if (!v) return null;
-      const digits = v.trim().match(/\d+/g)?.join("") ?? "";
-      return digits.length > 0 ? digits : v.trim();
+      const trimmed = v.trim();
+      if (!trimmed) return null;
+      if (trimmed.startsWith("gid://shopify/")) {
+        const digits = trimmed.match(/\d+/g)?.join("") ?? "";
+        return digits.length > 0 ? digits : trimmed;
+      }
+      if (/^\d+$/.test(trimmed)) return trimmed;
+      return trimmed;
     }
 
     function lookupProduct(identifier: string) {
@@ -223,7 +237,7 @@ export async function debugRoutes(app: FastifyInstance) {
     const catalogResults: any[] = [];
     for (const catalogId of catalogIds) {
       const r = await metaGet<{ data: Array<{ id: string; retailer_id?: string; name?: string }> }>(
-        `/${catalogId}/products`, accessToken,
+        `/${catalogId}/products`, token,
         { fields: "id,retailer_id,name", limit: "30" }
       );
 
@@ -280,7 +294,7 @@ export async function debugRoutes(app: FastifyInstance) {
 
     if (activeAccount) {
       const r = await metaGet<{ data: any[] }>(
-        `/${activeAccount.id}/insights`, accessToken,
+        `/${activeAccount.id}/insights`, token,
         { level: "ad", time_range: SAMPLE_RANGE, time_increment: "1", fields: SAMPLE_FIELDS, limit: "5" }
       );
       sampleInsights = r.data?.data ?? [];
@@ -293,7 +307,7 @@ export async function debugRoutes(app: FastifyInstance) {
 
     if (activeAccount && catalogIds.size > 0) {
       const r = await metaGet<{ data: any[] }>(
-        `/${activeAccount.id}/insights`, accessToken,
+        `/${activeAccount.id}/insights`, token,
         {
           level: "ad",
           time_range: SAMPLE_RANGE,
@@ -307,6 +321,19 @@ export async function debugRoutes(app: FastifyInstance) {
       sampleProductInsightsError = r.error;
     }
 
+    const [latestSummary, latestUnmatched] = await Promise.all([
+      app.prisma.auditLog.findFirst({
+        where: { storeId, action: "Meta Sync — Summary" },
+        orderBy: { createdAt: "desc" },
+        select: { createdAt: true, detail: true, metadata: true }
+      }),
+      app.prisma.auditLog.findFirst({
+        where: { storeId, action: "Meta Sync — Unmatched Catalog Products" },
+        orderBy: { createdAt: "desc" },
+        select: { createdAt: true, detail: true, metadata: true }
+      })
+    ]);
+
     return reply.send({
       ok: true,
       storeId,
@@ -314,7 +341,7 @@ export async function debugRoutes(app: FastifyInstance) {
         ...connPublic,
         isExpired,
         daysUntilExpiry,
-        tokenPreview: `${accessToken.slice(0, 12)}…${accessToken.slice(-6)}`
+        tokenPreview: `${token.slice(0, 12)}…${token.slice(-6)}`
       },
       meta: {
         me: meResult.data,
@@ -329,7 +356,9 @@ export async function debugRoutes(app: FastifyInstance) {
         sampleInsights,
         sampleInsightsError,
         sampleProductInsights,
-        sampleProductInsightsError
+        sampleProductInsightsError,
+        syncSummary: latestSummary,
+        unmatchedCatalog: latestUnmatched
       },
       dbProducts: dbProductIndex.slice(0, 50)
     });
@@ -374,7 +403,7 @@ export async function debugRoutes(app: FastifyInstance) {
     return reply.send({
       ok: true,
       // Full token — admin Postman use only
-      accessToken: conn.accessToken,
+      accessToken: decryptToken(conn.accessToken),
       metaAdAccountId: conn.metaAdAccountId ?? null,
       metaCatalogId: conn.metaCatalogId ?? null,
       scopes: conn.scopes ?? null,
@@ -543,7 +572,7 @@ export async function debugRoutes(app: FastifyInstance) {
     const latestSnapshots = pageProductIds.length > 0
       ? await app.prisma.dailyMetric.findMany({
           where:    { storeId, productId: { in: pageProductIds } },
-          orderBy:  { date: "desc" },
+          orderBy:  [{ date: "desc" }, { updatedAt: "desc" }],
           distinct: ["productId"],
           select:   { productId: true, inventoryLevel: true, blendedRoas: true, date: true },
         })

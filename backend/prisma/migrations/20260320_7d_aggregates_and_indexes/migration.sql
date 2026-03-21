@@ -14,6 +14,7 @@ ALTER TABLE "ProductMeta" ADD COLUMN "checkoutInitiated7d"     INTEGER NOT NULL 
 ALTER TABLE "ProductMeta" ADD COLUMN "checkoutInitiatedOmni7d" INTEGER NOT NULL DEFAULT 0;
 
 -- Missing sort indexes for 30d columns (used in fast-path DB-level sort)
+ALTER TABLE "ProductMeta" ADD COLUMN IF NOT EXISTS "addToCartOmni30d" INTEGER NOT NULL DEFAULT 0;
 CREATE INDEX "ProductMeta_storeId_impressions30d_idx" ON "ProductMeta"("storeId", "impressions30d");
 CREATE INDEX "ProductMeta_storeId_addToCartOmni30d_idx" ON "ProductMeta"("storeId", "addToCartOmni30d");
 
